@@ -1,0 +1,42 @@
+.DS_Store
+**/.DS_Store
+
+# Env files
+.env
+.env.*
+
+# Node
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/coverage/
+*.log
+**/*.local
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/build/
+**/dist/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/htmlcov/
+
+# IDE/editor
+**/.idea/
+**/.vscode/*
+!**/.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.tsbuildinfo
+*.eslintcache
+
+# Misc runtime files
+*.session
+*.session-journal
