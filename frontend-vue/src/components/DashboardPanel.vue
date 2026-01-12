@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 type TurnoverItem = {
     id: number | string
@@ -70,7 +70,12 @@ onBeforeUnmount(() => {
 })
 
 // 3. Recommendation (建議做多or空)
-const tradeSuggestion = ref('做多') // or '做空', '觀望'
+const tradeSuggestion = computed(() => {
+    const { foreign, retail, guerilla } = marketSentiment.value
+    if (foreign < 0 && guerilla < 0 && retail > 0) return '做空'
+    if (foreign > 0 && guerilla > 0 && retail < 0) return '做多'
+    return '混沌'
+})
 
 // 4. Mock Data for Cross Analysis (交叉建議股票)
 const crossSuggestions = ref([
@@ -109,7 +114,14 @@ const crossSuggestions = ref([
                 </div>
 
                 <!-- Suggestion Box -->
-                <div class="w-32 flex flex-col items-center justify-center bg-gradient-to-br from-red-900/50 to-red-600/20 border border-red-500/30 rounded">
+                <div
+                    class="w-32 flex flex-col items-center justify-center border rounded"
+                    :class="{
+                        'bg-gradient-to-br from-red-900/50 to-red-600/20 border-red-500/30': tradeSuggestion === '做多',
+                        'bg-gradient-to-br from-green-900/50 to-green-600/20 border-green-500/30': tradeSuggestion === '做空',
+                        'bg-gradient-to-br from-gray-800/60 to-gray-700/30 border-gray-500/30': tradeSuggestion === '混沌',
+                    }"
+                >
                     <span class="text-xs text-red-200 mb-1">操作建議</span>
                     <span class="text-2xl font-black text-white tracking-widest">{{ tradeSuggestion }}</span>
                 </div>

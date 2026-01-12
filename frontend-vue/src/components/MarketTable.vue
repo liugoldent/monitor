@@ -24,10 +24,10 @@ const toNumber = (value: unknown) => {
 const positiveCount = computed(() => marketData.value.filter((item) => item.combine > 0).length)
 const negativeCount = computed(() => marketData.value.filter((item) => item.combine < 0).length)
 const lowest10 = computed(() =>
-    [...marketData.value].sort((a, b) => a.combine - b.combine).slice(0, 10),
+    [...marketData.value].sort((a, b) => a.combine - b.combine).slice(0, 20),
 )
 const highest10 = computed(() =>
-    [...marketData.value].sort((a, b) => b.combine - a.combine).slice(0, 10),
+    [...marketData.value].sort((a, b) => b.combine - a.combine).slice(0, 20),
 )
 
 const shouldFetchNow = () => {
