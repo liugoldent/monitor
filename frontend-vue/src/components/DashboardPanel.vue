@@ -29,11 +29,37 @@ const fetchTurnoverRanking = async () => {
     }
 }
 
+// 2. Market Sentiment (大盤氣氛 - 3個數字)
+const marketSentiment = ref({
+    foreign: 0,
+    retail: 0,
+    guerilla: 0,
+})
+const MXF_API_URL = import.meta.env.VITE_MXF_API_URL || 'http://localhost:5050/api/mxf'
+
+const fetchMarketSentiment = async () => {
+    try {
+        const response = await fetch(MXF_API_URL)
+        const payload = await response.json()
+        marketSentiment.value = {
+            foreign: Number(payload?.tx_bvav ?? 0),
+            retail: Number(payload?.mtx_tbta ?? 0),
+            guerilla: Number(payload?.mtx_bvav ?? 0),
+        }
+    } catch (error) {
+        console.error('Failed to load market sentiment:', error)
+    }
+}
+
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
     fetchTurnoverRanking()
-    refreshTimer = setInterval(fetchTurnoverRanking, 60_000)
+    fetchMarketSentiment()
+    refreshTimer = setInterval(() => {
+        fetchTurnoverRanking()
+        fetchMarketSentiment()
+    }, 60_000)
 })
 
 onBeforeUnmount(() => {
@@ -41,14 +67,6 @@ onBeforeUnmount(() => {
         clearInterval(refreshTimer)
         refreshTimer = null
     }
-})
-
-// 2. Mock Data for Market Sentiment (大盤氣氛 - 3個數字)
-// 假設分別是：多空比、成交量能、波動率
-const marketSentiment = ref({
-    ratio: 65,      // 多方強勢度
-    momentum: 80,   // 動能
-    volatility: 45  // 波動
 })
 
 // 3. Recommendation (建議做多or空)
@@ -77,16 +95,16 @@ const crossSuggestions = ref([
                 <!-- 3 Numbers -->
                 <div class="flex-1 grid grid-cols-3 gap-2">
                     <div class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
-                        <span class="text-xs text-gray-500">多空力道</span>
-                        <span class="text-xl font-bold text-red-400">{{ marketSentiment.ratio }}</span>
+                        <span class="text-xs text-gray-500">外資</span>
+                        <span class="text-xl font-bold text-red-400">{{ marketSentiment.foreign }}</span>
                     </div>
                     <div class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
-                        <span class="text-xs text-gray-500">市場動能</span>
-                        <span class="text-xl font-bold text-yellow-400">{{ marketSentiment.momentum }}</span>
+                        <span class="text-xs text-gray-500">散戶</span>
+                        <span class="text-xl font-bold text-yellow-400">{{ marketSentiment.retail }}</span>
                     </div>
                     <div class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
-                        <span class="text-xs text-gray-500">波動風險</span>
-                        <span class="text-xl font-bold text-green-400">{{ marketSentiment.volatility }}</span>
+                        <span class="text-xs text-gray-500">游擊隊</span>
+                        <span class="text-xl font-bold text-green-400">{{ marketSentiment.guerilla }}</span>
                     </div>
                 </div>
 

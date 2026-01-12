@@ -35,6 +35,7 @@ load_env_file()
 MONGO_URI = require_env("MONGO_URI")
 DB_NAME = "stock_futures"
 TURNOVER_DB_NAME = "yahoo_turnover"
+MXF_DB_NAME = "mxf_futures"
 TZ = ZoneInfo("Asia/Taipei")
 
 mongo_client = MongoClient(MONGO_URI)
@@ -71,6 +72,21 @@ def fetch_latest_turnover(date_str: str | None) -> dict:
     }
 
 
+def fetch_latest_mxf(date_str: str | None) -> dict:
+    collection_name = get_collection_name(date_str)
+    collection = mongo_client[MXF_DB_NAME][collection_name]
+    doc = collection.find_one(sort=[("time", DESCENDING), ("_id", DESCENDING)])
+    if not doc:
+        return {}
+
+    return {
+        "tx_bvav": doc.get("tx_bvav"),
+        "mtx_tbta": doc.get("mtx_tbta"),
+        "mtx_bvav": doc.get("mtx_bvav"),
+        "time": doc.get("time"),
+    }
+
+
 class MarketApiHandler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -101,6 +117,10 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/turnover":
                 payload = fetch_latest_turnover(date_str)
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/mxf":
+                payload = fetch_latest_mxf(date_str)
                 self._send_json(200, payload)
                 return
             self._send_json(404, {"error": "Not found"})
