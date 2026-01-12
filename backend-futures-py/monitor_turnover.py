@@ -40,20 +40,21 @@ DB_NAME = "yahoo_turnover"
 TZ = ZoneInfo("Asia/Taipei")
 
 def get_realtime_turnover():
-    # 設定 Chrome 選項
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")  # 不開啟瀏覽器視窗
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-    # 初始化 WebDriver
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-
+    driver = None
     url = "https://tw.stock.yahoo.com/rank/turnover"
-    
+
     try:
+        # 設定 Chrome 選項
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")  # 不開啟瀏覽器視窗
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+        # 初始化 WebDriver
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+
         fetch_time = datetime.now(TZ).strftime("%y-%m-%d %H-%M")
         print(f"{fetch_time} 正在抓取資料：{url} ...")
         driver.get(url)
@@ -97,7 +98,8 @@ def get_realtime_turnover():
         print(f"發生錯誤: {e}")
         return None
     finally:
-        driver.quit()
+        if driver is not None:
+            driver.quit()
 
 
 def get_collection_name(now: datetime) -> str:
@@ -151,18 +153,22 @@ def upsert_turnover(df: pd.DataFrame, collection_name: str, now: datetime) -> No
 
 def main() -> None:
     while True:
-        now = datetime.now(TZ)
-        if now.second == 0 and is_market_open(now):
-            try:
-                df_result = get_realtime_turnover()
-                if df_result is not None and not df_result.empty:
-                    collection_name = get_collection_name(now)
-                    upsert_turnover(df_result, collection_name, now)
-                else:
-                    print("未能抓取到資料。")
-            except Exception as exc:
-                print(f"❌ 抓取或寫入失敗: {exc}")
-        sleep_until_next_minute()
+        try:
+            now = datetime.now(TZ)
+            if now.second == 0 and is_market_open(now):
+                try:
+                    df_result = get_realtime_turnover()
+                    if df_result is not None and not df_result.empty:
+                        collection_name = get_collection_name(now)
+                        upsert_turnover(df_result, collection_name, now)
+                    else:
+                        print("未能抓取到資料。")
+                except Exception as exc:
+                    print(f"❌ 抓取或寫入失敗: {exc}")
+            sleep_until_next_minute()
+        except Exception as exc:
+            print(f"❌ 主迴圈發生未預期錯誤: {exc}")
+            time.sleep(5)
 
 
 if __name__ == "__main__":
