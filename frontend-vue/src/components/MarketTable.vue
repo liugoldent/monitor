@@ -88,83 +88,99 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="flex flex-col w-full max-w-md mx-auto bg-[#1a1a1a] text-gray-300 font-sans shadow-xl overflow-hidden">
-
-        <div class="p-4 grid grid-cols-1 gap-4 items-center bg-[#242424]">
-            <div class="flex flex-col items-center gap-1">
-                <span class="text-xs">分數排序</span>
-                <button class="btn btn-ghost btn-xs">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
-                    </svg>
-                </button>
+    <div class="flex flex-col w-full h-full bg-[#1a1a1a] text-gray-300 font-sans shadow-xl overflow-hidden">
+        <!-- Top Toolbar -->
+        <div class="p-2 grid grid-cols-1 gap-4 items-center bg-[#242424] shrink-0">
+            <div class="flex items-center justify-between px-4">
+                <span class="font-bold text-white">Market Monitor</span>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs">分數排序</span>
+                    <button class="btn btn-ghost btn-xs">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div class="flex w-full h-12">
-            <button class="flex-1 bg-[#d63031] text-white font-bold text-lg">{{ positiveCount }}家</button>
-            <button class="flex-1 bg-[#55efc4] text-[#2d3436] font-bold text-lg">{{ negativeCount }}家</button>
-        </div>
-
-        <div class="grid grid-cols-4 text-center py-2 bg-[#1a1a1a] text-xs border-b border-gray-700">
-            <div class="col-span-1">商品名稱</div>
-            <div class="col-span-1">近月</div>
-            <div class="col-span-1">分數</div>
-            <div class="col-span-1">遠月</div>
-        </div>
-
-        <div class="grid grid-cols-4 text-center py-2 bg-[#1a1a1a] text-xs border-b border-gray-700">
-            <div class="col-span-4">分數最高 10 名</div>
-        </div>
-
-        <div class="overflow-y-auto max-h-[320px] bg-black">
-            <div v-for="item in highest10" :key="`high-${item.id}`"
-                class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm">
-                <div class="col-span-1 font-medium">{{ item.name }}</div>
-
-                <div class="col-span-1" :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
-                    {{ item.nearMonth }}
+        <!-- Main Content Grid -->
+        <div class="flex-1 grid grid-cols-2 gap-1 overflow-hidden">
+            
+            <!-- Left Panel: Highest 10 -->
+            <div class="flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
+                <div class="p-2 bg-[#d63031] text-white font-bold text-center shrink-0">
+                    多方 ({{ positiveCount }}家)
+                </div>
+                
+                <div class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0">
+                    <div class="col-span-1">商品名稱</div>
+                    <div class="col-span-1">近月</div>
+                    <div class="col-span-1">分數</div>
+                    <div class="col-span-1">遠月</div>
                 </div>
 
-                <div class="col-span-1 relative mx-1">
-                    <div class="bg-red-500/80 rounded py-1 px-1 text-white text-xs"
-                        :style="{ opacity: item.combine > 100 ? 1 : 0.5 }">
-                        {{ item.combine }}
+                <div class="overflow-y-auto flex-1 min-h-0 bg-black">
+                    <div v-for="item in highest10" :key="`high-${item.id}`"
+                        class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors">
+                        <div class="col-span-1 font-medium">{{ item.name }}</div>
+
+                        <div class="col-span-1" :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                            {{ item.nearMonth }}
+                        </div>
+
+                        <div class="col-span-1 relative mx-1">
+                            <div class="bg-red-500/80 rounded py-1 px-1 text-white text-xs"
+                                :style="{ opacity: item.combine > 100 ? 1 : 0.5 }">
+                                {{ item.combine }}
+                            </div>
+                        </div>
+
+                        <div class="col-span-1" :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                            {{ item.farMonth }}
+                        </div>
                     </div>
                 </div>
-
-                <div class="col-span-1" :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
-                    {{ item.farMonth }}
-                </div>
             </div>
-        </div>
 
-        <div class="grid grid-cols-4 text-center py-2 bg-[#1a1a1a] text-xs border-b border-gray-700">
-            <div class="col-span-4">分數最低 10 名</div>
-        </div>
-
-        <div class="overflow-y-auto max-h-[320px] bg-black">
-            <div v-for="item in lowest10" :key="`low-${item.id}`"
-                class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm">
-                <div class="col-span-1 font-medium">{{ item.name }}</div>
-
-                <div class="col-span-1" :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
-                    {{ item.nearMonth }}
+            <!-- Right Panel: Lowest 10 -->
+            <div class="flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
+                <div class="p-2 bg-[#55efc4] text-[#2d3436] font-bold text-center shrink-0">
+                    空方 ({{ negativeCount }}家)
                 </div>
 
-                <div class="col-span-1 relative mx-1">
-                    <div class="bg-red-500/80 rounded py-1 px-1 text-white text-xs"
-                        :style="{ opacity: item.combine > 100 ? 1 : 0.5 }">
-                        {{ item.combine }}
+                <div class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0">
+                    <div class="col-span-1">商品名稱</div>
+                    <div class="col-span-1">近月</div>
+                    <div class="col-span-1">分數</div>
+                    <div class="col-span-1">遠月</div>
+                </div>
+
+                <div class="overflow-y-auto flex-1 min-h-0 bg-black">
+                    <div v-for="item in lowest10" :key="`low-${item.id}`"
+                        class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors">
+                        <div class="col-span-1 font-medium">{{ item.name }}</div>
+
+                        <div class="col-span-1" :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                            {{ item.nearMonth }}
+                        </div>
+
+                        <div class="col-span-1 relative mx-1">
+                            <div class="bg-red-500/80 rounded py-1 px-1 text-white text-xs"
+                                :style="{ opacity: item.combine > 100 ? 1 : 0.5 }">
+                                {{ item.combine }}
+                            </div>
+                        </div>
+
+                        <div class="col-span-1" :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                            {{ item.farMonth }}
+                        </div>
                     </div>
                 </div>
-
-                <div class="col-span-1" :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
-                    {{ item.farMonth }}
-                </div>
             </div>
+
         </div>
     </div>
 </template>
