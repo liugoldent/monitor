@@ -107,9 +107,9 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Main Content Grid -->
-        <div class="flex-1 grid grid-cols-2 gap-1 overflow-hidden">
+        <div class="flex-1 flex flex-col min-[1000px]:flex-row gap-1 overflow-hidden">
             
-            <!-- Left Panel: Highest 10 -->
+            <!-- Top Panel: Highest 10 -->
             <div class="flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
                 <div class="p-2 bg-[#d63031] text-white font-bold text-center shrink-0">
                     多方 ({{ positiveCount }}家)
@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
                 </div>
             </div>
 
-            <!-- Right Panel: Lowest 10 -->
+            <!-- Bottom Panel: Lowest 10 -->
             <div class="flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
                 <div class="p-2 bg-[#55efc4] text-[#2d3436] font-bold text-center shrink-0">
                     空方 ({{ negativeCount }}家)
