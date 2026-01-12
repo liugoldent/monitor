@@ -12,7 +12,8 @@ type MarketItem = {
 const marketData = ref<MarketItem[]>([])
 const previousMarketData = ref<MarketItem[]>([])
 
-const CHIP_URL = 'https://market-data-api.futures-ai.com/stkfut_tradeinfo/'
+const MARKET_API_URL =
+    import.meta.env.VITE_MARKET_API_URL || 'http://localhost:5050/api/stkfut_tradeinfo'
 const NAME_URL = 'https://storage.googleapis.com/symbol-config/code_to_chinese.json'
 
 const toNumber = (value: unknown) => {
@@ -121,13 +122,15 @@ const fetchMarketData = async (force = false) => {
         return
     }
     try {
-        const [chipResponse, nameResponse] = await Promise.all([fetch(CHIP_URL), fetch(NAME_URL)])
+        const [chipResponse, nameResponse] = await Promise.all([fetch(MARKET_API_URL), fetch(NAME_URL)])
         const [chipJson, nameJson] = await Promise.all([chipResponse.json(), nameResponse.json()])
 
-        const sorted = Object.entries(chipJson)
+        const payload = chipJson?.data && typeof chipJson.data === 'object' ? chipJson.data : chipJson
+        const sorted = Object.entries(payload)
+            .filter(([, value]) => value && typeof value === 'object')
             .map(([key, value]) => {
-                const nearMonth = toNumber(value.near_month)
-                const farMonth = toNumber(value.next_month)
+                const nearMonth = toNumber((value as { near_month?: number }).near_month)
+                const farMonth = toNumber((value as { next_month?: number }).next_month)
 
                 return {
                     id: key,
