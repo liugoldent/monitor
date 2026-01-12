@@ -71,7 +71,8 @@ def insert_tradeinfo(payload: object, collection_name: str, now: datetime) -> No
 
     if len(docs) == 1:
         collection.insert_one(docs[0])
-        print(f"✅ 成功插入 1 筆資料到集合 {collection_name}")
+        fetch_time = now.strftime("%y-%m-%d %H-%M")
+        print(f"{fetch_time} ✅ 成功插入 1 筆資料到集合 {collection_name}")
     else:
         collection.insert_many(docs)
         print(f"✅ 成功插入 {len(docs)} 筆資料到集合 {collection_name}")

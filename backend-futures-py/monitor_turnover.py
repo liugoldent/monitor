@@ -54,7 +54,8 @@ def get_realtime_turnover():
     url = "https://tw.stock.yahoo.com/rank/turnover"
     
     try:
-        print(f"正在抓取資料：{url} ...")
+        fetch_time = datetime.now(TZ).strftime("%y-%m-%d %H-%M")
+        print(f"{fetch_time} 正在抓取資料：{url} ...")
         driver.get(url)
         
         # 等待頁面加載完成（視網路情況調整秒數）
@@ -137,12 +138,12 @@ def upsert_turnover(df: pd.DataFrame, collection_name: str, now: datetime) -> No
             "no": idx,
             "name": name_code,
             "close": close_price,
-            "time": timestamp,
         })
 
     payload = {
         "_id": "latest",
         "data": records,
+        "time": timestamp,
     }
     collection.replace_one({"_id": "latest"}, payload, upsert=True)
     print(f"✅ 已覆蓋 {collection_name} 最新資料，共 {len(records)} 筆")
