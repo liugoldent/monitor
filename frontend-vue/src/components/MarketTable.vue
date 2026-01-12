@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 type MarketItem = {
     id: string | number
@@ -23,11 +23,25 @@ const toNumber = (value: unknown) => {
 
 const positiveCount = computed(() => marketData.value.filter((item) => item.combine > 0).length)
 const negativeCount = computed(() => marketData.value.filter((item) => item.combine < 0).length)
-const lowest10 = computed(() =>
+const lowest20 = computed(() =>
     [...marketData.value].sort((a, b) => a.combine - b.combine).slice(0, 20),
 )
-const highest10 = computed(() =>
+const highest20 = computed(() =>
     [...marketData.value].sort((a, b) => b.combine - a.combine).slice(0, 20),
+)
+
+const emit = defineEmits<{
+    (event: 'update:highest20', items: MarketItem[]): void
+    (event: 'update:lowest20', items: MarketItem[]): void
+}>()
+
+watch(
+    [highest20, lowest20],
+    ([topItems, bottomItems]) => {
+        emit('update:highest20', topItems)
+        emit('update:lowest20', bottomItems)
+    },
+    { immediate: true },
 )
 
 const shouldFetchNow = () => {
@@ -123,7 +137,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="overflow-y-auto flex-1 min-h-0 bg-black">
-                    <div v-for="item in highest10" :key="`high-${item.id}`"
+                    <div v-for="item in highest20" :key="`high-${item.id}`"
                         class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors">
                         <div class="col-span-1 font-medium">{{ item.name }}</div>
 
@@ -159,7 +173,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="overflow-y-auto flex-1 min-h-0 bg-black">
-                    <div v-for="item in lowest10" :key="`low-${item.id}`"
+                    <div v-for="item in lowest20" :key="`low-${item.id}`"
                         class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors">
                         <div class="col-span-1 font-medium">{{ item.name }}</div>
 

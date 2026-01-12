@@ -8,6 +8,25 @@ type TurnoverItem = {
     volume: string | number
 }
 
+type MarketItem = {
+    id: number | string
+    name: string
+    nearMonth: number
+    farMonth: number
+    combine: number
+}
+
+type CrossSuggestion = {
+    id: number | string
+    name: string
+    price: string | number
+}
+
+const props = defineProps<{
+    highest20: MarketItem[]
+    lowest20: MarketItem[]
+}>()
+
 // 1. Turnover Ranking (大盤成交值排行)
 const turnoverRanking = ref<TurnoverItem[]>([])
 const TURNOVER_API_URL =
@@ -77,13 +96,38 @@ const tradeSuggestion = computed(() => {
     return '混沌'
 })
 
-// 4. Mock Data for Cross Analysis (交叉建議股票)
-const crossSuggestions = ref([
-    { id: 1, name: '台積電', signal: '多方共振', score: 95 },
-    { id: 2, name: '聯發科', signal: '量價突破', score: 88 },
-    { id: 3, name: '緯創', signal: '底部反轉', score: 82 },
-    { id: 4, name: '廣達', signal: '高檔鈍化', score: 70 },
-])
+const normalizeName = (name: string) => name.split(' ')[0].trim()
+
+// 4. Cross Analysis (交叉建議股票)
+const crossSuggestions = computed<CrossSuggestion[]>(() => {
+    const targetList =
+        tradeSuggestion.value === '做空'
+            ? props.lowest20
+            : tradeSuggestion.value === '做多'
+              ? props.highest20
+              : []
+    if (!targetList.length || !turnoverRanking.value.length) return []
+
+    const targetMap = new Map(targetList.map((item) => [normalizeName(item.name), item]))
+    const seen = new Set<string>()
+
+    return turnoverRanking.value
+        .filter((stock) => {
+            const key = normalizeName(stock.name)
+            if (!targetMap.has(key) || seen.has(key)) return false
+            seen.add(key)
+            return true
+        })
+        .map((stock) => {
+            const key = normalizeName(stock.name)
+            const target = targetMap.get(key)
+            return {
+                id: stock.id,
+                name: target?.name ?? stock.name,
+                price: stock.price,
+            }
+        })
+})
 </script>
 
 <template>
@@ -161,23 +205,19 @@ const crossSuggestions = ref([
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" viewBox="0 0 20 20" fill="currentColor">
                         <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                     </svg>
-                    交叉建議 (多/空/量)
+                    交叉建議
                 </h3>
             </div>
             
-            <div class="grid grid-cols-3 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
+            <div class="grid grid-cols-2 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
                 <div>標的</div>
-                <div>訊號</div>
-                <div>綜合分</div>
+                <div>現價</div>
             </div>
 
             <div class="overflow-y-auto flex-1 bg-black">
-                <div v-for="item in crossSuggestions" :key="item.id" class="grid grid-cols-3 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm">
+                <div v-for="item in crossSuggestions" :key="item.id" class="grid grid-cols-2 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm">
                     <div class="font-bold text-blue-300">{{ item.name }}</div>
-                    <div class="text-red-400 font-medium">{{ item.signal }}</div>
-                    <div class="flex justify-center">
-                        <span class="bg-gray-800 px-2 rounded text-gray-300 text-xs py-0.5">{{ item.score }}</span>
-                    </div>
+                    <div class="text-yellow-400">{{ item.price }}</div>
                 </div>
             </div>
         </div>
