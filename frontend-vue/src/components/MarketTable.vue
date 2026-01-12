@@ -21,93 +21,14 @@ const toNumber = (value: unknown) => {
     return Number.isFinite(parsed) ? parsed : 0
 }
 
-const STORAGE_KEY = 'combineCrossings'
-const TOP10_STORAGE_KEY = 'combineTop10Snapshots'
-const BOTTOM10_STORAGE_KEY = 'combineBottom10Snapshots'
-
-const getStoredCrossings = () => {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY)
-        if (!raw) return []
-        const parsed = JSON.parse(raw)
-        return Array.isArray(parsed) ? parsed : []
-    } catch (error) {
-        console.warn('Failed to parse stored crossings:', error)
-        return []
-    }
-}
-
-const getStoredTop10Snapshots = () => {
-    try {
-        const raw = localStorage.getItem(TOP10_STORAGE_KEY)
-        if (!raw) return []
-        const parsed = JSON.parse(raw)
-        return Array.isArray(parsed) ? parsed : []
-    } catch (error) {
-        console.warn('Failed to parse stored top10 snapshots:', error)
-        return []
-    }
-}
-
-const getStoredBottom10Snapshots = () => {
-    try {
-        const raw = localStorage.getItem(BOTTOM10_STORAGE_KEY)
-        if (!raw) return []
-        const parsed = JSON.parse(raw)
-        return Array.isArray(parsed) ? parsed : []
-    } catch (error) {
-        console.warn('Failed to parse stored bottom10 snapshots:', error)
-        return []
-    }
-}
-
-const storeCombineCrossings = (items: MarketItem[]) => {
-    if (!items.length) return
-    const existing = getStoredCrossings()
-    const timestamp = new Date().toISOString()
-    const payload = items.map((item) => ({ ...item, timestamp }))
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...existing, ...payload]))
-}
-
-const storeTop10Snapshot = (items: MarketItem[]) => {
-    if (!items.length) return
-    const timestamp = new Date().toISOString()
-    const snapshot = items.slice(0, 10).map((item) => ({ ...item }))
-    const existing = getStoredTop10Snapshots()
-    const payload = [...existing, { timestamp, items: snapshot }]
-    localStorage.setItem(TOP10_STORAGE_KEY, JSON.stringify(payload))
-}
-
-const storeBottom10Snapshot = (items: MarketItem[]) => {
-    const negativeItems = items.filter((item) => item.combine < 0)
-    if (!negativeItems.length) return
-    const timestamp = new Date().toISOString()
-    const snapshot = [...negativeItems]
-        .sort((a, b) => a.combine - b.combine)
-        .slice(0, 10)
-        .map((item) => ({ ...item }))
-    const existing = getStoredBottom10Snapshots()
-    const payload = [...existing, { timestamp, items: snapshot }]
-    localStorage.setItem(BOTTOM10_STORAGE_KEY, JSON.stringify(payload))
-}
-
-const detectCombineCrossings = (nextData: MarketItem[], previousData: MarketItem[]) => {
-    if (!previousData.length) return
-    const previousById = new Map(previousData.map((item) => [item.id, item]))
-    const crossings: MarketItem[] = []
-
-    for (const item of nextData) {
-        const previousItem = previousById.get(item.id)
-        if (previousItem && previousItem.combine < 0 && item.combine > 0) {
-            crossings.push(item)
-        }
-    }
-
-    storeCombineCrossings(crossings)
-}
-
 const positiveCount = computed(() => marketData.value.filter((item) => item.combine > 0).length)
 const negativeCount = computed(() => marketData.value.filter((item) => item.combine < 0).length)
+const lowest10 = computed(() =>
+    [...marketData.value].sort((a, b) => a.combine - b.combine).slice(0, 10),
+)
+const highest10 = computed(() =>
+    [...marketData.value].sort((a, b) => b.combine - a.combine).slice(0, 10),
+)
 
 const shouldFetchNow = () => {
     const now = new Date()
@@ -143,9 +64,6 @@ const fetchMarketData = async (force = false) => {
             .sort((a, b) => b.combine - a.combine)
 
         previousMarketData.value = marketData.value.map((item) => ({ ...item }))
-        // detectCombineCrossings(sorted, previousMarketData.value)
-        storeTop10Snapshot(sorted)
-        storeBottom10Snapshot(sorted)
         marketData.value = sorted
     } catch (error) {
         console.error('Failed to load market data:', error)
@@ -197,8 +115,38 @@ onBeforeUnmount(() => {
             <div class="col-span-1">遠月</div>
         </div>
 
-        <div class="overflow-y-auto max-h-[600px] bg-black">
-            <div v-for="item in marketData" :key="item.id"
+        <div class="grid grid-cols-4 text-center py-2 bg-[#1a1a1a] text-xs border-b border-gray-700">
+            <div class="col-span-4">分數最高 10 名</div>
+        </div>
+
+        <div class="overflow-y-auto max-h-[320px] bg-black">
+            <div v-for="item in highest10" :key="`high-${item.id}`"
+                class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm">
+                <div class="col-span-1 font-medium">{{ item.name }}</div>
+
+                <div class="col-span-1" :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                    {{ item.nearMonth }}
+                </div>
+
+                <div class="col-span-1 relative mx-1">
+                    <div class="bg-red-500/80 rounded py-1 px-1 text-white text-xs"
+                        :style="{ opacity: item.combine > 100 ? 1 : 0.5 }">
+                        {{ item.combine }}
+                    </div>
+                </div>
+
+                <div class="col-span-1" :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                    {{ item.farMonth }}
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-4 text-center py-2 bg-[#1a1a1a] text-xs border-b border-gray-700">
+            <div class="col-span-4">分數最低 10 名</div>
+        </div>
+
+        <div class="overflow-y-auto max-h-[320px] bg-black">
+            <div v-for="item in lowest10" :key="`low-${item.id}`"
                 class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm">
                 <div class="col-span-1 font-medium">{{ item.name }}</div>
 
