@@ -34,6 +34,7 @@ load_env_file()
 
 MONGO_URI = require_env("MONGO_URI")
 DB_NAME = "stock_futures"
+TURNOVER_DB_NAME = "yahoo_turnover"
 TZ = ZoneInfo("Asia/Taipei")
 
 mongo_client = MongoClient(MONGO_URI)
@@ -57,6 +58,19 @@ def fetch_latest_payload(date_str: str | None) -> dict:
     return doc
 
 
+def fetch_latest_turnover(date_str: str | None) -> dict:
+    collection_name = get_collection_name(date_str)
+    collection = mongo_client[TURNOVER_DB_NAME][collection_name]
+    doc = collection.find_one({"_id": "latest"})
+    if not doc:
+        return {}
+
+    return {
+        "data": doc.get("data", []),
+        "time": doc.get("time"),
+    }
+
+
 class MarketApiHandler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -78,15 +92,18 @@ class MarketApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path != "/api/stkfut_tradeinfo":
-            self._send_json(404, {"error": "Not found"})
-            return
-
         query = parse_qs(parsed.query)
         date_str = query.get("date", [None])[0]
         try:
-            payload = fetch_latest_payload(date_str)
-            self._send_json(200, payload)
+            if parsed.path == "/api/stkfut_tradeinfo":
+                payload = fetch_latest_payload(date_str)
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/turnover":
+                payload = fetch_latest_turnover(date_str)
+                self._send_json(200, payload)
+                return
+            self._send_json(404, {"error": "Not found"})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 

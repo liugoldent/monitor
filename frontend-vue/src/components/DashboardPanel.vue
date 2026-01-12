@@ -1,14 +1,47 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 
-// 1. Mock Data for Turnover Ranking (大盤成交值排行)
-const turnoverRanking = ref([
-    { id: 1, name: '台積電', price: 580, volume: '300億' },
-    { id: 2, name: '世芯-KY', price: 3400, volume: '120億' },
-    { id: 3, name: '長榮', price: 155, volume: '85億' },
-    { id: 4, name: '智原', price: 410, volume: '60億' },
-    { id: 5, name: '技嘉', price: 280, volume: '55億' },
-])
+type TurnoverItem = {
+    id: number | string
+    name: string
+    price: string | number
+    volume: string | number
+}
+
+// 1. Turnover Ranking (大盤成交值排行)
+const turnoverRanking = ref<TurnoverItem[]>([])
+const TURNOVER_API_URL =
+    import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
+
+const fetchTurnoverRanking = async () => {
+    try {
+        const response = await fetch(TURNOVER_API_URL)
+        const payload = await response.json()
+        const data = Array.isArray(payload?.data) ? payload.data : []
+        turnoverRanking.value = data.map((item: { no?: number; name?: string; close?: string; turnover?: string }) => ({
+            id: item.no ?? item.name ?? Math.random(),
+            name: item.name ?? '',
+            price: item.close ?? '-',
+            volume: item.turnover ?? '-',
+        }))
+    } catch (error) {
+        console.error('Failed to load turnover ranking:', error)
+    }
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+    fetchTurnoverRanking()
+    refreshTimer = setInterval(fetchTurnoverRanking, 60_000)
+})
+
+onBeforeUnmount(() => {
+    if (refreshTimer) {
+        clearInterval(refreshTimer)
+        refreshTimer = null
+    }
+})
 
 // 2. Mock Data for Market Sentiment (大盤氣氛 - 3個數字)
 // 假設分別是：多空比、成交量能、波動率
