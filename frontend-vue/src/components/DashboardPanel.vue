@@ -6,6 +6,7 @@ type TurnoverItem = {
     name: string
     price: string | number
     volume: string | number
+    code?: string
 }
 
 type MarketItem = {
@@ -20,6 +21,7 @@ type CrossSuggestion = {
     id: number | string
     name: string
     price: string | number
+    code?: string
 }
 
 const props = defineProps<{
@@ -52,11 +54,12 @@ const fetchTurnoverRanking = async (date?: string) => {
         const response = await fetch(url)
         const payload = await response.json()
         const data = Array.isArray(payload?.data) ? payload.data : []
-        return data.map((item: { no?: number; name?: string; close?: string; turnover?: string }) => ({
+        return data.map((item: { no?: number; name?: string; close?: string; turnover?: string; code?: string }) => ({
             id: item.no ?? item.name ?? Math.random(),
             name: item.name ?? '',
             price: item.close ?? '-',
             volume: item.turnover ?? '-',
+            code: item.code ?? '- '
         }))
     } catch (error) {
         console.error('Failed to load turnover ranking:', error)
@@ -95,6 +98,7 @@ onMounted(() => {
             fetchTurnoverRanking(),
             fetchTurnoverRanking(yesterday),
         ])
+        console.log("🚀 ~ refreshTurnover ~ today:", today)
         turnoverToday.value = today
         turnoverYesterday.value = yesterdayList
     }
@@ -152,6 +156,7 @@ const crossSuggestions = computed<CrossSuggestion[]>(() => {
                 id: stock.id,
                 name: target?.name ?? stock.name,
                 price: stock.price,
+                code: stock.code,
             }
         })
 })
@@ -239,7 +244,8 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
                     <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
                         今日
                     </div>
-                    <div class="grid grid-cols-3 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                    <div class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        <div>代號</div>
                         <div>股名</div>
                         <div>現價</div>
                         <div>較昨日</div>
@@ -248,8 +254,9 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
                         <div
                             v-for="(stock, index) in turnoverToday"
                             :key="stock.id"
-                            class="grid grid-cols-3 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
+                            class="grid grid-cols-4 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
                         >
+                            <div class="font-medium text-white">{{ stock.code }}</div>
                             <div class="font-medium text-white">{{ stock.name }}</div>
                             <div class="text-yellow-400">{{ stock.price }}</div>
                             <div :class="getRankDeltaClass(stock.name, index + 1)">
