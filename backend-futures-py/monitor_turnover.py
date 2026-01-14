@@ -72,7 +72,8 @@ def get_realtime_turnover():
             # 提取各欄位資料，Yahoo 結構可能會變動，以下是針對目前的 CSS 類別
             try:
                 # 這裡使用相對路徑提取
-                name_code = row.find_element(By.CSS_SELECTOR, r'.Lh\(20px\)').text
+                name = row.find_element(By.CSS_SELECTOR, r'.Lh\(20px\)').text
+                code = row.find_element(By.CSS_SELECTOR, r'.Fz\(14px\)').text
                 price = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[0].text
                 change = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[1].text
                 change_percent = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[2].text
@@ -80,7 +81,8 @@ def get_realtime_turnover():
                 turnover = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[4].text
                 
                 data_list.append({
-                    "股票名稱/代碼": name_code.replace('\n', ' '),
+                    "股票名稱/代碼": name.replace('\n', ' '),
+                    "代碼": code,
                     "成交價": price,
                     "漲跌": change,
                     "幅度": change_percent,
@@ -134,11 +136,13 @@ def upsert_turnover(df: pd.DataFrame, collection_name: str, now: datetime) -> No
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     records = []
     for idx, (_, row) in enumerate(top_df.iterrows(), start=1):
-        name_code = str(row.get("股票名稱/代碼", "")).replace("\n", " ").strip()
+        name = str(row.get("股票名稱/代碼", "")).replace("\n", " ").strip()
         close_price = str(row.get("成交價", "")).strip()
+        raw_code = str(row.get("代碼", "")).strip()
         records.append({
             "no": idx,
-            "name": name_code,
+            "code": raw_code.removesuffix('.TW').removesuffix('.TWO'),
+            "name": name,
             "close": close_price,
         })
 
