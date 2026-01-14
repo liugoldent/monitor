@@ -1,10 +1,12 @@
 import os
 from pathlib import Path
-import asyncio
 import re
+import time
 from telethon import TelegramClient, events
-
 from auto_trade import auto_trade
+
+recent_signals = {}
+SIGNAL_TTL = 10 
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -44,7 +46,7 @@ client = TelegramClient("session_monitor", api_id, api_hash)
 
 # Match "多1口" or "空1口" with flexible spacing.
 POSITION_PATTERN = re.compile(r"(空|多)\s*(\d+)\s*口")
-POSITION_REQUIRED_MARKER = "交易訊號通知"
+POSITION_REQUIRED_MARKER = "訊號通知"
 AUTO_TRADE_START = "開始自動交易"
 AUTO_TRADE_STOP = "停止自動交易"
 
@@ -67,7 +69,6 @@ async def bot_message_handler(event):
     if getattr(sender, "username", None) != TARGET_BOT_USERNAME:
         return
     
-
     print("🤖 台指期 Bot 訊息")
     # print("聊天 ID:", event.chat_id)
     print("內容:", event.text)
@@ -75,9 +76,18 @@ async def bot_message_handler(event):
     # Parse position from known message format.
     text = event.text or ""
     match = POSITION_PATTERN.search(text)
+
     if match and POSITION_REQUIRED_MARKER in text:
         position = match.group(1)
         quantity = int(match.group(2))
+
+        now = time.time()
+        last_seen = recent_signals.get(position)
+        if last_seen and (now - last_seen) < SIGNAL_TTL:
+            print(f"略過重複訊號: {position}{quantity} 口 (間隔 {now - last_seen:.1f}s)")
+            print("──────────────")
+            return
+        recent_signals[position] = now
 
         if position == "多":
             auto_trade("bull")

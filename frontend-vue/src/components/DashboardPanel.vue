@@ -28,16 +28,31 @@ const props = defineProps<{
 }>()
 
 // 1. Turnover Ranking (大盤成交值排行)
-const turnoverRanking = ref<TurnoverItem[]>([])
+const turnoverToday = ref<TurnoverItem[]>([])
+const turnoverYesterday = ref<TurnoverItem[]>([])
 const TURNOVER_API_URL =
     import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
 
-const fetchTurnoverRanking = async () => {
+const formatDateString = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+}
+
+const getYesterdayDateString = () => {
+    const date = new Date()
+    date.setDate(date.getDate() - 1)
+    return formatDateString(date)
+}
+
+const fetchTurnoverRanking = async (date?: string) => {
     try {
-        const response = await fetch(TURNOVER_API_URL)
+        const url = date ? `${TURNOVER_API_URL}?date=${date}` : TURNOVER_API_URL
+        const response = await fetch(url)
         const payload = await response.json()
         const data = Array.isArray(payload?.data) ? payload.data : []
-        turnoverRanking.value = data.map((item: { no?: number; name?: string; close?: string; turnover?: string }) => ({
+        return data.map((item: { no?: number; name?: string; close?: string; turnover?: string }) => ({
             id: item.no ?? item.name ?? Math.random(),
             name: item.name ?? '',
             price: item.close ?? '-',
@@ -45,6 +60,7 @@ const fetchTurnoverRanking = async () => {
         }))
     } catch (error) {
         console.error('Failed to load turnover ranking:', error)
+        return []
     }
 }
 
@@ -73,10 +89,19 @@ const fetchMarketSentiment = async () => {
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
-    fetchTurnoverRanking()
+    const refreshTurnover = async () => {
+        const yesterday = getYesterdayDateString()
+        const [today, yesterdayList] = await Promise.all([
+            fetchTurnoverRanking(),
+            fetchTurnoverRanking(yesterday),
+        ])
+        turnoverToday.value = today
+        turnoverYesterday.value = yesterdayList
+    }
+    refreshTurnover()
     fetchMarketSentiment()
     refreshTimer = setInterval(() => {
-        fetchTurnoverRanking()
+        refreshTurnover()
         fetchMarketSentiment()
     }, 60_000)
 })
@@ -96,7 +121,9 @@ const tradeSuggestion = computed(() => {
     return '混沌'
 })
 
-const normalizeName = (name: string) => name.split(' ')[0].trim()
+const normalizeName = (name: string) => {
+    return name?.split(' ')[0].replace(/小型|期/g, '').trim()
+}
 
 // 4. Cross Analysis (交叉建議股票)
 const crossSuggestions = computed<CrossSuggestion[]>(() => {
@@ -106,12 +133,12 @@ const crossSuggestions = computed<CrossSuggestion[]>(() => {
             : tradeSuggestion.value === '做多'
               ? props.highest20
               : []
-    if (!targetList.length || !turnoverRanking.value.length) return []
+    if (!targetList.length || !turnoverToday.value.length) return []
 
     const targetMap = new Map(targetList.map((item) => [normalizeName(item.name), item]))
     const seen = new Set<string>()
 
-    return turnoverRanking.value
+    return turnoverToday.value
         .filter((stock) => {
             const key = normalizeName(stock.name)
             if (!targetMap.has(key) || seen.has(key)) return false
@@ -128,6 +155,30 @@ const crossSuggestions = computed<CrossSuggestion[]>(() => {
             }
         })
 })
+
+const yesterdayRankMap = computed(() => {
+    return new Map(
+        turnoverYesterday.value.map((item, index) => [normalizeName(item.name), index + 1])
+    )
+})
+
+const getRankDeltaLabel = (name: string, currentRank: number) => {
+    const previousRank = yesterdayRankMap.value.get(normalizeName(name))
+    if (!previousRank) return 'NEW'
+    const diff = previousRank - currentRank
+    if (diff > 0) return `▲${diff}`
+    if (diff < 0) return `▼${Math.abs(diff)}`
+    return '0'
+}
+
+const getRankDeltaClass = (name: string, currentRank: number) => {
+    const previousRank = yesterdayRankMap.value.get(normalizeName(name))
+    if (!previousRank) return 'text-blue-300'
+    const diff = previousRank - currentRank
+    if (diff > 0) return 'text-red-400'
+    if (diff < 0) return 'text-green-400'
+    return 'text-gray-400'
+}
 </script>
 
 <template>
@@ -183,17 +234,49 @@ const crossSuggestions = computed<CrossSuggestion[]>(() => {
                 </h3>
             </div>
             
-            <div class="grid grid-cols-3 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
-                <div>股名</div>
-                <div>現價</div>
-                <div>成交值</div>
-            </div>
+            <div class="grid grid-cols-2 gap-2 flex-1 min-h-0 bg-black p-2">
+                <div class="flex flex-col min-h-0 border border-gray-800 rounded">
+                    <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
+                        今日
+                    </div>
+                    <div class="grid grid-cols-3 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        <div>股名</div>
+                        <div>現價</div>
+                        <div>較昨日</div>
+                    </div>
+                    <div class="overflow-y-auto flex-1">
+                        <div
+                            v-for="(stock, index) in turnoverToday"
+                            :key="stock.id"
+                            class="grid grid-cols-3 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
+                        >
+                            <div class="font-medium text-white">{{ stock.name }}</div>
+                            <div class="text-yellow-400">{{ stock.price }}</div>
+                            <div :class="getRankDeltaClass(stock.name, index + 1)">
+                                {{ getRankDeltaLabel(stock.name, index + 1) }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-            <div class="overflow-y-auto flex-1 bg-black">
-                <div v-for="stock in turnoverRanking" :key="stock.id" class="grid grid-cols-3 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm">
-                    <div class="font-medium text-white">{{ stock.name }}</div>
-                    <div class="text-yellow-400">{{ stock.price }}</div>
-                    <div class="text-gray-400">{{ stock.volume }}</div>
+                <div class="flex flex-col min-h-0 border border-gray-800 rounded">
+                    <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
+                        昨日
+                    </div>
+                    <div class="grid grid-cols-2 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        <div>股名</div>
+                        <div>現價</div>
+                    </div>
+                    <div class="overflow-y-auto flex-1">
+                        <div
+                            v-for="stock in turnoverYesterday"
+                            :key="stock.id"
+                            class="grid grid-cols-2 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
+                        >
+                            <div class="font-medium text-white">{{ stock.name }}</div>
+                            <div class="text-yellow-400">{{ stock.price }}</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
