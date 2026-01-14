@@ -8,6 +8,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from pymongo import MongoClient
 
@@ -59,13 +61,31 @@ def get_realtime_turnover():
         print(f"{fetch_time} 正在抓取資料：{url} ...")
         driver.get(url)
         
-        # 等待頁面加載完成（視網路情況調整秒數）
-        time.sleep(3)
+        # 等待列表渲染完成（避免拿到空 DOM）
+        list_selectors = [
+            r'ul.List\(n\) > li',
+            r'ul.M\(0\).P\(0\).List\(n\) > li',
+            'ul[class*="List"] li',
+        ]
+        rows = []
+        for selector in list_selectors:
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector))
+                )
+                rows = driver.find_elements(By.CSS_SELECTOR, selector)
+                if rows:
+                    break
+            except Exception:
+                continue
 
-        # 找到表格內容
-        # Yahoo 的排行榜通常在一個列表容器中，這裡直接抓取整個清單
-        rows = driver.find_elements(By.CSS_SELECTOR, r'li.List\(n\)')
-        
+        # 部分情況需要滾動觸發 lazy render
+        if rows:
+            for _ in range(3):
+                driver.execute_script("window.scrollBy(0, 800);")
+                time.sleep(0.5)
+                rows = driver.find_elements(By.CSS_SELECTOR, selector)
+
         data_list = []
         
         for row in rows:
