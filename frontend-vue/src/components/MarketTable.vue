@@ -11,6 +11,7 @@ type MarketItem = {
 
 const marketData = ref<MarketItem[]>([])
 const previousMarketData = ref<MarketItem[]>([])
+const marketDataDate = ref<string>('')
 
 const MARKET_API_URL =
     import.meta.env.VITE_MARKET_API_URL || 'http://localhost:5050/api/stkfut_tradeinfo'
@@ -43,6 +44,12 @@ const highest20 = computed(() =>
     [...marketData.value].sort((a, b) => b.combine - a.combine).slice(0, 20),
 )
 
+const combineScoreClass = (value: number) => {
+    if (value < 0) return 'bg-green-500/80'
+    if (value > 0) return 'bg-red-500/80'
+    return 'bg-gray-500/70'
+}
+
 const emit = defineEmits<{
     (event: 'update:highest20', items: MarketItem[]): void
     (event: 'update:lowest20', items: MarketItem[]): void
@@ -73,6 +80,7 @@ const fetchMarketData = async (force = false) => {
         const nameResponse = await fetch(NAME_URL)
         const nameJson = await nameResponse.json()
         const maxLookbackDays = 7
+        let matchedDate = ''
         let sorted: MarketItem[] = []
 
         for (let offset = 0; offset <= maxLookbackDays; offset += 1) {
@@ -100,11 +108,13 @@ const fetchMarketData = async (force = false) => {
                     }
                 })
                 .sort((a, b) => b.combine - a.combine)
+            matchedDate = dateString
             break
         }
 
         previousMarketData.value = marketData.value.map((item) => ({ ...item }))
         marketData.value = sorted
+        marketDataDate.value = matchedDate
     } catch (error) {
         console.error('Failed to load market data:', error)
     }
@@ -132,7 +142,10 @@ onBeforeUnmount(() => {
         <!-- Top Toolbar -->
         <div class="p-2 grid grid-cols-1 gap-4 items-center bg-[#242424] shrink-0">
             <div class="flex items-center justify-between px-4">
-                <span class="font-bold text-white">Market Monitor</span>
+                <div class="flex flex-col">
+                    <span class="font-bold text-white">Market Monitor</span>
+                    <span class="text-[10px] text-gray-400">資料日期: {{ marketDataDate || '-' }}</span>
+                </div>
                 <div class="flex items-center gap-2">
                     <span class="text-xs">分數排序</span>
                     <button class="btn btn-ghost btn-xs">
@@ -172,7 +185,9 @@ onBeforeUnmount(() => {
                         </div>
 
                         <div class="col-span-1 relative mx-1">
-                            <div class="bg-red-500/80 rounded py-1 px-1 text-white text-xs"
+                            <div
+                                class="rounded py-1 px-1 text-white text-xs"
+                                :class="combineScoreClass(item.combine)"
                                 :style="{ opacity: item.combine > 100 ? 1 : 0.5 }">
                                 {{ item.combine }}
                             </div>
@@ -208,7 +223,9 @@ onBeforeUnmount(() => {
                         </div>
 
                         <div class="col-span-1 relative mx-1">
-                            <div class="bg-red-500/80 rounded py-1 px-1 text-white text-xs"
+                            <div
+                                class="rounded py-1 px-1 text-white text-xs"
+                                :class="combineScoreClass(item.combine)"
                                 :style="{ opacity: item.combine > 100 ? 1 : 0.5 }">
                                 {{ item.combine }}
                             </div>

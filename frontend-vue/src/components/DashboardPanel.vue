@@ -32,6 +32,8 @@ const props = defineProps<{
 // 1. Turnover Ranking (大盤成交值排行)
 const turnoverToday = ref<TurnoverItem[]>([])
 const turnoverYesterday = ref<TurnoverItem[]>([])
+const turnoverTodayDate = ref<string>('')
+const turnoverYesterdayDate = ref<string>('')
 const TURNOVER_API_URL =
     import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
 
@@ -76,6 +78,7 @@ const findLatestTurnoverData = async (maxLookbackDays = 7) => {
     const today = new Date()
     let latestDate: string | null = null
     let latestList: TurnoverItem[] = []
+    let previousDate: string | null = null
 
     for (let offset = 0; offset <= maxLookbackDays; offset += 1) {
         const dateString = getDateStringByOffset(today, -offset)
@@ -88,7 +91,7 @@ const findLatestTurnoverData = async (maxLookbackDays = 7) => {
     }
 
     if (!latestDate) {
-        return { latestList: [], previousList: [] }
+        return { latestList: [], previousList: [], latestDate: '', previousDate: '' }
     }
 
     const baseDate = parseDateString(latestDate)
@@ -98,11 +101,17 @@ const findLatestTurnoverData = async (maxLookbackDays = 7) => {
         const list = await fetchTurnoverRanking(dateString)
         if (list.length) {
             previousList = list
+            previousDate = dateString
             break
         }
     }
 
-    return { latestList, previousList }
+    return {
+        latestList,
+        previousList,
+        latestDate,
+        previousDate: previousDate ?? '',
+    }
 }
 
 // 2. Market Sentiment (大盤氣氛 - 3個數字)
@@ -111,6 +120,7 @@ const marketSentiment = ref({
     retail: 0,
     guerilla: 0,
 })
+const marketSentimentDate = ref<string>('')
 const MXF_API_URL = import.meta.env.VITE_MXF_API_URL || 'http://localhost:5050/api/mxf'
 
 const fetchMarketSentiment = async () => {
@@ -122,6 +132,7 @@ const fetchMarketSentiment = async () => {
             retail: Number(payload?.mtx_tbta ?? 0),
             guerilla: Number(payload?.mtx_bvav ?? 0),
         }
+        marketSentimentDate.value = payload?.time ? String(payload.time).slice(0, 10) : ''
     } catch (error) {
         console.error('Failed to load market sentiment:', error)
     }
@@ -131,9 +142,11 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
     const refreshTurnover = async () => {
-        const { latestList, previousList } = await findLatestTurnoverData()
+        const { latestList, previousList, latestDate, previousDate } = await findLatestTurnoverData()
         turnoverToday.value = latestList
         turnoverYesterday.value = previousList
+        turnoverTodayDate.value = latestDate
+        turnoverYesterdayDate.value = previousDate
     }
     refreshTurnover()
     fetchMarketSentiment()
@@ -227,6 +240,7 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
             <h2 class="text-white font-bold mb-4 flex items-center gap-2">
                 <span class="w-2 h-6 bg-blue-500 rounded"></span>
                 大盤氣氛 & 建議
+                <span class="text-[10px] text-gray-400 ml-2">{{ marketSentimentDate || '-' }}</span>
             </h2>
             
             <div class="flex gap-4">
@@ -276,6 +290,7 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
                 <div class="flex flex-col min-h-0 border border-gray-800 rounded">
                     <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
                         今日
+                        <span class="ml-2 text-[10px] text-gray-400">{{ turnoverTodayDate || '-' }}</span>
                     </div>
                     <div class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                         <div>代號</div>
@@ -302,6 +317,7 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
                 <div class="flex flex-col min-h-0 border border-gray-800 rounded">
                     <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
                         昨日
+                        <span class="ml-2 text-[10px] text-gray-400">{{ turnoverYesterdayDate || '-' }}</span>
                     </div>
                     <div class="grid grid-cols-2 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                         <div>股名</div>
@@ -329,6 +345,7 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
                         <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                     </svg>
                     交叉建議
+                    <span class="text-[10px] text-gray-400 ml-2">{{ turnoverTodayDate || '-' }}</span>
                 </h3>
             </div>
             
