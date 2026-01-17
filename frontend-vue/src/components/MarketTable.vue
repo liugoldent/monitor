@@ -21,6 +21,19 @@ const toNumber = (value: unknown) => {
     return Number.isFinite(parsed) ? parsed : 0
 }
 
+const formatDateString = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+}
+
+const getDateStringByOffset = (offsetDays: number) => {
+    const date = new Date()
+    date.setDate(date.getDate() - offsetDays)
+    return formatDateString(date)
+}
+
 const positiveCount = computed(() => marketData.value.filter((item) => item.combine > 0).length)
 const negativeCount = computed(() => marketData.value.filter((item) => item.combine < 0).length)
 const lowest20 = computed(() =>
@@ -57,25 +70,38 @@ const fetchMarketData = async (force = false) => {
         return
     }
     try {
-        const [chipResponse, nameResponse] = await Promise.all([fetch(MARKET_API_URL), fetch(NAME_URL)])
-        const [chipJson, nameJson] = await Promise.all([chipResponse.json(), nameResponse.json()])
+        const nameResponse = await fetch(NAME_URL)
+        const nameJson = await nameResponse.json()
+        const maxLookbackDays = 7
+        let sorted: MarketItem[] = []
 
-        const payload = chipJson?.data && typeof chipJson.data === 'object' ? chipJson.data : chipJson
-        const sorted = Object.entries(payload)
-            .filter(([, value]) => value && typeof value === 'object')
-            .map(([key, value]) => {
-                const nearMonth = toNumber((value as { near_month?: number }).near_month)
-                const farMonth = toNumber((value as { next_month?: number }).next_month)
+        for (let offset = 0; offset <= maxLookbackDays; offset += 1) {
+            const dateString = getDateStringByOffset(offset)
+            const chipResponse = await fetch(`${MARKET_API_URL}?date=${dateString}`)
+            const chipJson = await chipResponse.json()
+            const payload = chipJson?.data && typeof chipJson.data === 'object' ? chipJson.data : chipJson
+            const entries = Object.entries(payload ?? {}).filter(
+                ([, value]) => value && typeof value === 'object',
+            )
+            if (!entries.length) {
+                continue
+            }
+            sorted = entries
+                .map(([key, value]) => {
+                    const nearMonth = toNumber((value as { near_month?: number }).near_month)
+                    const farMonth = toNumber((value as { next_month?: number }).next_month)
 
-                return {
-                    id: key,
-                    name: nameJson[`${key}-1`] || key,
-                    nearMonth,
-                    farMonth,
-                    combine: nearMonth + farMonth,
-                }
-            })
-            .sort((a, b) => b.combine - a.combine)
+                    return {
+                        id: key,
+                        name: nameJson[`${key}-1`] || key,
+                        nearMonth,
+                        farMonth,
+                        combine: nearMonth + farMonth,
+                    }
+                })
+                .sort((a, b) => b.combine - a.combine)
+            break
+        }
 
         previousMarketData.value = marketData.value.map((item) => ({ ...item }))
         marketData.value = sorted

@@ -42,10 +42,15 @@ const formatDateString = (date: Date) => {
     return `${year}-${month}-${day}`
 }
 
-const getYesterdayDateString = () => {
-    const date = new Date()
-    date.setDate(date.getDate() - 1)
+const getDateStringByOffset = (base: Date, offsetDays: number) => {
+    const date = new Date(base)
+    date.setDate(date.getDate() + offsetDays)
     return formatDateString(date)
+}
+
+const parseDateString = (dateString: string) => {
+    const [year, month, day] = dateString.split('-').map(Number)
+    return new Date(year, month - 1, day)
 }
 
 const fetchTurnoverRanking = async (date?: string) => {
@@ -65,6 +70,39 @@ const fetchTurnoverRanking = async (date?: string) => {
         console.error('Failed to load turnover ranking:', error)
         return []
     }
+}
+
+const findLatestTurnoverData = async (maxLookbackDays = 7) => {
+    const today = new Date()
+    let latestDate: string | null = null
+    let latestList: TurnoverItem[] = []
+
+    for (let offset = 0; offset <= maxLookbackDays; offset += 1) {
+        const dateString = getDateStringByOffset(today, -offset)
+        const list = await fetchTurnoverRanking(dateString)
+        if (list.length) {
+            latestDate = dateString
+            latestList = list
+            break
+        }
+    }
+
+    if (!latestDate) {
+        return { latestList: [], previousList: [] }
+    }
+
+    const baseDate = parseDateString(latestDate)
+    let previousList: TurnoverItem[] = []
+    for (let offset = 1; offset <= maxLookbackDays; offset += 1) {
+        const dateString = getDateStringByOffset(baseDate, -offset)
+        const list = await fetchTurnoverRanking(dateString)
+        if (list.length) {
+            previousList = list
+            break
+        }
+    }
+
+    return { latestList, previousList }
 }
 
 // 2. Market Sentiment (大盤氣氛 - 3個數字)
@@ -93,14 +131,9 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
     const refreshTurnover = async () => {
-        const yesterday = getYesterdayDateString()
-        const [today, yesterdayList] = await Promise.all([
-            fetchTurnoverRanking(),
-            fetchTurnoverRanking(yesterday),
-        ])
-        console.log("🚀 ~ refreshTurnover ~ today:", today)
-        turnoverToday.value = today
-        turnoverYesterday.value = yesterdayList
+        const { latestList, previousList } = await findLatestTurnoverData()
+        turnoverToday.value = latestList
+        turnoverYesterday.value = previousList
     }
     refreshTurnover()
     fetchMarketSentiment()
