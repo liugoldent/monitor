@@ -10,3 +10,9 @@ source venv/bin/activate
 API_ID=你的 api_id
 API_HASH=你的 api_hash
 ```
+
+## 開啟瀏覽器
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+--remote-debugging-port=9222 \
+--remote-allow-origins='*' \
+--user-data-dir="$HOME/chrome-debug"

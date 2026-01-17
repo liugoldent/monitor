@@ -1,0 +1,129 @@
+
+{
+    "topix": {
+        "en_name": "TOPIX FUTURE",
+        "ch_name": "東證股價指數",
+        "country": "jp",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=OSE%3ATOPIX1%21"
+    },
+    "nikkei225": {
+        "en_name": "NIKKEI 225 MINI INDEX",
+        "ch_name": "日經平均指數",
+        "country": "jp",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=OSE%3ANK225M1%21"
+    },
+    "hangseng": {
+        "en_name": "Hang Seng Index",
+        "ch_name": "恒生指數",
+        "country": "hk",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=HKEX%3AHSI1%21"
+    },
+    "twseIndex": {
+        "en_name": "TWSW Index",
+        "ch_name": "台灣加權指數",
+        "country": "tw",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TAIFEX%3ATXF1%21"
+    },
+    "totcindex": {
+        "en_name": "TAIPEI Index",
+        "ch_name": "櫃買指數",
+        "country": "tw",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TPEX%3ASTOCK"
+    },
+    "nasdaq": {
+        "en_name": "Nasdaq-100 Index",
+        "ch_name": "那斯達克",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME_MINI%3AMNQ1%21"
+    },
+    "zs": {
+        "en_name": "zs Index",
+        "ch_name": "大豆期貨",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CBOT%3AZS1%21"
+    },
+    "sox": {
+        "en_name": "sox Index",
+        "ch_name": "費城半導體指數",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=NASDAQ%3ASOX"
+    },
+    "dxy": {
+        "en_name": "dxy Index",
+        "ch_name": "美元指數",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TVC%3ADXY"
+    },
+    "bovespa": {
+        "en_name": "bovespa Index",
+        "ch_name": "巴西股市指數",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=BMFBOVESPA%3AWIN1%21"
+    },
+    "sp500": {
+        "en_name": "s&p 500 Index",
+        "ch_name": "s&p 500",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME_MINI%3AES1%21"
+    },
+    "euro": {
+        "en_name": "Euro FX Futures",
+        "ch_name": "歐元",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME%3A6E1%21"
+    },
+    "rt2000": {
+        "en_name": "russel 2000 Index",
+        "ch_name": "羅素2000指數",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME_MINI%3ARTY1%21"
+    },
+    "gold": {
+        "en_name": "gold Future",
+        "ch_name": "黃金期貨",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3AMGC1%21"
+    },
+    "djx": {
+        "en_name": "dowjon Index",
+        "ch_name": "道瓊工業平均",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CBOT_MINI%3AYM1%21"
+    },
+    "wti": {
+        "en_name": "WTI Crude Oil",
+        "ch_name": "WTI原油",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=NYMEX%3AMCL1%21"
+    },
+    "copper": {
+        "en_name": "Copper Futures",
+        "ch_name": "銅",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3AMHG1%21"
+    },
+    "silver": {
+        "en_name": "Silver Futures",
+        "ch_name": "銀",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3ASIL1%21"
+    },
+    "dax": {
+        "en_name": "Dax index",
+        "ch_name": "德國Dax指數",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=EUREX%3AFDXM1%21"
+    },
+    "us20y": {
+        "en_name": "US 20Y yield",
+        "ch_name": "美國政府債券20年期收益",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TVC%3AUS20Y"
+    },
+    "us10y": {
+        "en_name": "US 10Y yield",
+        "ch_name": "美國政府債券10年期收益",
+        "country": "us",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TVC%3AUS10Y"
+    }
+}
