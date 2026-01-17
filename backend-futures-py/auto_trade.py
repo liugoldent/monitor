@@ -34,6 +34,14 @@ def auto_trade(type):
     API_KEY = os.getenv("API_KEY")
     SECRET_KEY = os.getenv("SECRET_KEY")
 
+    current_time = testNow.time()
+    night_start = time(15, 0)
+    night_end = time(5, 0)
+    if current_time >= night_start or current_time < night_end:
+        closePosition()
+        send_discord_message(f'[{testNow:%H:%M:%S}] 夜盤時段只做平倉')
+        return
+
     try:
         if not os.path.exists(ca_path):
             print(f"❌ 找不到憑證檔案，目前嘗試路徑為: {ca_path}")
@@ -128,7 +136,7 @@ def closePosition():
 def buyOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=40000,                        # price (價格)
+        price=34000,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
@@ -144,7 +152,7 @@ def buyOne(api, contract, quantity=1):
 def sellOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=10000,                        # price (價格)
+        price=28000,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
