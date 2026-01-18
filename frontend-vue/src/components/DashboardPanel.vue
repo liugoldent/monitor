@@ -43,6 +43,7 @@ const turnoverTodayDate = ref<string>('')
 const turnoverYesterdayDate = ref<string>('')
 const turnoverTechMap = ref<Map<string, TurnoverTechItem>>(new Map())
 const turnoverTechDate = ref<string>('')
+const turnoverTechLastSlot = ref<string>('')
 const TURNOVER_API_URL =
     import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
 const TURNOVER_TECH_API_URL =
@@ -67,6 +68,23 @@ const parseDateString = (dateString: string) => {
 }
 
 const normalizeCode = (code?: string) => String(code ?? '').trim()
+
+const getCurrentTechSlot = (now: Date) => {
+    const slots = [
+        { label: '10:30', hour: 10, minute: 30 },
+        { label: '12:00', hour: 12, minute: 0 },
+        { label: '13:30', hour: 13, minute: 30 },
+    ]
+    let latestLabel = ''
+    slots.forEach((slot) => {
+        const slotTime = new Date(now)
+        slotTime.setHours(slot.hour, slot.minute, 0, 0)
+        if (now >= slotTime) {
+            latestLabel = slot.label
+        }
+    })
+    return latestLabel
+}
 
 const fetchTurnoverRanking = async (date?: string) => {
     try {
@@ -121,7 +139,17 @@ const fetchTurnoverTech = async (date?: string) => {
 }
 
 const refreshTurnoverTech = async (date: string) => {
-    if (!date || date === turnoverTechDate.value) return
+    const now = new Date()
+    const today = formatDateString(now)
+    if (!date || date !== today) return
+
+    const slot = getCurrentTechSlot(now)
+    if (!slot) return
+
+    const slotKey = `${today} ${slot}`
+    if (turnoverTechLastSlot.value === slotKey) return
+
+    turnoverTechLastSlot.value = slotKey
     await fetchTurnoverTech(date)
 }
 
