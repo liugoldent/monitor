@@ -53,9 +53,6 @@ if chrome_user_data_dir:
 
 driver = webdriver.Chrome(options=options)
 
-RESUME_FILE = "resume.json"
-MAX_RETRY = 3  # 最多重試 3 次
-
 # ---------- 1. 讀取股票清單 ----------
 def load_json(fp: str):
     with open(fp, 'r', encoding='utf-8') as f:
@@ -105,7 +102,7 @@ def _current_timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _upsert_wantgoo_turnover_items(collection_name: str, items: list[dict]) -> None:
+def _upsert_yahoo_turnover_items(collection_name: str, items: list[dict]) -> None:
     if not items:
         return
 
@@ -141,7 +138,7 @@ def update_wantgoo_doc_by_code(date: str, symbol: str, payload: dict) -> None:
     collection.update_one({"code": symbol}, {"$set": payload}, upsert=True)
 
 
-def get_wantgoo_turnover():
+def get_yahoo_turnover():
     client = MongoClient(MONGO_URI)
     db = client[TURNOVER_DB_NAME]
     collection_name = _get_latest_turnover_collection_name(db)
@@ -153,7 +150,7 @@ def get_wantgoo_turnover():
         return pd.DataFrame(), collection_name
 
     data_items = doc.get("data", [])
-    _upsert_wantgoo_turnover_items(collection_name, data_items)
+    _upsert_yahoo_turnover_items(collection_name, data_items)
 
     rows = []
     for item in data_items:
@@ -166,53 +163,16 @@ def get_wantgoo_turnover():
     return pd.DataFrame(rows), collection_name
 
 
-# ---------- 讀取上次進度 ----------
-def load_resume_index(date: str):
-    if os.path.exists(RESUME_FILE):
-        try:
-            with open(RESUME_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if data.get("date") == date:
-                    print(f"🔁 從上次中斷的 idx={data['last_idx']} 繼續")
-                    return data["last_idx"]
-        except Exception:
-            pass
-    return 0
-
-# ---------- 儲存當前進度 ----------
-def save_resume_index(date: str, idx: int):
-    with open(RESUME_FILE, "w", encoding="utf-8") as f:
-        json.dump({"date": date, "last_idx": idx}, f)
-    print(f"💾 已儲存進度：{idx}")
-
-
-def wait_for_valid_value(driver, xpath, max_wait=15):
-    """等待 TradingView 數值出現（非 ∅）"""
-    start_time = time.time()
-    while time.time() - start_time < max_wait:
-        try:
-            el = driver.find_element(By.XPATH, xpath)
-            value = el.text.strip().replace(',', '')
-            if value not in ['', '∅', '-', '--']:
-                return value  # ✅ 取得有效數值
-        except Exception:
-            pass
-        time.sleep(0.5)  # 等半秒再檢查一次
-    print(f"⚠️ 超時未取得有效數值（xpath: {xpath}）")
-    return None
-
-
+# ---------- 主程式 ----------
 def get_tv_dataT():
-    all_docs, latest_date = get_wantgoo_turnover()
+    all_docs, latest_date = get_yahoo_turnover()
     if latest_date:
         date = latest_date
     if all_docs is None or all_docs.empty:
         print("❌ 找不到任何文件")
         return []
-    start_idx = load_resume_index(date)
-    end_idx = len(all_docs)
     start_idx = 0
-    end_idx = 100
+    end_idx = len(all_docs)
 
     # https://tw.tradingview.com/chart/rABGcFih/?symbol=TWSE%3A2454
     # https://tw.tradingview.com/chart/rABGcFih/?symbol=TPEX%3A8069
