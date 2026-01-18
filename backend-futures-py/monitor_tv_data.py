@@ -3,7 +3,7 @@ import json
 import time
 import platform
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -243,4 +243,38 @@ def get_tv_dataT():
         print(f"✅ 已更新 {idx} {name} ({symbol}) 的 TradingView 資料")
 
 if __name__ == "__main__":
-    get_tv_dataT()
+    schedule_slots = [(10, 30), (12, 0), (13, 30)]
+
+    def _next_weekday(start: datetime) -> datetime:
+        day = start
+        while day.weekday() >= 5:
+            day += timedelta(days=1)
+        return day
+
+    def _next_run_time(now: datetime) -> datetime:
+        if now.weekday() >= 5:
+            next_day = _next_weekday(now + timedelta(days=1))
+            return next_day.replace(hour=schedule_slots[0][0], minute=schedule_slots[0][1], second=0, microsecond=0)
+
+        for hour, minute in schedule_slots:
+            candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if candidate > now:
+                return candidate
+
+        next_day = _next_weekday(now + timedelta(days=1))
+        return next_day.replace(hour=schedule_slots[0][0], minute=schedule_slots[0][1], second=0, microsecond=0)
+
+    while True:
+        now = datetime.now()
+        next_run = _next_run_time(now)
+        sleep_seconds = max(0, (next_run - now).total_seconds())
+        if sleep_seconds:
+            print(f"⏳ Next run at {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+            remaining = int(sleep_seconds)
+            while remaining > 0:
+                minutes_left = (remaining + 59) // 60
+                print(f"⏳ Countdown: {minutes_left} minute(s) remaining")
+                sleep_chunk = 60 if remaining > 60 else remaining
+                time.sleep(sleep_chunk)
+                remaining -= sleep_chunk
+        get_tv_dataT()
