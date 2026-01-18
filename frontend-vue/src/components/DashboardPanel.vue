@@ -9,6 +9,13 @@ type TurnoverItem = {
     code?: string
 }
 
+type TurnoverTechItem = {
+    code: string
+    heikin_Ashi?: string | number
+    ma_UpperAll?: string | number
+    sqzmom_stronger_2d?: string | number
+}
+
 type MarketItem = {
     id: number | string
     name: string
@@ -34,8 +41,12 @@ const turnoverToday = ref<TurnoverItem[]>([])
 const turnoverYesterday = ref<TurnoverItem[]>([])
 const turnoverTodayDate = ref<string>('')
 const turnoverYesterdayDate = ref<string>('')
+const turnoverTechMap = ref<Map<string, TurnoverTechItem>>(new Map())
+const turnoverTechDate = ref<string>('')
 const TURNOVER_API_URL =
     import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
+const TURNOVER_TECH_API_URL =
+    import.meta.env.VITE_TURNOVER_TECH_API_URL || 'http://localhost:5050/api/turnover_tech'
 
 const formatDateString = (date: Date) => {
     const year = date.getFullYear()
@@ -55,6 +66,8 @@ const parseDateString = (dateString: string) => {
     return new Date(year, month - 1, day)
 }
 
+const normalizeCode = (code?: string) => String(code ?? '').trim()
+
 const fetchTurnoverRanking = async (date?: string) => {
     try {
         const url = date ? `${TURNOVER_API_URL}?date=${date}` : TURNOVER_API_URL
@@ -72,6 +85,44 @@ const fetchTurnoverRanking = async (date?: string) => {
         console.error('Failed to load turnover ranking:', error)
         return []
     }
+}
+
+const fetchTurnoverTech = async (date?: string) => {
+    console.log("🚀 ~ fetchTurnoverTech ~ date:", date)
+    debugger
+    try {
+        const url = date ? `${TURNOVER_TECH_API_URL}?date=${date}` : TURNOVER_TECH_API_URL
+        const response = await fetch(url)
+        console.log("🚀 ~ fetchTurnoverTech ~ response:", response)
+        const payload = await response.json()
+        console.log("🚀 ~ fetchTurnoverTech ~ payload:", payload)
+        const data = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []
+        console.log("🚀 ~ fetchTurnoverTech ~ data:", data)
+        const nextMap = new Map<string, TurnoverTechItem>()
+
+        data.forEach((item: TurnoverTechItem) => {
+            const code = normalizeCode(item.code)
+            if (!code) return
+            nextMap.set(code, {
+                code,
+                heikin_Ashi: item.heikin_Ashi,
+                ma_UpperAll: item.ma_UpperAll,
+                sqzmom_stronger_2d: item.sqzmom_stronger_2d,
+            })
+        })
+
+        turnoverTechMap.value = nextMap
+        if (date) {
+            turnoverTechDate.value = date
+        }
+    } catch (error) {
+        console.error('Failed to load turnover tech data:', error)
+    }
+}
+
+const refreshTurnoverTech = async (date: string) => {
+    if (!date || date === turnoverTechDate.value) return
+    await fetchTurnoverTech(date)
 }
 
 const findLatestTurnoverData = async (maxLookbackDays = 7) => {
@@ -147,6 +198,7 @@ onMounted(() => {
         turnoverYesterday.value = previousList
         turnoverTodayDate.value = latestDate
         turnoverYesterdayDate.value = previousDate
+        await refreshTurnoverTech(latestDate)
     }
     refreshTurnover()
     fetchMarketSentiment()
@@ -230,6 +282,18 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
     if (diff < 0) return 'text-green-400'
     return 'text-gray-400'
 }
+
+const isTechSignal = (code?: string) => {
+    const key = normalizeCode(code)
+    const item = turnoverTechMap.value.get(key)
+    if (!item) return false
+    const isOn = (value?: string | number) => Number(value) === 1
+    return (
+        isOn(item.heikin_Ashi) &&
+        isOn(item.ma_UpperAll) &&
+        isOn(item.sqzmom_stronger_2d)
+    )
+}
 </script>
 
 <template>
@@ -292,23 +356,29 @@ const getRankDeltaClass = (name: string, currentRank: number) => {
                         今日
                         <span class="ml-2 text-[10px] text-gray-400">{{ turnoverTodayDate || '-' }}</span>
                     </div>
-                    <div class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                    <div class="grid grid-cols-5 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                         <div>代號</div>
                         <div>股名</div>
                         <div>現價</div>
                         <div>較昨日</div>
+                        <div>技術分析</div>
                     </div>
                     <div class="overflow-y-auto flex-1">
                         <div
                             v-for="(stock, index) in turnoverToday"
                             :key="stock.id"
-                            class="grid grid-cols-4 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
+                            class="grid grid-cols-5 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
                         >
                             <div class="font-medium text-white">{{ stock.code }}</div>
                             <div class="font-medium text-white">{{ stock.name }}</div>
                             <div class="text-yellow-400">{{ stock.price }}</div>
                             <div :class="getRankDeltaClass(stock.name, index + 1)">
                                 {{ getRankDeltaLabel(stock.name, index + 1) }}
+                            </div>
+                            <div
+                                :class="isTechSignal(stock.code) ? 'text-green-400' : 'text-red-400'"
+                            >
+                                {{ isTechSignal(stock.code) ? '✓' : 'x' }}
                             </div>
                         </div>
                     </div>

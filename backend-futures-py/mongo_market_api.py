@@ -35,6 +35,7 @@ load_env_file()
 MONGO_URI = require_env("MONGO_URI")
 DB_NAME = "stock_futures"
 TURNOVER_DB_NAME = "yahoo_turnover"
+TURNOVER_TECH_DB_NAME = "yahoo_turnover_tech"
 MXF_DB_NAME = "mxf_futures"
 TZ = ZoneInfo("Asia/Taipei")
 
@@ -70,6 +71,31 @@ def fetch_latest_turnover(date_str: str | None) -> dict:
         "data": doc.get("data", []),
         "time": doc.get("time"),
     }
+
+
+def _get_latest_collection_name(db) -> str | None:
+    candidates = [
+        name
+        for name in db.list_collection_names()
+        if len(name) == 10 and name[4] == "-" and name[7] == "-"
+    ]
+    return max(candidates) if candidates else None
+
+
+def fetch_latest_turnover_tech(date_str: str | None) -> dict:
+    db = mongo_client[TURNOVER_TECH_DB_NAME]
+    collection_name = get_collection_name(date_str) if date_str else None
+    collection = db[collection_name] if collection_name else None
+    docs = list(collection.find({}, {"_id": 0})) if collection_name else []
+
+    if not docs:
+        fallback_name = _get_latest_collection_name(db)
+        if not fallback_name:
+            return {}
+        docs = list(db[fallback_name].find({}, {"_id": 0}))
+        return {"data": docs, "collection_name": fallback_name}
+
+    return {"data": docs, "collection_name": collection_name}
 
 
 def fetch_latest_mxf(date_str: str | None) -> dict:
@@ -117,6 +143,10 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/turnover":
                 payload = fetch_latest_turnover(date_str)
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/turnover_tech":
+                payload = fetch_latest_turnover_tech(date_str)
                 self._send_json(200, payload)
                 return
             if parsed.path == "/api/mxf":
