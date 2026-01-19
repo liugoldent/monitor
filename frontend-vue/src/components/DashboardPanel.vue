@@ -259,8 +259,8 @@ const crossSuggestions = computed<CrossSuggestion[]>(() => {
         tradeSuggestion.value === '做空'
             ? props.lowest20
             : tradeSuggestion.value === '做多'
-              ? props.highest20
-              : []
+                ? props.highest20
+                : []
     if (!targetList.length || !turnoverToday.value.length) return []
 
     const targetMap = new Map(targetList.map((item) => [normalizeName(item.name), item]))
@@ -320,11 +320,66 @@ const isTechSignal = (code?: string) => {
         isOn(item.sqzmom_stronger_2d)
     )
 }
+
+// 5. LLM Integration
+const selectedStock = ref<{ name: string; code?: string; price: string | number } | null>(null)
+const selectedQuestion = ref('分析技術面趨勢')
+const llmResponse = ref('')
+const llmLoading = ref(false)
+const questions = [
+    '分析技術面趨勢',
+    '分析籌碼面',
+    '預測下週走勢',
+    '給出操作建議 (做多/做空)',
+    '分析是否有主力介入'
+]
+
+const selectStock = (stock: { name: string; code?: string; price: string | number }) => {
+    selectedStock.value = stock
+    llmResponse.value = ''
+}
+
+const askLLM = async () => {
+    if (!selectedStock.value || llmLoading.value) return
+    llmLoading.value = true
+    try {
+        const code = normalizeCode(selectedStock.value.code)
+        const tech = turnoverTechMap.value.get(code)
+
+        const context = {
+            price: selectedStock.value.price,
+            code: selectedStock.value.code,
+            tech_indicators: tech ? {
+                heikin_Ashi: tech.heikin_Ashi,
+                ma_UpperAll: tech.ma_UpperAll,
+                sqzmom_stronger_2d: tech.sqzmom_stronger_2d
+            } : 'Not available'
+        }
+
+        const response = await fetch('http://localhost:5050/api/chat_llm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                stock_name: selectedStock.value.name,
+                question: selectedQuestion.value,
+                context: JSON.stringify(context)
+            })
+        })
+
+        const data = await response.json()
+        if (data.error) throw new Error(data.error)
+        llmResponse.value = data.answer
+    } catch (e: any) {
+        llmResponse.value = `Error: ${e.message}`
+    } finally {
+        llmLoading.value = false
+    }
+}
 </script>
 
 <template>
     <div class="flex flex-col h-full bg-[#1a1a1a] text-gray-300 font-sans overflow-hidden">
-        
+
         <!-- Section 1: Top Dashboard (Sentiment & Suggestion) -->
         <div class="p-4 bg-[#242424] border-b border-gray-700 shrink-0">
             <h2 class="text-white font-bold mb-4 flex items-center gap-2">
@@ -332,33 +387,33 @@ const isTechSignal = (code?: string) => {
                 大盤氣氛 & 建議
                 <span class="text-[10px] text-gray-400 ml-2">{{ marketSentimentDate || '-' }}</span>
             </h2>
-            
+
             <div class="flex gap-4">
                 <!-- 3 Numbers -->
                 <div class="flex-1 grid grid-cols-3 gap-2">
-                    <div class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
+                    <div
+                        class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
                         <span class="text-xs text-gray-500">外資</span>
                         <span class="text-xl font-bold text-red-400">{{ marketSentiment.foreign }}</span>
                     </div>
-                    <div class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
+                    <div
+                        class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
                         <span class="text-xs text-gray-500">散戶</span>
                         <span class="text-xl font-bold text-yellow-400">{{ marketSentiment.retail }}</span>
                     </div>
-                    <div class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
+                    <div
+                        class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
                         <span class="text-xs text-gray-500">游擊隊</span>
                         <span class="text-xl font-bold text-green-400">{{ marketSentiment.guerilla }}</span>
                     </div>
                 </div>
 
                 <!-- Suggestion Box -->
-                <div
-                    class="w-32 flex flex-col items-center justify-center border rounded"
-                    :class="{
-                        'bg-gradient-to-br from-red-900/50 to-red-600/20 border-red-500/30': tradeSuggestion === '做多',
-                        'bg-gradient-to-br from-green-900/50 to-green-600/20 border-green-500/30': tradeSuggestion === '做空',
-                        'bg-gradient-to-br from-gray-800/60 to-gray-700/30 border-gray-500/30': tradeSuggestion === '混沌',
-                    }"
-                >
+                <div class="w-32 flex flex-col items-center justify-center border rounded" :class="{
+                    'bg-gradient-to-br from-red-900/50 to-red-600/20 border-red-500/30': tradeSuggestion === '做多',
+                    'bg-gradient-to-br from-green-900/50 to-green-600/20 border-green-500/30': tradeSuggestion === '做空',
+                    'bg-gradient-to-br from-gray-800/60 to-gray-700/30 border-gray-500/30': tradeSuggestion === '混沌',
+                }">
                     <span class="text-xs text-red-200 mb-1">操作建議</span>
                     <span class="text-2xl font-black text-white tracking-widest">{{ tradeSuggestion }}</span>
                 </div>
@@ -369,20 +424,24 @@ const isTechSignal = (code?: string) => {
         <div class="flex-1 flex flex-col min-h-0 border-b border-gray-700">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clip-rule="evenodd" />
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" viewBox="0 0 20 20"
+                        fill="currentColor">
+                        <path fill-rule="evenodd"
+                            d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z"
+                            clip-rule="evenodd" />
                     </svg>
                     大盤成交值排行
                 </h3>
             </div>
-            
+
             <div class="grid grid-cols-2 gap-2 flex-1 min-h-0 bg-black p-2">
                 <div class="flex flex-col min-h-0 border border-gray-800 rounded">
                     <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
                         今日
                         <span class="ml-2 text-[10px] text-gray-400">{{ turnoverTodayDate || '-' }}</span>
                     </div>
-                    <div class="grid grid-cols-5 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                    <div
+                        class="grid grid-cols-5 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                         <div>代號</div>
                         <div>股名</div>
                         <div>現價</div>
@@ -390,20 +449,17 @@ const isTechSignal = (code?: string) => {
                         <div>技術分析</div>
                     </div>
                     <div class="overflow-y-auto flex-1">
-                        <div
-                            v-for="(stock, index) in turnoverToday"
-                            :key="stock.id"
-                            class="grid grid-cols-5 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
-                        >
+                        <div v-for="(stock, index) in turnoverToday" :key="stock.id"
+                            class="grid grid-cols-5 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                            :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
+                            @click="selectStock(stock)">
                             <div class="font-medium text-white">{{ stock.code }}</div>
                             <div class="font-medium text-white">{{ stock.name }}</div>
                             <div class="text-yellow-400">{{ stock.price }}</div>
                             <div :class="getRankDeltaClass(stock.name, index + 1)">
                                 {{ getRankDeltaLabel(stock.name, index + 1) }}
                             </div>
-                            <div
-                                :class="isTechSignal(stock.code) ? 'text-green-400' : 'text-red-400'"
-                            >
+                            <div :class="isTechSignal(stock.code) ? 'text-green-400' : 'text-red-400'">
                                 {{ isTechSignal(stock.code) ? '✓' : 'x' }}
                             </div>
                         </div>
@@ -415,16 +471,14 @@ const isTechSignal = (code?: string) => {
                         昨日
                         <span class="ml-2 text-[10px] text-gray-400">{{ turnoverYesterdayDate || '-' }}</span>
                     </div>
-                    <div class="grid grid-cols-2 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                    <div
+                        class="grid grid-cols-2 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                         <div>股名</div>
                         <div>現價</div>
                     </div>
                     <div class="overflow-y-auto flex-1">
-                        <div
-                            v-for="stock in turnoverYesterday"
-                            :key="stock.id"
-                            class="grid grid-cols-2 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm"
-                        >
+                        <div v-for="stock in turnoverYesterday" :key="stock.id"
+                            class="grid grid-cols-2 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm">
                             <div class="font-medium text-white">{{ stock.name }}</div>
                             <div class="text-yellow-400">{{ stock.price }}</div>
                         </div>
@@ -437,23 +491,75 @@ const isTechSignal = (code?: string) => {
         <div class="flex-1 flex flex-col min-h-0">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" viewBox="0 0 20 20"
+                        fill="currentColor">
+                        <path
+                            d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                     </svg>
                     交叉建議
                     <span class="text-[10px] text-gray-400 ml-2">{{ turnoverTodayDate || '-' }}</span>
                 </h3>
             </div>
-            
+
             <div class="grid grid-cols-2 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
                 <div>標的</div>
                 <div>現價</div>
             </div>
 
             <div class="overflow-y-auto flex-1 bg-black">
-                <div v-for="item in crossSuggestions" :key="item.id" class="grid grid-cols-2 text-center py-3 border-b border-gray-900 hover:bg-gray-900 transition-colors text-sm">
+                <div v-for="item in crossSuggestions" :key="item.id"
+                    class="grid grid-cols-2 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                    :class="selectedStock?.name === item.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
+                    @click="selectStock(item)">
                     <div class="font-bold text-blue-300">{{ item.name }}</div>
                     <div class="text-yellow-400">{{ item.price }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 4: AI Analysis Panel -->
+        <div class="h-64 bg-[#1f1f1f] border-t border-gray-700 flex flex-col shrink-0">
+            <div class="p-2 border-b border-gray-800 flex items-center gap-4">
+                <h3 class="font-bold text-sm text-white flex items-center gap-2">
+                    <span class="text-xl">🤖</span> AI 股票分析對話框
+                </h3>
+
+                <div v-if="selectedStock"
+                    class="flex items-center gap-2 bg-gray-800 px-3 py-1 rounded-full border border-gray-600">
+                    <span class="text-blue-300 font-bold">{{ selectedStock.name }}</span>
+                    <span class="text-xs text-yellow-500">{{ selectedStock.code }}</span>
+                </div>
+                <div v-else class="text-gray-500 text-sm italic">
+                    (請點選上方列表選擇股票)
+                </div>
+            </div>
+
+            <div class="flex-1 flex gap-4 p-4 overflow-hidden">
+                <div class="w-1/3 flex flex-col gap-3">
+                    <label class="text-xs text-gray-400">選擇問題</label>
+                    <select v-model="selectedQuestion"
+                        class="select select-sm select-bordered w-full bg-[#1a1a1a] text-white border-gray-600 focus:border-blue-500">
+                        <option v-for="q in questions" :key="q">{{ q }}</option>
+                    </select>
+
+                    <button @click="askLLM" :disabled="!selectedStock || llmLoading"
+                        class="btn btn-sm btn-primary w-full mt-auto"
+                        :class="{ 'opacity-50': !selectedStock || llmLoading }">
+                        <span v-if="llmLoading" class="loading loading-spinner loading-xs"></span>
+                        {{ llmLoading ? '分析中...' : '開始分析' }}
+                    </button>
+                </div>
+
+                <div
+                    class="flex-1 bg-[#151515] rounded border border-gray-700 p-4 overflow-y-auto font-mono text-sm leading-relaxed text-gray-300">
+                    <div v-if="llmResponse" class="whitespace-pre-wrap">{{ llmResponse }}</div>
+                    <div v-else-if="llmLoading"
+                        class="flex items-center justify-center h-full text-gray-500 animate-pulse">
+                        正在思考中...
+                    </div>
+                    <div v-else class="flex items-center justify-center h-full text-gray-600">
+                        選擇股票並提問以獲取分析
+                    </div>
                 </div>
             </div>
         </div>

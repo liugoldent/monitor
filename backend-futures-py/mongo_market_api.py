@@ -41,6 +41,10 @@ TZ = ZoneInfo("Asia/Taipei")
 
 mongo_client = MongoClient(MONGO_URI)
 
+from openai import OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
 
 def get_collection_name(date_str: str | None) -> str:
     if date_str:
@@ -128,9 +132,51 @@ class MarketApiHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def do_POST(self) -> None:
+        if self.path == "/api/chat_llm":
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length)
+                payload = json.loads(post_data.decode('utf-8'))
+                
+                if not openai_client:
+                    self._send_json(500, {"error": "OpenAI API key not configured"})
+                    return
+
+                stock_name = payload.get("stock_name", "Unknown Stock")
+                question = payload.get("question", "Please analyze this stock.")
+                stock_data_context = payload.get("context", "")
+
+                prompt = f"""
+                    You are a professional stock analyst.
+                    User is asking about stock: {stock_name}
+                    Question: {question}
+
+                    Here is some technical data context:
+                    {stock_data_context}
+
+                    Please provide a concise and professional analysis in Traditional Chinese (Taiwan).
+                    """
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful financial assistant."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                
+                answer = response.choices[0].message.content
+                self._send_json(200, {"answer": answer})
+            except Exception as e:
+                print(f"Error in chat_llm: {e}")
+                self._send_json(500, {"error": str(e)})
+            return
+        
+        self._send_json(404, {"error": "Not found"})
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
