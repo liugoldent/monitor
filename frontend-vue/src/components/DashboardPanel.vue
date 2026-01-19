@@ -106,8 +106,6 @@ const fetchTurnoverRanking = async (date?: string) => {
 }
 
 const fetchTurnoverTech = async (date?: string) => {
-    console.log("🚀 ~ fetchTurnoverTech ~ date:", date)
-    debugger
     try {
         const url = date ? `${TURNOVER_TECH_API_URL}?date=${date}` : TURNOVER_TECH_API_URL
         const response = await fetch(url)
