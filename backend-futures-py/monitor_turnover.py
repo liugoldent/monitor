@@ -94,11 +94,14 @@ def get_realtime_turnover():
                 # 這裡使用相對路徑提取
                 name = row.find_element(By.CSS_SELECTOR, r'.Lh\(20px\)').text
                 code = row.find_element(By.CSS_SELECTOR, r'.Fz\(14px\)').text
-                price = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[0].text
-                change = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[1].text
-                change_percent = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[2].text
-                volume = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[3].text
-                turnover = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')[4].text
+                cells = row.find_elements(By.CSS_SELECTOR, r'.Jc\(fe\)')
+                price = cells[0].text if len(cells) > 0 else ""
+                change = cells[1].text if len(cells) > 1 else ""
+                change_percent = cells[2].text if len(cells) > 2 else ""
+                high = cells[3].text if len(cells) > 3 else ""
+                low = cells[4].text if len(cells) > 4 else ""
+                volume = cells[6].text if len(cells) > 6 else ""
+                turnover = cells[7].text if len(cells) > 7 else ""
                 
                 data_list.append({
                     "股票名稱/代碼": name.replace('\n', ' '),
@@ -107,7 +110,9 @@ def get_realtime_turnover():
                     "漲跌": change,
                     "幅度": change_percent,
                     "成交量(張)": volume,
-                    "成交值(億)": turnover
+                    "成交值(億)": turnover,
+                    "最高價": high,
+                    "最低價": low,
                 })
             except:
                 continue # 略過標頭或其他非資料行
@@ -158,12 +163,16 @@ def upsert_turnover(df: pd.DataFrame, collection_name: str, now: datetime) -> No
     for idx, (_, row) in enumerate(top_df.iterrows(), start=1):
         name = str(row.get("股票名稱/代碼", "")).replace("\n", " ").strip()
         close_price = str(row.get("成交價", "")).strip()
+        high_price = str(row.get("最高價", "")).strip()
+        low_price = str(row.get("最低價", "")).strip()
         raw_code = str(row.get("代碼", "")).strip()
         records.append({
             "no": idx,
             "code": raw_code.removesuffix('.TW').removesuffix('.TWO'),
             "name": name,
             "close": close_price,
+            "high": high_price,
+            "Low": low_price,
         })
 
     payload = {
@@ -175,18 +184,23 @@ def upsert_turnover(df: pd.DataFrame, collection_name: str, now: datetime) -> No
     print(f"✅ 已覆蓋 {collection_name} 最新資料，共 {len(records)} 筆")
 
 
+def run_turnover_once() -> None:
+    now = datetime.now(TZ)
+    df_result = get_realtime_turnover()
+    if df_result is not None and not df_result.empty:
+        collection_name = get_collection_name(now)
+        upsert_turnover(df_result, collection_name, now)
+    else:
+        print("未能抓取到資料。")
+
+
 def main() -> None:
     while True:
         try:
             now = datetime.now(TZ)
             if now.second == 0 and is_market_open(now):
                 try:
-                    df_result = get_realtime_turnover()
-                    if df_result is not None and not df_result.empty:
-                        collection_name = get_collection_name(now)
-                        upsert_turnover(df_result, collection_name, now)
-                    else:
-                        print("未能抓取到資料。")
+                    run_turnover_once()
                 except Exception as exc:
                     print(f"❌ 抓取或寫入失敗: {exc}")
             sleep_until_next_minute()

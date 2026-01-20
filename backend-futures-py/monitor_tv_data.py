@@ -229,6 +229,36 @@ def get_tv_dataT():
         heikin_Ashi_text = "1" if heikin_Ashi_raw == "∅" else "0"
         print('get Heikin Ashi Finish', heikin_Ashi_text)
 
+        # ma 10 (1d)
+        ma10_1D_Xpath = (
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[2]/div"
+        )
+        ma10_1D_ = WebDriverWait(driver, 60).until(
+            EC.visibility_of_element_located((By.XPATH, ma10_1D_Xpath))
+        )
+        ma10_1D_text = ma10_1D_.text.replace(',', '')
+        print('get Ma 10 (1d) Finish', ma10_1D_text)
+
+        # ma 5 (1d)
+        ma5_1D_Xpath = (
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[1]/div"
+        )
+        ma5_1D_ = WebDriverWait(driver, 60).until(
+            EC.visibility_of_element_located((By.XPATH, ma5_1D_Xpath))
+        )
+        ma5_1D_text = ma5_1D_.text.replace(',', '')
+        print('get Ma 5 (1d) Finish', ma5_1D_text)
+
+        # ma 10 (1d)
+        ma20_1D_Xpath = (
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[3]/div"
+        )
+        ma20_1D_ = WebDriverWait(driver, 60).until(
+            EC.visibility_of_element_located((By.XPATH, ma20_1D_Xpath))
+        )
+        ma20_1D_text = ma20_1D_.text.replace(',', '')
+        print('get Ma 20 (1d) Finish', ma20_1D_text)
+
 
         update_wantgoo_doc_by_code(
             date,
@@ -237,6 +267,9 @@ def get_tv_dataT():
                 "ma_UpperAll": ma_UpperAll_text,
                 "sqzmom_stronger_2d": sqzmom_stronger_value_2d_text,
                 "heikin_Ashi": heikin_Ashi_text,
+                "ma5_1d": ma5_1D_text,
+                "ma10_1d": ma10_1D_text,
+                "ma20_1d": ma20_1D_text,
             }
         )
         time.sleep(1)
