@@ -122,6 +122,8 @@ def _upsert_yahoo_turnover_items(collection_name: str, items: list[dict]) -> Non
             "code": code,
             "name": item.get("name", ""),
             "close": item.get("close", ""),
+            "high": item.get("high", ""),
+            "low": item.get("low", ""),
             "tv_updated_time": timestamp,
         }
         operations.append(UpdateOne({"code": code}, {"$set": payload}, upsert=True))

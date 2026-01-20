@@ -7,6 +7,8 @@ type TurnoverItem = {
     price: string | number
     volume: string | number
     code?: string
+    close?: string | number
+    low?: string | number
 }
 
 type TurnoverTechItem = {
@@ -14,6 +16,9 @@ type TurnoverTechItem = {
     heikin_Ashi?: string | number
     ma_UpperAll?: string | number
     sqzmom_stronger_2d?: string | number
+    ma5_1d?: string | number
+    ma10_1d?: string | number
+    ma20_1d?: string | number
 }
 
 type MarketItem = {
@@ -49,6 +54,7 @@ const TURNOVER_API_URL =
     import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
 const TURNOVER_TECH_API_URL =
     import.meta.env.VITE_TURNOVER_TECH_API_URL || 'http://localhost:5050/api/turnover_tech'
+const MA10_DEVIATION_THRESHOLD = 0.01
 
 const formatDateString = (date: Date) => {
     const year = date.getFullYear()
@@ -69,6 +75,13 @@ const parseDateString = (dateString: string) => {
 }
 
 const normalizeCode = (code?: string) => String(code ?? '').trim()
+const parseNumber = (value?: string | number) => {
+    if (value === null || value === undefined) return NaN
+    if (typeof value === 'number') return value
+    const cleaned = String(value).replace(/,/g, '').trim()
+    if (!cleaned) return NaN
+    return Number(cleaned)
+}
 
 const getCurrentTechSlot = (now: Date) => {
     const slots = [
@@ -98,7 +111,9 @@ const fetchTurnoverRanking = async (date?: string) => {
             name: item.name ?? '',
             price: item.close ?? '-',
             volume: item.turnover ?? '-',
-            code: item.code ?? '- '
+            code: item.code ?? '- ',
+            close: item.close ?? '-',
+            low: (item as { low?: string; Low?: string }).low ?? (item as { Low?: string }).Low ?? '-',
         }))
     } catch (error) {
         console.error('Failed to load turnover ranking:', error)
@@ -125,6 +140,9 @@ const fetchTurnoverTech = async (date?: string) => {
                 heikin_Ashi: item.heikin_Ashi,
                 ma_UpperAll: item.ma_UpperAll,
                 sqzmom_stronger_2d: item.sqzmom_stronger_2d,
+                ma5_1d: item.ma5_1d,
+                ma10_1d: item.ma10_1d,
+                ma20_1d: item.ma20_1d,
             })
         })
 
@@ -198,6 +216,7 @@ onMounted(() => {
     const refreshTurnover = async () => {
         const { latestList, previousList, latestDate, previousDate } = await findLatestTurnoverData()
         turnoverToday.value = latestList
+        console.log("🚀 ~ refreshTurnover ~ turnoverToday.value:", turnoverToday.value)
         turnoverYesterday.value = previousList
         turnoverTodayDate.value = latestDate
         turnoverYesterdayDate.value = previousDate
@@ -297,11 +316,40 @@ const turnoverTechOnList = computed(() => {
         .filter((stock) => isTechSignal(stock.code))
 })
 
+const turnoverMa10SignalList = computed(() => {
+    return turnoverToday.value
+        .map((stock, index) => {
+            const code = normalizeCode(stock.code)
+            const tech = turnoverTechMap.value.get(code)
+            return {
+                ...stock,
+                rank: index + 1,
+                tech,
+            }
+        })
+        .filter((stock) => {
+            const tech = stock.tech
+            if (!tech) return false
+            const close = parseNumber(stock.close ?? stock.price)
+            const low = parseNumber(stock.low)
+            const ma5 = parseNumber(tech.ma5_1d)
+            const ma10 = parseNumber(tech.ma10_1d)
+            const ma20 = parseNumber(tech.ma20_1d)
+            const sqz = Number(tech.sqzmom_stronger_2d)
+            if (!Number.isFinite(ma10) || ma10 === 0) return false
+            const closeNear = Number.isFinite(close) && Math.abs(close - ma10) / ma10 <= MA10_DEVIATION_THRESHOLD
+            const lowNear = Number.isFinite(low) && Math.abs(low - ma10) / ma10 <= MA10_DEVIATION_THRESHOLD
+            const isMaStacked = Number.isFinite(ma5) && Number.isFinite(ma20) && ma5 > ma10 && ma10 > ma20
+            return (closeNear || lowNear) && isMaStacked && sqz === 1
+        })
+})
+
 // 5. LLM Integration
 const selectedStock = ref<{ name: string; code?: string; price: string | number } | null>(null)
 const selectedQuestion = ref('分析技術面趨勢')
 const llmResponse = ref('')
 const llmLoading = ref(false)
+const activeTechTab = ref<'signal' | 'ma10'>('signal')
 const questions = [
     '分析技術面趨勢',
     '分析籌碼面',
@@ -456,8 +504,27 @@ const askLLM = async () => {
                 </div>
 
                 <div class="flex flex-col min-h-0 border border-gray-800 rounded">
-                    <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
-                        成交值技術分析 ✓
+                    <div
+                        class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800 flex items-center justify-between gap-2">
+                        <span>成交值技術分析</span>
+                        <div class="flex items-center gap-1 text-[10px]">
+                            <button
+                                class="px-2 py-1 rounded border"
+                                :class="activeTechTab === 'signal'
+                                    ? 'bg-blue-600/40 border-blue-500 text-white'
+                                    : 'bg-transparent border-gray-600 text-gray-400'"
+                                @click="activeTechTab = 'signal'">
+                                Heikin Ashi
+                            </button>
+                            <button
+                                class="px-2 py-1 rounded border"
+                                :class="activeTechTab === 'ma10'
+                                    ? 'bg-blue-600/40 border-blue-500 text-white'
+                                    : 'bg-transparent border-gray-600 text-gray-400'"
+                                @click="activeTechTab = 'ma10'">
+                                MA10 乖離
+                            </button>
+                        </div>
                     </div>
                     <div
                         class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
@@ -467,7 +534,9 @@ const askLLM = async () => {
                         <div>成交價</div>
                     </div>
                     <div class="overflow-y-auto flex-1 bg-black">
-                        <div v-for="stock in turnoverTechOnList" :key="stock.id"
+                        <div
+                            v-for="stock in activeTechTab === 'signal' ? turnoverTechOnList : turnoverMa10SignalList"
+                            :key="stock.id"
                             class="grid grid-cols-4 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
                             :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
                             @click="selectStock(stock)">
