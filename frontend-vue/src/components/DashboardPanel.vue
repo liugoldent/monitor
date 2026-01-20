@@ -34,6 +34,7 @@ type CrossSuggestion = {
 const props = defineProps<{
     highest20: MarketItem[]
     lowest20: MarketItem[]
+    tradeSuggestion: string
 }>()
 
 // 1. Turnover Ranking (大盤成交值排行)
@@ -191,30 +192,6 @@ const findLatestTurnoverData = async (maxLookbackDays = 7) => {
     }
 }
 
-// 2. Market Sentiment (大盤氣氛 - 3個數字)
-const marketSentiment = ref({
-    foreign: 0,
-    retail: 0,
-    guerilla: 0,
-})
-const marketSentimentDate = ref<string>('')
-const MXF_API_URL = import.meta.env.VITE_MXF_API_URL || 'http://localhost:5050/api/mxf'
-
-const fetchMarketSentiment = async () => {
-    try {
-        const response = await fetch(MXF_API_URL)
-        const payload = await response.json()
-        marketSentiment.value = {
-            foreign: Number(payload?.tx_bvav ?? 0),
-            retail: Number(payload?.mtx_tbta ?? 0),
-            guerilla: Number(payload?.mtx_bvav ?? 0),
-        }
-        marketSentimentDate.value = payload?.time ? String(payload.time).slice(0, 10) : ''
-    } catch (error) {
-        console.error('Failed to load market sentiment:', error)
-    }
-}
-
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
@@ -227,10 +204,8 @@ onMounted(() => {
         await refreshTurnoverTech(latestDate)
     }
     refreshTurnover()
-    fetchMarketSentiment()
     refreshTimer = setInterval(() => {
         refreshTurnover()
-        fetchMarketSentiment()
     }, 60_000)
 })
 
@@ -241,14 +216,6 @@ onBeforeUnmount(() => {
     }
 })
 
-// 3. Recommendation (建議做多or空)
-const tradeSuggestion = computed(() => {
-    const { foreign, retail, guerilla } = marketSentiment.value
-    if (foreign < 0 && guerilla < 0 && retail > 0) return '做空'
-    if (foreign > 0 && guerilla > 0 && retail < 0) return '做多'
-    return '混沌'
-})
-
 const normalizeName = (name: string) => {
     return name?.split(' ')[0].replace(/小型|期/g, '').trim()
 }
@@ -256,9 +223,9 @@ const normalizeName = (name: string) => {
 // 4. Cross Analysis (交叉建議股票)
 const crossSuggestions = computed<CrossSuggestion[]>(() => {
     const targetList =
-        tradeSuggestion.value === '做空'
+        props.tradeSuggestion === '做空'
             ? props.lowest20
-            : tradeSuggestion.value === '做多'
+            : props.tradeSuggestion === '做多'
                 ? props.highest20
                 : []
     if (!targetList.length || !turnoverToday.value.length) return []
@@ -321,6 +288,15 @@ const isTechSignal = (code?: string) => {
     )
 }
 
+const turnoverTechOnList = computed(() => {
+    return turnoverToday.value
+        .map((stock, index) => ({
+            ...stock,
+            rank: index + 1,
+        }))
+        .filter((stock) => isTechSignal(stock.code))
+})
+
 // 5. LLM Integration
 const selectedStock = ref<{ name: string; code?: string; price: string | number } | null>(null)
 const selectedQuestion = ref('分析技術面趨勢')
@@ -379,47 +355,6 @@ const askLLM = async () => {
 
 <template>
     <div class="flex flex-col h-full bg-[#1a1a1a] text-gray-300 font-sans overflow-hidden">
-
-        <!-- Section 1: Top Dashboard (Sentiment & Suggestion) -->
-        <div class="p-4 bg-[#242424] border-b border-gray-700 shrink-0">
-            <h2 class="text-white font-bold mb-4 flex items-center gap-2">
-                <span class="w-2 h-6 bg-blue-500 rounded"></span>
-                大盤氣氛 & 建議
-                <span class="text-[10px] text-gray-400 ml-2">{{ marketSentimentDate || '-' }}</span>
-            </h2>
-
-            <div class="flex gap-4">
-                <!-- 3 Numbers -->
-                <div class="flex-1 grid grid-cols-3 gap-2">
-                    <div
-                        class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
-                        <span class="text-xs text-gray-500">外資</span>
-                        <span class="text-xl font-bold text-red-400">{{ marketSentiment.foreign }}</span>
-                    </div>
-                    <div
-                        class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
-                        <span class="text-xs text-gray-500">散戶</span>
-                        <span class="text-xl font-bold text-yellow-400">{{ marketSentiment.retail }}</span>
-                    </div>
-                    <div
-                        class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
-                        <span class="text-xs text-gray-500">游擊隊</span>
-                        <span class="text-xl font-bold text-green-400">{{ marketSentiment.guerilla }}</span>
-                    </div>
-                </div>
-
-                <!-- Suggestion Box -->
-                <div class="w-32 flex flex-col items-center justify-center border rounded" :class="{
-                    'bg-gradient-to-br from-red-900/50 to-red-600/20 border-red-500/30': tradeSuggestion === '做多',
-                    'bg-gradient-to-br from-green-900/50 to-green-600/20 border-green-500/30': tradeSuggestion === '做空',
-                    'bg-gradient-to-br from-gray-800/60 to-gray-700/30 border-gray-500/30': tradeSuggestion === '混沌',
-                }">
-                    <span class="text-xs text-red-200 mb-1">操作建議</span>
-                    <span class="text-2xl font-black text-white tracking-widest">{{ tradeSuggestion }}</span>
-                </div>
-            </div>
-        </div>
-
         <!-- Section 2: Turnover Ranking (Table) -->
         <div class="flex-1 flex flex-col min-h-0 border-b border-gray-700">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
@@ -501,18 +436,47 @@ const askLLM = async () => {
                 </h3>
             </div>
 
-            <div class="grid grid-cols-2 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
-                <div>標的</div>
-                <div>現價</div>
-            </div>
+            <div class="grid grid-cols-2 gap-2 flex-1 min-h-0 bg-black p-2">
+                <div class="flex flex-col min-h-0 border border-gray-800 rounded">
+                    <div
+                        class="grid grid-cols-2 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
+                        <div>標的</div>
+                        <div>現價</div>
+                    </div>
 
-            <div class="overflow-y-auto flex-1 bg-black">
-                <div v-for="item in crossSuggestions" :key="item.id"
-                    class="grid grid-cols-2 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
-                    :class="selectedStock?.name === item.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
-                    @click="selectStock(item)">
-                    <div class="font-bold text-blue-300">{{ item.name }}</div>
-                    <div class="text-yellow-400">{{ item.price }}</div>
+                    <div class="overflow-y-auto flex-1 bg-black">
+                        <div v-for="item in crossSuggestions" :key="item.id"
+                            class="grid grid-cols-2 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                            :class="selectedStock?.name === item.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
+                            @click="selectStock(item)">
+                            <div class="font-bold text-blue-300">{{ item.name }}</div>
+                            <div class="text-yellow-400">{{ item.price }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col min-h-0 border border-gray-800 rounded">
+                    <div class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800">
+                        成交值技術分析 ✓
+                    </div>
+                    <div
+                        class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        <div>排行</div>
+                        <div>代號</div>
+                        <div>名稱</div>
+                        <div>成交價</div>
+                    </div>
+                    <div class="overflow-y-auto flex-1 bg-black">
+                        <div v-for="stock in turnoverTechOnList" :key="stock.id"
+                            class="grid grid-cols-4 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                            :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
+                            @click="selectStock(stock)">
+                            <div class="text-gray-400">{{ stock.rank }}</div>
+                            <div class="font-medium text-white">{{ stock.code }}</div>
+                            <div class="font-medium text-white">{{ stock.name }}</div>
+                            <div class="text-yellow-400">{{ stock.price }}</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
