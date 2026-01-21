@@ -11,8 +11,17 @@ type MarketItem = {
   combine: number
 }
 
+type CrossSuggestion = {
+  id: string | number
+  name: string
+  price: string | number
+  code?: string
+}
+
 const highest20 = ref<MarketItem[]>([])
 const lowest20 = ref<MarketItem[]>([])
+const crossSuggestions = ref<CrossSuggestion[]>([])
+const turnoverTodayDate = ref<string>('')
 
 const marketSentiment = ref({
   foreign: 0,
@@ -106,12 +115,41 @@ onBeforeUnmount(() => {
             @update:lowest20="lowest20 = $event"
           />
         </div>
+
+        <div class="h-64 bg-[#1f1f1f] border-t border-gray-700 flex flex-col shrink-0">
+          <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
+            <h3 class="font-bold text-sm text-white flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" viewBox="0 0 20 20"
+                fill="currentColor">
+                <path
+                  d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              </svg>
+              交叉建議
+              <span class="text-[10px] text-gray-400 ml-2">{{ turnoverTodayDate || '-' }}</span>
+            </h3>
+          </div>
+
+          <div class="grid grid-cols-2 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
+            <div>標的</div>
+            <div>現價</div>
+          </div>
+
+          <div class="overflow-y-auto flex-1 bg-black">
+            <div v-for="item in crossSuggestions" :key="item.id"
+              class="grid grid-cols-2 text-center py-3 border-b border-gray-900 transition-colors text-sm">
+              <div class="font-bold text-blue-300">{{ item.name }}</div>
+              <div class="text-yellow-400">{{ item.price }}</div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="h-full rounded-xl overflow-hidden shadow-2xl border border-gray-800">
         <DashboardPanel
           :highest20="highest20"
           :lowest20="lowest20"
           :tradeSuggestion="tradeSuggestion"
+          @update:crossSuggestions="crossSuggestions = $event"
+          @update:turnoverDate="turnoverTodayDate = $event"
         />
       </div>
     </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 type TurnoverItem = {
     id: number | string
@@ -19,6 +19,7 @@ type TurnoverTechItem = {
     ma5_1d?: string | number
     ma10_1d?: string | number
     ma20_1d?: string | number
+    volumeCombo?: string | number
 }
 
 type MarketItem = {
@@ -41,6 +42,10 @@ const props = defineProps<{
     lowest20: MarketItem[]
     tradeSuggestion: string
 }>()
+const emit = defineEmits<{
+    (event: 'update:crossSuggestions', items: CrossSuggestion[]): void
+    (event: 'update:turnoverDate', date: string): void
+}>()
 
 // 1. Turnover Ranking (大盤成交值排行)
 const turnoverToday = ref<TurnoverItem[]>([])
@@ -55,6 +60,7 @@ const TURNOVER_API_URL =
 const TURNOVER_TECH_API_URL =
     import.meta.env.VITE_TURNOVER_TECH_API_URL || 'http://localhost:5050/api/turnover_tech'
 const MA10_DEVIATION_THRESHOLD = 0.01
+const PORTFOLIO_STORAGE_KEY = 'monitor_portfolio_codes'
 
 const formatDateString = (date: Date) => {
     const year = date.getFullYear()
@@ -81,6 +87,12 @@ const parseNumber = (value?: string | number) => {
     const cleaned = String(value).replace(/,/g, '').trim()
     if (!cleaned) return NaN
     return Number(cleaned)
+}
+
+const parsePortfolioCodes = (raw: string) => {
+    const parts = raw.split(/[\s,]+/).map((item) => normalizeCode(item))
+    const seen = new Set<string>()
+    return parts.filter((code) => code && !seen.has(code) && seen.add(code))
 }
 
 const getCurrentTechSlot = (now: Date) => {
@@ -125,11 +137,8 @@ const fetchTurnoverTech = async (date?: string) => {
     try {
         const url = date ? `${TURNOVER_TECH_API_URL}?date=${date}` : TURNOVER_TECH_API_URL
         const response = await fetch(url)
-        console.log("🚀 ~ fetchTurnoverTech ~ response:", response)
         const payload = await response.json()
-        console.log("🚀 ~ fetchTurnoverTech ~ payload:", payload)
         const data = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []
-        console.log("🚀 ~ fetchTurnoverTech ~ data:", data)
         const nextMap = new Map<string, TurnoverTechItem>()
 
         data.forEach((item: TurnoverTechItem) => {
@@ -143,6 +152,7 @@ const fetchTurnoverTech = async (date?: string) => {
                 ma5_1d: item.ma5_1d,
                 ma10_1d: item.ma10_1d,
                 ma20_1d: item.ma20_1d,
+                volumeCombo: item.volumeCombo,
             })
         })
 
@@ -216,7 +226,6 @@ onMounted(() => {
     const refreshTurnover = async () => {
         const { latestList, previousList, latestDate, previousDate } = await findLatestTurnoverData()
         turnoverToday.value = latestList
-        console.log("🚀 ~ refreshTurnover ~ turnoverToday.value:", turnoverToday.value)
         turnoverYesterday.value = previousList
         turnoverTodayDate.value = latestDate
         turnoverYesterdayDate.value = previousDate
@@ -343,6 +352,24 @@ const turnoverMa10SignalList = computed(() => {
             return (closeNear || lowNear) && isMaStacked && sqz === 1
         })
 })
+
+const turnoverVolumeComboList = computed(() => {
+    return turnoverToday.value
+        .map((stock, index) => {
+            const code = normalizeCode(stock.code)
+            const tech = turnoverTechMap.value.get(code)
+            return {
+                ...stock,
+                rank: index + 1,
+                tech,
+            }
+        })
+        .filter((stock) => {
+            const tech = stock.tech
+            if (!tech) return false
+            return Number(tech.volumeCombo) === 1 && Number(tech.ma_UpperAll) === 1
+        })
+})
 const turnoverRiseTop3List = computed(() => {
     return turnoverToday.value
         .map((stock, index) => ({
@@ -354,12 +381,81 @@ const turnoverRiseTop3List = computed(() => {
         .slice(0, 3)
 })
 
+const portfolioDisplayList = computed(() => {
+    const rankedMap = new Map(
+        turnoverToday.value.map((stock, index) => [
+            normalizeCode(stock.code),
+            { ...stock, rank: index + 1 },
+        ]),
+    )
+
+    return portfolioCodes.value.map((code) => {
+        const match = rankedMap.get(code)
+        if (!match) {
+            return {
+                id: `portfolio-${code}`,
+                code,
+                name: '',
+                price: '',
+                rank: '',
+            }
+        }
+        return {
+            ...match,
+            id: match.id ?? `portfolio-${code}`,
+        }
+    })
+})
+
 // 5. LLM Integration
 const selectedStock = ref<{ name: string; code?: string; price: string | number } | null>(null)
 const selectedQuestion = ref('分析技術面趨勢')
 const llmResponse = ref('')
 const llmLoading = ref(false)
-const activeTechTab = ref<'signal' | 'ma10' | 'turnover'>('signal')
+const activeTechTab = ref<'signal' | 'ma10' | 'turnover' | 'volumeCombo' | 'portfolio'>('signal')
+const portfolioInput = ref('')
+const portfolioCodes = ref<string[]>([])
+
+const shouldShowIndicators = (stock: { name?: string }) => {
+    return !(activeTechTab.value === 'portfolio' && !stock.name)
+}
+
+onMounted(() => {
+    try {
+        const saved = localStorage.getItem(PORTFOLIO_STORAGE_KEY)
+        if (saved) {
+            portfolioInput.value = saved
+            portfolioCodes.value = parsePortfolioCodes(saved)
+        }
+    } catch (error) {
+        console.warn('Failed to read portfolio from localStorage:', error)
+    }
+})
+
+watch(portfolioInput, (value) => {
+    portfolioCodes.value = parsePortfolioCodes(value)
+    try {
+        localStorage.setItem(PORTFOLIO_STORAGE_KEY, value)
+    } catch (error) {
+        console.warn('Failed to write portfolio to localStorage:', error)
+    }
+})
+
+watch(
+    crossSuggestions,
+    (items) => {
+        emit('update:crossSuggestions', items)
+    },
+    { immediate: true },
+)
+
+watch(
+    turnoverTodayDate,
+    (date) => {
+        emit('update:turnoverDate', date)
+    },
+    { immediate: true },
+)
 const questions = [
     '分析技術面趨勢',
     '分析籌碼面',
@@ -480,7 +576,7 @@ const askLLM = async () => {
             </div>
         </div>
 
-        <!-- Section 3: Cross Suggestions (Table) -->
+        <!-- Section 3: Turnover Tech (Table) -->
         <div class="flex-1 flex flex-col min-h-0">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
@@ -489,83 +585,104 @@ const askLLM = async () => {
                         <path
                             d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                     </svg>
-                    交叉建議
+                    成交值技術分析
                     <span class="text-[10px] text-gray-400 ml-2">{{ turnoverTodayDate || '-' }}</span>
                 </h3>
             </div>
 
-            <div class="grid grid-cols-2 gap-2 flex-1 min-h-0 bg-black p-2">
-                <div class="flex flex-col min-h-0 border border-gray-800 rounded">
-                    <div
-                        class="grid grid-cols-2 text-center py-2 bg-[#2d2d2d] text-xs font-medium text-gray-400 shrink-0">
-                        <div>標的</div>
-                        <div>現價</div>
-                    </div>
-
-                    <div class="overflow-y-auto flex-1 bg-black">
-                        <div v-for="item in crossSuggestions" :key="item.id"
-                            class="grid grid-cols-2 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
-                            :class="selectedStock?.name === item.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
-                            @click="selectStock(item)">
-                            <div class="font-bold text-blue-300">{{ item.name }}</div>
-                            <div class="text-yellow-400">{{ item.price }}</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex flex-col min-h-0 border border-gray-800 rounded">
+            <div class="flex-1 min-h-0 bg-black p-2">
+                <div class="flex flex-col min-h-0 border border-gray-800 rounded h-full">
                     <div
                         class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800 flex items-center justify-between gap-2">
                         <span>成交值技術分析</span>
                         <div class="flex items-center gap-1 text-[10px]">
-                            <button
-                                class="px-2 py-1 rounded border"
-                                :class="activeTechTab === 'signal'
-                                    ? 'bg-blue-600/40 border-blue-500 text-white'
-                                    : 'bg-transparent border-gray-600 text-gray-400'"
+                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'signal'
+                                ? 'bg-blue-600/40 border-blue-500 text-white'
+                                : 'bg-transparent border-gray-600 text-gray-400'"
                                 @click="activeTechTab = 'signal'">
                                 Heikin Ashi
                             </button>
-                            <button
-                                class="px-2 py-1 rounded border"
-                                :class="activeTechTab === 'ma10'
-                                    ? 'bg-blue-600/40 border-blue-500 text-white'
-                                    : 'bg-transparent border-gray-600 text-gray-400'"
-                                @click="activeTechTab = 'ma10'">
+                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'ma10'
+                                ? 'bg-blue-600/40 border-blue-500 text-white'
+                                : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'ma10'">
                                 MA10 乖離
                             </button>
-                            <button
-                                class="px-2 py-1 rounded border"
-                                :class="activeTechTab === 'turnover'
-                                    ? 'bg-blue-600/40 border-blue-500 text-white'
-                                    : 'bg-transparent border-gray-600 text-gray-400'"
+                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'turnover'
+                                ? 'bg-blue-600/40 border-blue-500 text-white'
+                                : 'bg-transparent border-gray-600 text-gray-400'"
                                 @click="activeTechTab = 'turnover'">
                                 成交值上升前3
                             </button>
+                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'volumeCombo'
+                                ? 'bg-blue-600/40 border-blue-500 text-white'
+                                : 'bg-transparent border-gray-600 text-gray-400'"
+                                @click="activeTechTab = 'volumeCombo'">
+                                volumeCombo
+                            </button>
+                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'portfolio'
+                                ? 'bg-blue-600/40 border-blue-500 text-white'
+                                : 'bg-transparent border-gray-600 text-gray-400'"
+                                @click="activeTechTab = 'portfolio'">
+                                庫存觀察
+                            </button>
                         </div>
                     </div>
+                    <div v-if="activeTechTab === 'portfolio'" class="px-3 py-2 border-b border-gray-800 bg-[#1f1f1f]">
+                        <input v-model="portfolioInput" type="text"
+                            class="w-full bg-[#0f0f0f] text-gray-200 text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-500"
+                            placeholder="輸入股號，空白或逗號分隔，會自動儲存" />
+                    </div>
                     <div
-                        class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        class="grid grid-cols-7 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                         <div>排行</div>
                         <div>代號</div>
                         <div>名稱</div>
                         <div>成交價</div>
+                        <div>成交量增</div>
+                        <div>動能增強</div>
+                        <div>平均K棒</div>
                     </div>
                     <div class="overflow-y-auto flex-1 bg-black">
-                        <div
-                            v-for="stock in activeTechTab === 'signal'
-                                ? turnoverTechOnList
-                                : activeTechTab === 'ma10'
-                                    ? turnoverMa10SignalList
-                                    : turnoverRiseTop3List"
-                            :key="stock.id"
-                            class="grid grid-cols-4 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                        <div v-for="stock in activeTechTab === 'signal'
+                            ? turnoverTechOnList
+                            : activeTechTab === 'ma10'
+                                ? turnoverMa10SignalList
+                                : activeTechTab === 'turnover'
+                                    ? turnoverRiseTop3List
+                                    : activeTechTab === 'volumeCombo'
+                                        ? turnoverVolumeComboList
+                                        : portfolioDisplayList" :key="stock.id"
+                            class="grid grid-cols-7 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
                             :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
                             @click="selectStock(stock)">
                             <div class="text-gray-400">{{ stock.rank }}</div>
                             <div class="font-medium text-white">{{ stock.code }}</div>
                             <div class="font-medium text-white">{{ stock.name }}</div>
                             <div class="text-yellow-400">{{ stock.price }}</div>
+                            <div :class="shouldShowIndicators(stock)
+                                ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ? 'text-green-400' : 'text-red-400')
+                                : 'text-gray-600'">
+                                {{ shouldShowIndicators(stock)
+                                    ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ? 'v' :
+                                        'x')
+                                : '' }}
+                            </div>
+                            <div :class="shouldShowIndicators(stock)
+                                ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d) === 1 ? 'text-green-400' : 'text-red-400')
+                                : 'text-gray-600'">
+                                {{ shouldShowIndicators(stock)
+                                    ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d) === 1 ?
+                                        'v' : 'x')
+                                : '' }}
+                            </div>
+                            <div :class="shouldShowIndicators(stock)
+                                ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ? 'text-green-400' : 'text-red-400')
+                                : 'text-gray-600'">
+                                {{ shouldShowIndicators(stock)
+                                    ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ? 'v' :
+                                        'x')
+                                : '' }}
+                            </div>
                         </div>
                     </div>
                 </div>
