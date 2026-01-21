@@ -166,10 +166,12 @@ def upsert_turnover(df: pd.DataFrame, collection_name: str, now: datetime) -> No
         high_price = str(row.get("最高價", "")).strip()
         low_price = str(row.get("最低價", "")).strip()
         raw_code = str(row.get("代碼", "")).strip()
+        volume = str(row.get("成交量(張)", "")).strip()
         records.append({
             "no": idx,
             "code": raw_code.removesuffix('.TW').removesuffix('.TWO'),
             "name": name,
+            "volume": volume,
             "close": close_price,
             "high": high_price,
             "Low": low_price,

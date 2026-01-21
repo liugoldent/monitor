@@ -343,13 +343,23 @@ const turnoverMa10SignalList = computed(() => {
             return (closeNear || lowNear) && isMaStacked && sqz === 1
         })
 })
+const turnoverRiseTop3List = computed(() => {
+    return turnoverToday.value
+        .map((stock, index) => ({
+            ...stock,
+            rank: index + 1,
+            turnoverValue: parseNumber(stock.volume),
+        }))
+        .sort((a, b) => b.turnoverValue - a.turnoverValue)
+        .slice(0, 3)
+})
 
 // 5. LLM Integration
 const selectedStock = ref<{ name: string; code?: string; price: string | number } | null>(null)
 const selectedQuestion = ref('分析技術面趨勢')
 const llmResponse = ref('')
 const llmLoading = ref(false)
-const activeTechTab = ref<'signal' | 'ma10'>('signal')
+const activeTechTab = ref<'signal' | 'ma10' | 'turnover'>('signal')
 const questions = [
     '分析技術面趨勢',
     '分析籌碼面',
@@ -524,6 +534,14 @@ const askLLM = async () => {
                                 @click="activeTechTab = 'ma10'">
                                 MA10 乖離
                             </button>
+                            <button
+                                class="px-2 py-1 rounded border"
+                                :class="activeTechTab === 'turnover'
+                                    ? 'bg-blue-600/40 border-blue-500 text-white'
+                                    : 'bg-transparent border-gray-600 text-gray-400'"
+                                @click="activeTechTab = 'turnover'">
+                                成交值上升前3
+                            </button>
                         </div>
                     </div>
                     <div
@@ -535,7 +553,11 @@ const askLLM = async () => {
                     </div>
                     <div class="overflow-y-auto flex-1 bg-black">
                         <div
-                            v-for="stock in activeTechTab === 'signal' ? turnoverTechOnList : turnoverMa10SignalList"
+                            v-for="stock in activeTechTab === 'signal'
+                                ? turnoverTechOnList
+                                : activeTechTab === 'ma10'
+                                    ? turnoverMa10SignalList
+                                    : turnoverRiseTop3List"
                             :key="stock.id"
                             class="grid grid-cols-4 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
                             :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"

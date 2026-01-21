@@ -121,6 +121,7 @@ def _upsert_yahoo_turnover_items(collection_name: str, items: list[dict]) -> Non
             "no": item.get("no"),
             "code": code,
             "name": item.get("name", ""),
+            "volume": item.get("volume", ""),
             "close": item.get("close", ""),
             "high": item.get("high", ""),
             "low": item.get("low", ""),
@@ -210,6 +211,15 @@ def get_tv_dataT():
         ma_UpperAll_text = ma_UpperAll_.text.replace(',', '')
         print('get Ma Upper All', ma_UpperAll_text)
 
+        volumeCombo_Xpath = (
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"
+        )
+        volumeCombo_ = WebDriverWait(driver, 60).until(
+            EC.visibility_of_element_located((By.XPATH, volumeCombo_Xpath))
+        )
+        volumeCombo_text = volumeCombo_.text.replace(',', '')
+        print('get Ma Upper All', volumeCombo_text)
+
         # 2D SQZMOM Stronger
         sqzmom_stronger_value_2DXpath = (
             "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[3]/div"
@@ -267,6 +277,7 @@ def get_tv_dataT():
             symbol,
             {
                 "ma_UpperAll": ma_UpperAll_text,
+                "volumeCombo": volumeCombo_text,
                 "sqzmom_stronger_2d": sqzmom_stronger_value_2d_text,
                 "heikin_Ashi": heikin_Ashi_text,
                 "ma5_1d": ma5_1D_text,
