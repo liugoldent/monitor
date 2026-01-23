@@ -53,12 +53,20 @@ const turnoverYesterday = ref<TurnoverItem[]>([])
 const turnoverTodayDate = ref<string>('')
 const turnoverYesterdayDate = ref<string>('')
 const turnoverTechMap = ref<Map<string, TurnoverTechItem>>(new Map())
+type EtfHoldingsInfo = {
+    count: number
+    etfs: string[]
+}
+
+const etfHoldingsMap = ref<Map<string, EtfHoldingsInfo>>(new Map())
 const turnoverTechDate = ref<string>('')
 const turnoverTechLastSlot = ref<string>('')
 const TURNOVER_API_URL =
     import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
 const TURNOVER_TECH_API_URL =
     import.meta.env.VITE_TURNOVER_TECH_API_URL || 'http://localhost:5050/api/turnover_tech'
+const ETF_HOLDINGS_API_URL =
+    import.meta.env.VITE_ETF_HOLDINGS_API_URL || 'http://localhost:5050/api/etf_holdings_counts'
 const MA10_DEVIATION_THRESHOLD = 0.01
 const PORTFOLIO_STORAGE_KEY = 'monitor_portfolio_codes'
 
@@ -165,6 +173,30 @@ const fetchTurnoverTech = async (date?: string) => {
     }
 }
 
+const fetchEtfHoldingsCounts = async () => {
+    try {
+        const response = await fetch(ETF_HOLDINGS_API_URL)
+        const payload = await response.json()
+        const data = payload?.data && typeof payload.data === 'object' ? payload.data : {}
+        const nextMap = new Map<string, EtfHoldingsInfo>()
+
+        Object.entries(data).forEach(([code, info]) => {
+            const normalized = normalizeCode(code)
+            if (!normalized) return
+            if (!info || typeof info !== 'object') return
+            const countValue = Number((info as { count?: number }).count)
+            if (!Number.isFinite(countValue)) return
+            const etfsRaw = (info as { etfs?: string[] }).etfs ?? []
+            const etfs = Array.isArray(etfsRaw) ? etfsRaw.map((item) => String(item).trim()).filter(Boolean) : []
+            nextMap.set(normalized, { count: countValue, etfs })
+        })
+
+        etfHoldingsMap.value = nextMap
+    } catch (error) {
+        console.error('Failed to load ETF holdings counts:', error)
+    }
+}
+
 const refreshTurnoverTech = async (date: string) => {
     const now = new Date()
     const today = formatDateString(now)
@@ -230,6 +262,7 @@ onMounted(() => {
         turnoverTodayDate.value = latestDate
         turnoverYesterdayDate.value = previousDate
         await refreshTurnoverTech(latestDate)
+        await fetchEtfHoldingsCounts()
     }
     refreshTurnover()
     refreshTimer = setInterval(() => {
@@ -314,6 +347,22 @@ const isTechSignal = (code?: string) => {
         isOn(item.ma_UpperAll) &&
         isOn(item.sqzmom_stronger_2d)
     )
+}
+
+const getEtfHoldingsCount = (code?: string) => {
+    const key = normalizeCode(code)
+    if (!key) return '-'
+    const info = etfHoldingsMap.value.get(key)
+    if (!info) return 0
+    return info.count
+}
+
+const getEtfHoldingsTitle = (code?: string) => {
+    const key = normalizeCode(code)
+    if (!key) return ''
+    const info = etfHoldingsMap.value.get(key)
+    if (!info || !info.etfs.length) return ''
+    return `ETFs: ${info.etfs.join(', ')}`
 }
 
 const turnoverTechOnList = computed(() => {
@@ -633,10 +682,11 @@ const askLLM = async () => {
                             placeholder="輸入股號，空白或逗號分隔，會自動儲存" />
                     </div>
                     <div
-                        class="grid grid-cols-7 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        class="grid grid-cols-8 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                         <div>排行</div>
                         <div>代號</div>
                         <div>名稱</div>
+                        <div>納入etf數量</div>
                         <div>成交價</div>
                         <div>成交量增</div>
                         <div>動能增強</div>
@@ -652,12 +702,15 @@ const askLLM = async () => {
                                     : activeTechTab === 'volumeCombo'
                                         ? turnoverVolumeComboList
                                         : portfolioDisplayList" :key="stock.id"
-                            class="grid grid-cols-7 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                            class="grid grid-cols-8 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
                             :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
                             @click="selectStock(stock)">
                             <div class="text-gray-400">{{ stock.rank }}</div>
                             <div class="font-medium text-white">{{ stock.code }}</div>
                             <div class="font-medium text-white">{{ stock.name }}</div>
+                            <div class="text-gray-200" :title="getEtfHoldingsTitle(stock.code)">
+                                {{ getEtfHoldingsCount(stock.code) }}
+                            </div>
                             <div class="text-yellow-400">{{ stock.price }}</div>
                             <div :class="shouldShowIndicators(stock)
                                 ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ? 'text-green-400' : 'text-red-400')

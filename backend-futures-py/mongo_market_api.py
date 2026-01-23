@@ -37,6 +37,13 @@ DB_NAME = "stock_futures"
 TURNOVER_DB_NAME = "yahoo_turnover"
 TURNOVER_TECH_DB_NAME = "yahoo_turnover_tech"
 MXF_DB_NAME = "mxf_futures"
+ETF_DB_NAME = "Investment"
+ETF_COLLECTIONS = [
+    ("etf_00981A", "00981A"),
+    ("etf_00982A", "00982A"),
+    ("etf_00991A", "00991A"),
+    ("etf_00992A", "00992A"),
+]
 TZ = ZoneInfo("Asia/Taipei")
 
 mongo_client = MongoClient(MONGO_URI)
@@ -115,6 +122,34 @@ def fetch_latest_mxf(date_str: str | None) -> dict:
         "mtx_bvav": doc.get("mtx_bvav"),
         "time": doc.get("time"),
     }
+
+
+def fetch_etf_holdings_counts() -> dict:
+    db = mongo_client[ETF_DB_NAME]
+    code_counts: dict[str, int] = {}
+    code_etfs: dict[str, list[str]] = {}
+    latest_time = None
+
+    for collection_name, etf_symbol in ETF_COLLECTIONS:
+        doc = db[collection_name].find_one({"_id": "latest"})
+        if not doc:
+            continue
+        if not latest_time and doc.get("time"):
+            latest_time = doc.get("time")
+        data = doc.get("data", [])
+        for row in data:
+            code = str(row.get("code", "")).strip()
+            if not code:
+                continue
+            code_counts[code] = code_counts.get(code, 0) + 1
+            code_etfs.setdefault(code, []).append(etf_symbol)
+
+    merged: dict[str, dict] = {}
+    for code, count in code_counts.items():
+        etfs = code_etfs.get(code, [])
+        merged[code] = {"count": count, "etfs": etfs}
+
+    return {"data": merged, "time": latest_time}
 
 
 class MarketApiHandler(BaseHTTPRequestHandler):
@@ -197,6 +232,10 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/mxf":
                 payload = fetch_latest_mxf(date_str)
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/etf_holdings_counts":
+                payload = fetch_etf_holdings_counts()
                 self._send_json(200, payload)
                 return
             self._send_json(404, {"error": "Not found"})
