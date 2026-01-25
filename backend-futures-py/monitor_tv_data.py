@@ -238,34 +238,6 @@ def _get_tradingview_url(symbol: str) -> str | None:
     return None
 
 
-def _extract_last_price() -> str:
-    try:
-        price = driver.execute_script(
-            "return (window.tvWidget && window.tvWidget.activeChart && "
-            "window.tvWidget.activeChart().lastPrice && window.tvWidget.activeChart().lastPrice()) || null;"
-        )
-        if price:
-            return str(price).replace(",", "")
-    except Exception:
-        pass
-
-    selectors = [
-        '[data-name="legend-series-item"] [data-name="legend-price"]',
-        '[data-name="legend-series-item"] span[class*="last"]',
-        'div[class*="lastPrice"]',
-        'div[data-role="last-price"]',
-    ]
-    for selector in selectors:
-        try:
-            element = driver.find_element(By.CSS_SELECTOR, selector)
-            text = element.text.replace(",", "").strip()
-            if text:
-                return text
-        except Exception:
-            continue
-    return ""
-
-
 def _fetch_tradingview_metrics(symbol: str) -> dict:
     url = _get_tradingview_url(symbol)
     if not url:
@@ -527,7 +499,8 @@ def get_tv_data_etf_common() -> None:
     print(f"✅ ETF 共同持股 TradingView 資料已更新，共 {len(items)} 筆")
 
 if __name__ == "__main__":
-    schedule_slots = [(10, 30), (12, 0), (13, 30)]
+    START_MINUTES = 9 * 60 + 30
+    END_MINUTES = 13 * 60 + 30
 
     def _next_weekday(start: datetime) -> datetime:
         day = start
@@ -538,15 +511,22 @@ if __name__ == "__main__":
     def _next_run_time(now: datetime) -> datetime:
         if now.weekday() >= 5:
             next_day = _next_weekday(now + timedelta(days=1))
-            return next_day.replace(hour=schedule_slots[0][0], minute=schedule_slots[0][1], second=0, microsecond=0)
+            return next_day.replace(hour=START_MINUTES // 60, minute=START_MINUTES % 60, second=0, microsecond=0)
 
-        for hour, minute in schedule_slots:
-            candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if candidate > now:
-                return candidate
+        current_minutes = now.hour * 60 + now.minute
+        if current_minutes < START_MINUTES:
+            return now.replace(hour=START_MINUTES // 60, minute=START_MINUTES % 60, second=0, microsecond=0)
 
-        next_day = _next_weekday(now + timedelta(days=1))
-        return next_day.replace(hour=schedule_slots[0][0], minute=schedule_slots[0][1], second=0, microsecond=0)
+        if current_minutes >= END_MINUTES:
+            next_day = _next_weekday(now + timedelta(days=1))
+            return next_day.replace(hour=START_MINUTES // 60, minute=START_MINUTES % 60, second=0, microsecond=0)
+
+        next_minutes = ((current_minutes // 30) + 1) * 30
+        if next_minutes > END_MINUTES:
+            next_day = _next_weekday(now + timedelta(days=1))
+            return next_day.replace(hour=START_MINUTES // 60, minute=START_MINUTES % 60, second=0, microsecond=0)
+
+        return now.replace(hour=next_minutes // 60, minute=next_minutes % 60, second=0, microsecond=0)
 
     while True:
         now = datetime.now()
@@ -561,4 +541,4 @@ if __name__ == "__main__":
                 sleep_chunk = 60 if remaining > 60 else remaining
                 time.sleep(sleep_chunk)
                 remaining -= sleep_chunk
-        get_tv_dataT()
+        get_tv_data_etf_common()
