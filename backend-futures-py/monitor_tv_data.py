@@ -87,6 +87,14 @@ load_env_file(str(ENV_PATH))
 MONGO_URI = require_env("MONGO_URI")
 TURNOVER_DB_NAME = "yahoo_turnover"
 WANTGOO_DB_NAME = "yahoo_turnover_tech"
+ETF_DB_NAME = "Investment"
+ETF_COLLECTIONS = [
+    "etf_00981A",
+    "etf_00982A",
+    "etf_00991A",
+    "etf_00992A",
+]
+ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
 
 
 def _get_latest_turnover_collection_name(db) -> str | None:
@@ -100,6 +108,25 @@ def _get_latest_turnover_collection_name(db) -> str | None:
 
 def _current_timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _safe_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    cleaned = str(value).replace(",", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _format_deviation(price: float | None, ma_value: float | None) -> str:
+    if price is None or ma_value in (None, 0):
+        return ""
+    deviation = (price - ma_value) / ma_value * 100
+    return f"{deviation:+.2f}%"
 
 
 def _upsert_yahoo_turnover_items(collection_name: str, items: list[dict]) -> None:
@@ -164,6 +191,163 @@ def get_yahoo_turnover():
         rows.append({"symbol": code, "name": name})
 
     return pd.DataFrame(rows), collection_name
+
+
+def get_etf_common_holdings():
+    client = MongoClient(MONGO_URI)
+    db = client[ETF_DB_NAME]
+    common_codes = None
+    code_name_map: dict[str, str] = {}
+
+    for collection_name in ETF_COLLECTIONS:
+        doc = db[collection_name].find_one({"_id": "latest"})
+        if not doc or not doc.get("data"):
+            common_codes = set()
+            continue
+        codes = set()
+        for row in doc.get("data", []):
+            code = str(row.get("code", "")).strip()
+            name = str(row.get("name", "")).strip()
+            if not code:
+                continue
+            codes.add(code)
+            if name and code not in code_name_map:
+                code_name_map[code] = name
+        if common_codes is None:
+            common_codes = codes
+        else:
+            common_codes &= codes
+
+    if not common_codes:
+        return []
+
+    return [
+        {"symbol": code, "name": code_name_map.get(code, "")}
+        for code in sorted(common_codes)
+    ]
+
+
+def _get_tradingview_url(symbol: str) -> str | None:
+    info = stock_list.get(symbol)
+    if not info:
+        return None
+    if info.get("market") == "tpex":
+        return f"https://tw.tradingview.com/chart/rABGcFih/?symbol=TPEX%3A{symbol}"
+    if info.get("market") == "twse":
+        return f"https://tw.tradingview.com/chart/rABGcFih/?symbol=TWSE%3A{symbol}"
+    return None
+
+
+def _extract_last_price() -> str:
+    try:
+        price = driver.execute_script(
+            "return (window.tvWidget && window.tvWidget.activeChart && "
+            "window.tvWidget.activeChart().lastPrice && window.tvWidget.activeChart().lastPrice()) || null;"
+        )
+        if price:
+            return str(price).replace(",", "")
+    except Exception:
+        pass
+
+    selectors = [
+        '[data-name="legend-series-item"] [data-name="legend-price"]',
+        '[data-name="legend-series-item"] span[class*="last"]',
+        'div[class*="lastPrice"]',
+        'div[data-role="last-price"]',
+    ]
+    for selector in selectors:
+        try:
+            element = driver.find_element(By.CSS_SELECTOR, selector)
+            text = element.text.replace(",", "").strip()
+            if text:
+                return text
+        except Exception:
+            continue
+    return ""
+
+
+def _fetch_tradingview_metrics(symbol: str) -> dict:
+    url = _get_tradingview_url(symbol)
+    if not url:
+        return {}
+
+    driver.get(url)
+
+    ma_UpperAll_Xpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"
+    )
+    ma_UpperAll_ = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, ma_UpperAll_Xpath))
+    )
+    ma_UpperAll_text = ma_UpperAll_.text.replace(',', '')
+
+    volumeCombo_Xpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"
+    )
+    volumeCombo_ = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, volumeCombo_Xpath))
+    )
+    volumeCombo_text = volumeCombo_.text.replace(',', '')
+
+    sqzmom_stronger_value_2DXpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[3]/div"
+    )
+    sqzmom_stronger_value_2d = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, sqzmom_stronger_value_2DXpath))
+    )
+    sqzmom_stronger_value_2d_text = sqzmom_stronger_value_2d.text.replace(',', '')
+
+    heikin_Ashi_Xpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[5]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[5]/div"
+    )
+    heikin_Ashi_ = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, heikin_Ashi_Xpath))
+    )
+    heikin_Ashi_raw = heikin_Ashi_.text.replace(',', '').strip()
+    heikin_Ashi_text = "1" if heikin_Ashi_raw == "∅" else "0"
+
+    ma10_1D_Xpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[2]/div"
+    )
+    ma10_1D_ = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, ma10_1D_Xpath))
+    )
+    ma10_1D_text = ma10_1D_.text.replace(',', '')
+
+    ma5_1D_Xpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[1]/div"
+    )
+    ma5_1D_ = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, ma5_1D_Xpath))
+    )
+    ma5_1D_text = ma5_1D_.text.replace(',', '')
+
+    ma20_1D_Xpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[3]/div"
+    )
+    ma20_1D_ = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, ma20_1D_Xpath))
+    )
+    ma20_1D_text = ma20_1D_.text.replace(',', '')
+
+    close_1D_Xpath = (
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[1]/div[1]/div[2]/div/div[5]/div[2]"
+    )
+    close_1D_ = WebDriverWait(driver, 60).until(
+        EC.visibility_of_element_located((By.XPATH, close_1D_Xpath))
+    )
+    close_1D_text = close_1D_.text.replace(',', '')
+
+    return {
+        "ma_UpperAll": ma_UpperAll_text,
+        "volumeCombo": volumeCombo_text,
+        "sqzmom_stronger_2d": sqzmom_stronger_value_2d_text,
+        "heikin_Ashi": heikin_Ashi_text,
+        "ma5_1d": ma5_1D_text,
+        "ma10_1d": ma10_1D_text,
+        "ma20_1d": ma20_1D_text,
+        "close": close_1D_text,
+    }
 
 
 # ---------- 主程式 ----------
@@ -287,6 +471,60 @@ def get_tv_dataT():
         )
         time.sleep(1)
         print(f"✅ 已更新 {idx} {name} ({symbol}) 的 TradingView 資料")
+
+
+def get_tv_data_etf_common() -> None:
+    holdings = get_etf_common_holdings()
+    if not holdings:
+        print("❌ 找不到 ETF 共同持股")
+        return
+
+    items: list[dict] = []
+    timestamp = _current_timestamp()
+
+    for idx, doc in enumerate(holdings, start=1):
+        symbol = doc.get("symbol")
+        name = doc.get("name", "")
+        print(name, symbol)
+
+        metrics = _fetch_tradingview_metrics(symbol)
+        if not metrics:
+            print(f"⚠️ 找不到 {symbol}，略過")
+            continue
+
+        price_value = _safe_float(metrics.get("close"))
+        ma5_value = _safe_float(metrics.get("ma5_1d"))
+        ma10_value = _safe_float(metrics.get("ma10_1d"))
+        ma20_value = _safe_float(metrics.get("ma20_1d"))
+
+        payload = {
+            "no": idx,
+            "code": symbol,
+            "name": name,
+            "close": metrics.get("close", ""),
+            "volumeCombo": metrics.get("volumeCombo", ""),
+            "sqzmom_stronger_2d": metrics.get("sqzmom_stronger_2d", ""),
+            "heikin_Ashi": metrics.get("heikin_Ashi", ""),
+            "ma5_1d": metrics.get("ma5_1d", ""),
+            "ma10_1d": metrics.get("ma10_1d", ""),
+            "ma20_1d": metrics.get("ma20_1d", ""),
+            "ma5_dev": _format_deviation(price_value, ma5_value),
+            "ma10_dev": _format_deviation(price_value, ma10_value),
+            "ma20_dev": _format_deviation(price_value, ma20_value),
+            "tv_updated_time": timestamp,
+        }
+        items.append(payload)
+        time.sleep(1)
+
+    client = MongoClient(MONGO_URI)
+    collection = client[ETF_DB_NAME][ETF_COMMON_TECH_COLLECTION]
+    payload = {
+        "_id": "latest",
+        "time": timestamp,
+        "data": items,
+    }
+    collection.replace_one({"_id": "latest"}, payload, upsert=True)
+    print(f"✅ ETF 共同持股 TradingView 資料已更新，共 {len(items)} 筆")
 
 if __name__ == "__main__":
     schedule_slots = [(10, 30), (12, 0), (13, 30)]

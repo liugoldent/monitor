@@ -44,6 +44,7 @@ ETF_COLLECTIONS = [
     ("etf_00991A", "00991A"),
     ("etf_00992A", "00992A"),
 ]
+ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
 TZ = ZoneInfo("Asia/Taipei")
 
 mongo_client = MongoClient(MONGO_URI)
@@ -190,6 +191,17 @@ def fetch_etf_common_holdings() -> dict:
     return {"data": data, "time": latest_time}
 
 
+def fetch_etf_common_holdings_tech() -> dict:
+    db = mongo_client[ETF_DB_NAME]
+    doc = db[ETF_COMMON_TECH_COLLECTION].find_one({"_id": "latest"})
+    if not doc:
+        return {}
+    return {
+        "data": doc.get("data", []),
+        "time": doc.get("time"),
+    }
+
+
 def fetch_etf_common_holdings() -> dict:
     db = mongo_client[ETF_DB_NAME]
     common_codes = None
@@ -316,6 +328,10 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/etf_common_holdings":
                 payload = fetch_etf_common_holdings()
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/etf_Initiative_tech":
+                payload = fetch_etf_common_holdings_tech()
                 self._send_json(200, payload)
                 return
             if parsed.path == "/api/etf_common_holdings":

@@ -42,9 +42,16 @@ type EtfHoldingsInfo = {
     etfs: string[]
 }
 
-type EtfCommonItem = {
+type EtfCommonTechItem = {
     code: string
     name?: string
+    close?: string | number
+    volumeCombo?: string | number
+    sqzmom_stronger_2d?: string | number
+    heikin_Ashi?: string | number
+    ma5_dev?: string
+    ma10_dev?: string
+    ma20_dev?: string
 }
 
 const props = defineProps<{
@@ -64,7 +71,7 @@ const turnoverTodayDate = ref<string>('')
 const turnoverYesterdayDate = ref<string>('')
 const turnoverTechMap = ref<Map<string, TurnoverTechItem>>(new Map())
 const etfHoldingsMap = ref<Map<string, EtfHoldingsInfo>>(new Map())
-const etfCommonHoldings = ref<EtfCommonItem[]>([])
+const etfCommonHoldings = ref<EtfCommonTechItem[]>([])
 const etfCommonHoldingsTime = ref<string>('')
 const turnoverTechDate = ref<string>('')
 const turnoverTechLastSlot = ref<string>('')
@@ -74,8 +81,8 @@ const TURNOVER_TECH_API_URL =
     import.meta.env.VITE_TURNOVER_TECH_API_URL || 'http://localhost:5050/api/turnover_tech'
 const ETF_HOLDINGS_API_URL =
     import.meta.env.VITE_ETF_HOLDINGS_API_URL || 'http://localhost:5050/api/etf_holdings_counts'
-const ETF_COMMON_API_URL =
-    import.meta.env.VITE_ETF_COMMON_API_URL || 'http://localhost:5050/api/etf_common_holdings'
+const ETF_COMMON_TECH_API_URL =
+    import.meta.env.VITE_ETF_COMMON_TECH_API_URL || 'http://localhost:5050/api/etf_Initiative_tech'
 const PORTFOLIO_STORAGE_KEY = 'monitor_portfolio_codes'
 
 const formatDateString = (date: Date) => {
@@ -207,12 +214,19 @@ const fetchEtfHoldingsCounts = async () => {
 
 const fetchEtfCommonHoldings = async () => {
     try {
-        const response = await fetch(ETF_COMMON_API_URL)
+        const response = await fetch(ETF_COMMON_TECH_API_URL)
         const payload = await response.json()
         const data = Array.isArray(payload?.data) ? payload.data : []
-        etfCommonHoldings.value = data.map((item: EtfCommonItem) => ({
+        etfCommonHoldings.value = data.map((item: EtfCommonTechItem) => ({
             code: normalizeCode(item.code),
             name: item.name ?? '',
+            close: item.close ?? '',
+            volumeCombo: item.volumeCombo ?? '',
+            sqzmom_stronger_2d: item.sqzmom_stronger_2d ?? '',
+            heikin_Ashi: item.heikin_Ashi ?? '',
+            ma5_dev: item.ma5_dev ?? '',
+            ma10_dev: item.ma10_dev ?? '',
+            ma20_dev: item.ma20_dev ?? '',
         }))
         etfCommonHoldingsTime.value = payload?.time ?? ''
     } catch (error) {
@@ -650,21 +664,41 @@ const askLLM = async () => {
                             <div>動能增強</div>
                             <div>平均K棒</div>
                         </div>
-                        <div v-else
-                            class="grid grid-cols-2 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
-                            <div>代號</div>
-                            <div>名稱</div>
-                        </div>
+                    <div v-else
+                        class="grid grid-cols-9 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        <div>代號</div>
+                        <div>名稱</div>
+                        <div>成交價</div>
+                        <div>成交量增</div>
+                        <div>動能增強</div>
+                        <div>平均K棒</div>
+                        <div>5日乖離</div>
+                        <div>10日乖離</div>
+                        <div>20日乖離</div>
+                    </div>
                         <div class="overflow-y-auto flex-1 bg-black">
                             <div v-if="activeTechTab === 'commonEtf'">
                                 <div class="px-3 py-2 text-[10px] text-gray-400 border-b border-gray-900">
                                     {{ etfCommonHoldingsTime || '-' }}
                                 </div>
-                                <div v-for="stock in etfCommonHoldings" :key="stock.code"
-                                    class="grid grid-cols-2 text-center py-3 border-b border-gray-900 text-sm">
-                                    <div class="font-medium text-white">{{ stock.code }}</div>
-                                    <div class="font-medium text-white">{{ stock.name }}</div>
+                            <div v-for="stock in etfCommonHoldings" :key="stock.code"
+                                class="grid grid-cols-9 text-center py-3 border-b border-gray-900 text-sm">
+                                <div class="font-medium text-white">{{ stock.code }}</div>
+                                <div class="font-medium text-white">{{ stock.name }}</div>
+                                <div class="text-yellow-400">{{ stock.close || '-' }}</div>
+                                <div :class="Number(stock.volumeCombo) === 1 ? 'text-green-400' : 'text-red-400'">
+                                    {{ Number(stock.volumeCombo) === 1 ? 'v' : 'x' }}
                                 </div>
+                                <div :class="Number(stock.sqzmom_stronger_2d) === 1 ? 'text-green-400' : 'text-red-400'">
+                                    {{ Number(stock.sqzmom_stronger_2d) === 1 ? 'v' : 'x' }}
+                                </div>
+                                <div :class="Number(stock.heikin_Ashi) === 1 ? 'text-green-400' : 'text-red-400'">
+                                    {{ Number(stock.heikin_Ashi) === 1 ? 'v' : 'x' }}
+                                </div>
+                                <div class="text-gray-300">{{ stock.ma5_dev || '-' }}</div>
+                                <div class="text-gray-300">{{ stock.ma10_dev || '-' }}</div>
+                                <div class="text-gray-300">{{ stock.ma20_dev || '-' }}</div>
+                            </div>
                                 <div v-if="!etfCommonHoldings.length" class="text-center text-xs text-gray-500 py-6">
                                     尚無共同持股資料
                                 </div>
