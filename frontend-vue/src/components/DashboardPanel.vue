@@ -403,7 +403,7 @@ const getEtfHoldingsTitle = (code?: string) => {
     return `ETFs: ${info.etfs.join(', ')}`
 }
 
-const turnoverRiseTop3List = computed(() => {
+const turnoverRiseTop10List = computed(() => {
     return turnoverToday.value
         .map((stock, index) => ({
             ...stock,
@@ -411,7 +411,7 @@ const turnoverRiseTop3List = computed(() => {
             turnoverValue: parseNumber(stock.volume),
         }))
         .sort((a, b) => b.turnoverValue - a.turnoverValue)
-        .slice(0, 3)
+        .slice(0, 10)
 })
 
 const portfolioDisplayList = computed(() => {
@@ -638,7 +638,7 @@ const askLLM = async () => {
                                 <button class="px-2 py-1 rounded border" :class="activeTechTab === 'turnover'
                                     ? 'bg-blue-600/40 border-blue-500 text-white'
                                     : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'turnover'">
-                                    成交值上升前3
+                                    成交值上升前10
                                 </button>
                                 <button class="px-2 py-1 rounded border" :class="activeTechTab === 'portfolio'
                                     ? 'bg-blue-600/40 border-blue-500 text-white'
@@ -654,15 +654,12 @@ const askLLM = async () => {
                                 placeholder="輸入股號，空白或逗號分隔，會自動儲存" />
                         </div>
                         <div v-if="activeTechTab !== 'commonEtf'"
-                            class="grid grid-cols-8 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                            class="grid grid-cols-5 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                             <div>排行</div>
                             <div>代號</div>
                             <div>名稱</div>
                             <div>納入etf數量</div>
                             <div>成交價</div>
-                            <div>成交量增</div>
-                            <div>動能增強</div>
-                            <div>平均K棒</div>
                         </div>
                     <div v-else
                         class="grid grid-cols-9 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
@@ -705,9 +702,9 @@ const askLLM = async () => {
                             </div>
                             <div v-else>
                                 <div v-for="stock in activeTechTab === 'turnover'
-                                    ? turnoverRiseTop3List
+                                    ? turnoverRiseTop10List
                                     : portfolioDisplayList" :key="stock.id"
-                                    class="grid grid-cols-8 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                                    class="grid grid-cols-5 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
                                     :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
                                     @click="selectStock(stock)">
                                     <div class="text-gray-400">{{ stock.rank }}</div>
@@ -717,33 +714,6 @@ const askLLM = async () => {
                                         {{ getEtfHoldingsCount(stock.code) }}
                                     </div>
                                     <div class="text-yellow-400">{{ stock.price }}</div>
-                                    <div :class="shouldShowIndicators(stock)
-                                        ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ? 'text-green-400' : 'text-red-400')
-                                        : 'text-gray-600'">
-                                        {{ shouldShowIndicators(stock)
-                                            ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ?
-                                                'v' :
-                                                'x')
-                                        : '' }}
-                                    </div>
-                                    <div :class="shouldShowIndicators(stock)
-                                        ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d) === 1 ? 'text-green-400' : 'text-red-400')
-                                        : 'text-gray-600'">
-                                        {{ shouldShowIndicators(stock)
-                                            ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d)
-                                                === 1 ?
-                                                'v' : 'x')
-                                        : '' }}
-                                    </div>
-                                    <div :class="shouldShowIndicators(stock)
-                                        ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ? 'text-green-400' : 'text-red-400')
-                                        : 'text-gray-600'">
-                                        {{ shouldShowIndicators(stock)
-                                            ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ?
-                                                'v' :
-                                                'x')
-                                        : '' }}
-                                    </div>
                                 </div>
                             </div>
                         </div>
