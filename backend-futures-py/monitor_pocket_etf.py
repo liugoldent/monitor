@@ -157,7 +157,6 @@ def next_run_time(now: datetime) -> datetime:
 
 
 def main() -> None:
-    run_once()
     while True:
         try:
             now = datetime.now(TZ)
