@@ -152,6 +152,82 @@ def fetch_etf_holdings_counts() -> dict:
     return {"data": merged, "time": latest_time}
 
 
+def fetch_etf_common_holdings() -> dict:
+    db = mongo_client[ETF_DB_NAME]
+    common_codes = None
+    code_name_map: dict[str, str] = {}
+    latest_time = None
+
+    for collection_name, _ in ETF_COLLECTIONS:
+        doc = db[collection_name].find_one({"_id": "latest"})
+        if not doc:
+            common_codes = set()
+            continue
+        if not latest_time and doc.get("time"):
+            latest_time = doc.get("time")
+        rows = doc.get("data", [])
+        codes = set()
+        for row in rows:
+            code = str(row.get("code", "")).strip()
+            name = str(row.get("name", "")).strip()
+            if not code:
+                continue
+            codes.add(code)
+            if name and code not in code_name_map:
+                code_name_map[code] = name
+        if common_codes is None:
+            common_codes = codes
+        else:
+            common_codes &= codes
+
+    if not common_codes:
+        return {"data": [], "time": latest_time}
+
+    data = [
+        {"code": code, "name": code_name_map.get(code, "")}
+        for code in sorted(common_codes)
+    ]
+    return {"data": data, "time": latest_time}
+
+
+def fetch_etf_common_holdings() -> dict:
+    db = mongo_client[ETF_DB_NAME]
+    common_codes = None
+    code_name_map: dict[str, str] = {}
+    latest_time = None
+
+    for collection_name, _ in ETF_COLLECTIONS:
+        doc = db[collection_name].find_one({"_id": "latest"})
+        if not doc:
+            common_codes = set()
+            continue
+        if not latest_time and doc.get("time"):
+            latest_time = doc.get("time")
+        rows = doc.get("data", [])
+        codes = set()
+        for row in rows:
+            code = str(row.get("code", "")).strip()
+            name = str(row.get("name", "")).strip()
+            if not code:
+                continue
+            codes.add(code)
+            if name and code not in code_name_map:
+                code_name_map[code] = name
+        if common_codes is None:
+            common_codes = codes
+        else:
+            common_codes &= codes
+
+    if not common_codes:
+        return {"data": [], "time": latest_time}
+
+    data = [
+        {"code": code, "name": code_name_map.get(code, "")}
+        for code in sorted(common_codes)
+    ]
+    return {"data": data, "time": latest_time}
+
+
 class MarketApiHandler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -236,6 +312,14 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/etf_holdings_counts":
                 payload = fetch_etf_holdings_counts()
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/etf_common_holdings":
+                payload = fetch_etf_common_holdings()
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/etf_common_holdings":
+                payload = fetch_etf_common_holdings()
                 self._send_json(200, payload)
                 return
             self._send_json(404, {"error": "Not found"})

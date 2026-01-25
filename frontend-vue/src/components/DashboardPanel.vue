@@ -37,6 +37,16 @@ type CrossSuggestion = {
     code?: string
 }
 
+type EtfHoldingsInfo = {
+    count: number
+    etfs: string[]
+}
+
+type EtfCommonItem = {
+    code: string
+    name?: string
+}
+
 const props = defineProps<{
     highest20: MarketItem[]
     lowest20: MarketItem[]
@@ -53,12 +63,9 @@ const turnoverYesterday = ref<TurnoverItem[]>([])
 const turnoverTodayDate = ref<string>('')
 const turnoverYesterdayDate = ref<string>('')
 const turnoverTechMap = ref<Map<string, TurnoverTechItem>>(new Map())
-type EtfHoldingsInfo = {
-    count: number
-    etfs: string[]
-}
-
 const etfHoldingsMap = ref<Map<string, EtfHoldingsInfo>>(new Map())
+const etfCommonHoldings = ref<EtfCommonItem[]>([])
+const etfCommonHoldingsTime = ref<string>('')
 const turnoverTechDate = ref<string>('')
 const turnoverTechLastSlot = ref<string>('')
 const TURNOVER_API_URL =
@@ -67,7 +74,8 @@ const TURNOVER_TECH_API_URL =
     import.meta.env.VITE_TURNOVER_TECH_API_URL || 'http://localhost:5050/api/turnover_tech'
 const ETF_HOLDINGS_API_URL =
     import.meta.env.VITE_ETF_HOLDINGS_API_URL || 'http://localhost:5050/api/etf_holdings_counts'
-const MA10_DEVIATION_THRESHOLD = 0.01
+const ETF_COMMON_API_URL =
+    import.meta.env.VITE_ETF_COMMON_API_URL || 'http://localhost:5050/api/etf_common_holdings'
 const PORTFOLIO_STORAGE_KEY = 'monitor_portfolio_codes'
 
 const formatDateString = (date: Date) => {
@@ -197,6 +205,21 @@ const fetchEtfHoldingsCounts = async () => {
     }
 }
 
+const fetchEtfCommonHoldings = async () => {
+    try {
+        const response = await fetch(ETF_COMMON_API_URL)
+        const payload = await response.json()
+        const data = Array.isArray(payload?.data) ? payload.data : []
+        etfCommonHoldings.value = data.map((item: EtfCommonItem) => ({
+            code: normalizeCode(item.code),
+            name: item.name ?? '',
+        }))
+        etfCommonHoldingsTime.value = payload?.time ?? ''
+    } catch (error) {
+        console.error('Failed to load ETF common holdings:', error)
+    }
+}
+
 const refreshTurnoverTech = async (date: string) => {
     const now = new Date()
     const today = formatDateString(now)
@@ -263,6 +286,7 @@ onMounted(() => {
         turnoverYesterdayDate.value = previousDate
         await refreshTurnoverTech(latestDate)
         await fetchEtfHoldingsCounts()
+        await fetchEtfCommonHoldings()
     }
     refreshTurnover()
     refreshTimer = setInterval(() => {
@@ -365,60 +389,6 @@ const getEtfHoldingsTitle = (code?: string) => {
     return `ETFs: ${info.etfs.join(', ')}`
 }
 
-const turnoverTechOnList = computed(() => {
-    return turnoverToday.value
-        .map((stock, index) => ({
-            ...stock,
-            rank: index + 1,
-        }))
-        .filter((stock) => isTechSignal(stock.code))
-})
-
-const turnoverMa10SignalList = computed(() => {
-    return turnoverToday.value
-        .map((stock, index) => {
-            const code = normalizeCode(stock.code)
-            const tech = turnoverTechMap.value.get(code)
-            return {
-                ...stock,
-                rank: index + 1,
-                tech,
-            }
-        })
-        .filter((stock) => {
-            const tech = stock.tech
-            if (!tech) return false
-            const close = parseNumber(stock.close ?? stock.price)
-            const low = parseNumber(stock.low)
-            const ma5 = parseNumber(tech.ma5_1d)
-            const ma10 = parseNumber(tech.ma10_1d)
-            const ma20 = parseNumber(tech.ma20_1d)
-            const sqz = Number(tech.sqzmom_stronger_2d)
-            if (!Number.isFinite(ma10) || ma10 === 0) return false
-            const closeNear = Number.isFinite(close) && Math.abs(close - ma10) / ma10 <= MA10_DEVIATION_THRESHOLD
-            const lowNear = Number.isFinite(low) && Math.abs(low - ma10) / ma10 <= MA10_DEVIATION_THRESHOLD
-            const isMaStacked = Number.isFinite(ma5) && Number.isFinite(ma20) && ma5 > ma10 && ma10 > ma20
-            return (closeNear || lowNear) && isMaStacked && sqz === 1
-        })
-})
-
-const turnoverVolumeComboList = computed(() => {
-    return turnoverToday.value
-        .map((stock, index) => {
-            const code = normalizeCode(stock.code)
-            const tech = turnoverTechMap.value.get(code)
-            return {
-                ...stock,
-                rank: index + 1,
-                tech,
-            }
-        })
-        .filter((stock) => {
-            const tech = stock.tech
-            if (!tech) return false
-            return Number(tech.volumeCombo) === 1 && Number(tech.ma_UpperAll) === 1
-        })
-})
 const turnoverRiseTop3List = computed(() => {
     return turnoverToday.value
         .map((stock, index) => ({
@@ -461,7 +431,7 @@ const selectedStock = ref<{ name: string; code?: string; price: string | number 
 const selectedQuestion = ref('分析技術面趨勢')
 const llmResponse = ref('')
 const llmLoading = ref(false)
-const activeTechTab = ref<'signal' | 'ma10' | 'turnover' | 'volumeCombo' | 'portfolio'>('signal')
+const activeTechTab = ref<'turnover' | 'portfolio' | 'commonEtf'>('turnover')
 const portfolioInput = ref('')
 const portfolioCodes = ref<string[]>([])
 
@@ -559,7 +529,7 @@ const askLLM = async () => {
 <template>
     <div class="flex flex-col h-full bg-[#1a1a1a] text-gray-300 font-sans overflow-hidden">
         <!-- Section 2: Turnover Ranking (Table) -->
-        <div class="flex-1 flex flex-col min-h-0 border-b border-gray-700">
+        <div class="flex flex-col min-h-[33vh] flex-[0_0_33vh] border-b border-gray-700">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" viewBox="0 0 20 20"
@@ -626,7 +596,7 @@ const askLLM = async () => {
         </div>
 
         <!-- Section 3: Turnover Tech (Table) -->
-        <div class="flex-1 flex flex-col min-h-0">
+        <div class="flex flex-col min-h-[33vh] flex-[0_0_33vh]">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" viewBox="0 0 20 20"
@@ -640,101 +610,107 @@ const askLLM = async () => {
             </div>
 
             <div class="flex-1 min-h-0 bg-black p-2">
-                <div class="flex flex-col min-h-0 border border-gray-800 rounded h-full">
-                    <div
-                        class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800 flex items-center justify-between gap-2">
-                        <span>成交值技術分析</span>
-                        <div class="flex items-center gap-1 text-[10px]">
-                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'signal'
-                                ? 'bg-blue-600/40 border-blue-500 text-white'
-                                : 'bg-transparent border-gray-600 text-gray-400'"
-                                @click="activeTechTab = 'signal'">
-                                Heikin Ashi
-                            </button>
-                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'ma10'
-                                ? 'bg-blue-600/40 border-blue-500 text-white'
-                                : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'ma10'">
-                                MA10 乖離
-                            </button>
-                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'turnover'
-                                ? 'bg-blue-600/40 border-blue-500 text-white'
-                                : 'bg-transparent border-gray-600 text-gray-400'"
-                                @click="activeTechTab = 'turnover'">
-                                成交值上升前3
-                            </button>
-                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'volumeCombo'
-                                ? 'bg-blue-600/40 border-blue-500 text-white'
-                                : 'bg-transparent border-gray-600 text-gray-400'"
-                                @click="activeTechTab = 'volumeCombo'">
-                                volumeCombo
-                            </button>
-                            <button class="px-2 py-1 rounded border" :class="activeTechTab === 'portfolio'
-                                ? 'bg-blue-600/40 border-blue-500 text-white'
-                                : 'bg-transparent border-gray-600 text-gray-400'"
-                                @click="activeTechTab = 'portfolio'">
-                                庫存觀察
-                            </button>
+                <div class="flex flex-col lg:flex-row gap-2 min-h-0 h-full">
+                    <div class="flex flex-col min-h-0 border border-gray-800 rounded h-full flex-1">
+                        <div
+                            class="px-3 py-2 text-xs font-semibold text-gray-300 bg-[#2d2d2d] border-b border-gray-800 flex items-center justify-between gap-2">
+                            <span>成交值技術分析</span>
+                            <div class="flex items-center gap-1 text-[10px]">
+                                <button class="px-2 py-1 rounded border" :class="activeTechTab === 'commonEtf'
+                                    ? 'bg-blue-600/40 border-blue-500 text-white'
+                                    : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'commonEtf'">
+                                    ETF 共同持股
+                                </button>
+                                <button class="px-2 py-1 rounded border" :class="activeTechTab === 'turnover'
+                                    ? 'bg-blue-600/40 border-blue-500 text-white'
+                                    : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'turnover'">
+                                    成交值上升前3
+                                </button>
+                                <button class="px-2 py-1 rounded border" :class="activeTechTab === 'portfolio'
+                                    ? 'bg-blue-600/40 border-blue-500 text-white'
+                                    : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'portfolio'">
+                                    庫存觀察
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                    <div v-if="activeTechTab === 'portfolio'" class="px-3 py-2 border-b border-gray-800 bg-[#1f1f1f]">
-                        <input v-model="portfolioInput" type="text"
-                            class="w-full bg-[#0f0f0f] text-gray-200 text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-500"
-                            placeholder="輸入股號，空白或逗號分隔，會自動儲存" />
-                    </div>
-                    <div
-                        class="grid grid-cols-8 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
-                        <div>排行</div>
-                        <div>代號</div>
-                        <div>名稱</div>
-                        <div>納入etf數量</div>
-                        <div>成交價</div>
-                        <div>成交量增</div>
-                        <div>動能增強</div>
-                        <div>平均K棒</div>
-                    </div>
-                    <div class="overflow-y-auto flex-1 bg-black">
-                        <div v-for="stock in activeTechTab === 'signal'
-                            ? turnoverTechOnList
-                            : activeTechTab === 'ma10'
-                                ? turnoverMa10SignalList
-                                : activeTechTab === 'turnover'
+                        <div v-if="activeTechTab === 'portfolio'"
+                            class="px-3 py-2 border-b border-gray-800 bg-[#1f1f1f]">
+                            <input v-model="portfolioInput" type="text"
+                                class="w-full bg-[#0f0f0f] text-gray-200 text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-500"
+                                placeholder="輸入股號，空白或逗號分隔，會自動儲存" />
+                        </div>
+                        <div v-if="activeTechTab !== 'commonEtf'"
+                            class="grid grid-cols-8 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                            <div>排行</div>
+                            <div>代號</div>
+                            <div>名稱</div>
+                            <div>納入etf數量</div>
+                            <div>成交價</div>
+                            <div>成交量增</div>
+                            <div>動能增強</div>
+                            <div>平均K棒</div>
+                        </div>
+                        <div v-else
+                            class="grid grid-cols-2 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                            <div>代號</div>
+                            <div>名稱</div>
+                        </div>
+                        <div class="overflow-y-auto flex-1 bg-black">
+                            <div v-if="activeTechTab === 'commonEtf'">
+                                <div class="px-3 py-2 text-[10px] text-gray-400 border-b border-gray-900">
+                                    {{ etfCommonHoldingsTime || '-' }}
+                                </div>
+                                <div v-for="stock in etfCommonHoldings" :key="stock.code"
+                                    class="grid grid-cols-2 text-center py-3 border-b border-gray-900 text-sm">
+                                    <div class="font-medium text-white">{{ stock.code }}</div>
+                                    <div class="font-medium text-white">{{ stock.name }}</div>
+                                </div>
+                                <div v-if="!etfCommonHoldings.length" class="text-center text-xs text-gray-500 py-6">
+                                    尚無共同持股資料
+                                </div>
+                            </div>
+                            <div v-else>
+                                <div v-for="stock in activeTechTab === 'turnover'
                                     ? turnoverRiseTop3List
-                                    : activeTechTab === 'volumeCombo'
-                                        ? turnoverVolumeComboList
-                                        : portfolioDisplayList" :key="stock.id"
-                            class="grid grid-cols-8 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
-                            :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
-                            @click="selectStock(stock)">
-                            <div class="text-gray-400">{{ stock.rank }}</div>
-                            <div class="font-medium text-white">{{ stock.code }}</div>
-                            <div class="font-medium text-white">{{ stock.name }}</div>
-                            <div class="text-gray-200" :title="getEtfHoldingsTitle(stock.code)">
-                                {{ getEtfHoldingsCount(stock.code) }}
-                            </div>
-                            <div class="text-yellow-400">{{ stock.price }}</div>
-                            <div :class="shouldShowIndicators(stock)
-                                ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ? 'text-green-400' : 'text-red-400')
-                                : 'text-gray-600'">
-                                {{ shouldShowIndicators(stock)
-                                    ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ? 'v' :
-                                        'x')
-                                : '' }}
-                            </div>
-                            <div :class="shouldShowIndicators(stock)
-                                ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d) === 1 ? 'text-green-400' : 'text-red-400')
-                                : 'text-gray-600'">
-                                {{ shouldShowIndicators(stock)
-                                    ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d) === 1 ?
-                                        'v' : 'x')
-                                : '' }}
-                            </div>
-                            <div :class="shouldShowIndicators(stock)
-                                ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ? 'text-green-400' : 'text-red-400')
-                                : 'text-gray-600'">
-                                {{ shouldShowIndicators(stock)
-                                    ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ? 'v' :
-                                        'x')
-                                : '' }}
+                                    : portfolioDisplayList" :key="stock.id"
+                                    class="grid grid-cols-8 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                                    :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
+                                    @click="selectStock(stock)">
+                                    <div class="text-gray-400">{{ stock.rank }}</div>
+                                    <div class="font-medium text-white">{{ stock.code }}</div>
+                                    <div class="font-medium text-white">{{ stock.name }}</div>
+                                    <div class="text-gray-200" :title="getEtfHoldingsTitle(stock.code)">
+                                        {{ getEtfHoldingsCount(stock.code) }}
+                                    </div>
+                                    <div class="text-yellow-400">{{ stock.price }}</div>
+                                    <div :class="shouldShowIndicators(stock)
+                                        ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ? 'text-green-400' : 'text-red-400')
+                                        : 'text-gray-600'">
+                                        {{ shouldShowIndicators(stock)
+                                            ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.volumeCombo) === 1 ?
+                                                'v' :
+                                                'x')
+                                        : '' }}
+                                    </div>
+                                    <div :class="shouldShowIndicators(stock)
+                                        ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d) === 1 ? 'text-green-400' : 'text-red-400')
+                                        : 'text-gray-600'">
+                                        {{ shouldShowIndicators(stock)
+                                            ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.sqzmom_stronger_2d)
+                                                === 1 ?
+                                                'v' : 'x')
+                                        : '' }}
+                                    </div>
+                                    <div :class="shouldShowIndicators(stock)
+                                        ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ? 'text-green-400' : 'text-red-400')
+                                        : 'text-gray-600'">
+                                        {{ shouldShowIndicators(stock)
+                                            ? (Number(turnoverTechMap.get(normalizeCode(stock.code))?.heikin_Ashi) === 1 ?
+                                                'v' :
+                                                'x')
+                                        : '' }}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -743,7 +719,7 @@ const askLLM = async () => {
         </div>
 
         <!-- Section 4: AI Analysis Panel -->
-        <div class="h-64 bg-[#1f1f1f] border-t border-gray-700 flex flex-col shrink-0">
+        <div class="flex flex-col min-h-[33vh] flex-[0_0_33vh] bg-[#1f1f1f] border-t border-gray-700">
             <div class="p-2 border-b border-gray-800 flex items-center gap-4">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
                     <span class="text-xl">🤖</span> AI 股票分析對話框
