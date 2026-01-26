@@ -5,7 +5,7 @@ tell application "iTerm"
   activate
 
   set mainWindow to (create window with default profile)
-  set bounds of mainWindow to {0, 0, 1800, 600}
+  set bounds of mainWindow to {0, 0, 1200, 600}
   
   -- ===== Tab 1 : Node =====
   -- Heyo打卡
@@ -85,19 +85,29 @@ tell application "iTerm"
   end tell
   delay 1
 
-  -- ===== Tab 7 : TradingView Tech (Chrome + Python) =====
-  -- TradingView 技術指標資料抓取
+  -- ===== Tab 7 : Chrome Debugger =====
+  -- TradingView 需要的 Chrome remote debugging
   tell mainWindow to set newTab to (create tab with default profile)
   tell current session of mainWindow
     -- 修正重點：使用單引號包裹整個指令字串，避免 $符號被 AppleScript 誤判
     write text "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --remote-allow-origins='*' --user-data-dir=\"$HOME/chrome-debug\" &"
+  end tell
+  delay 1
+
+  -- ===== Tab 8 : TradingView Tech =====
+  -- TradingView 技術指標資料抓取
+  tell mainWindow
+    create tab with default profile
+  end tell
+
+  tell current session of mainWindow
     write text "cd ~/Desktop/self/monitor/backend-futures-py"
     write text "source .venv/bin/activate"
     write text "python monitor_tv_data.py"
   end tell
   delay 1
 
-  -- ===== Tab 8 : Pocket ETF =====
+  -- ===== Tab 9 : Pocket ETF =====
   -- 每天 21:00 自動排程（monitor_pocket_etf.py 內排程）
   tell mainWindow
     create tab with default profile
@@ -110,7 +120,7 @@ tell application "iTerm"
   end tell
   delay 1
 
-  -- ===== Tab 9 : Frontend =====
+  -- ===== Tab 10 : Frontend =====
   -- 啟動 Frontend
   tell mainWindow
     create tab with default profile

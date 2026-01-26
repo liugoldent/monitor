@@ -501,6 +501,7 @@ def get_tv_data_etf_common() -> None:
 if __name__ == "__main__":
     START_MINUTES = 9 * 60 + 30
     END_MINUTES = 13 * 60 + 30
+    DAILY_RUN = (21, 15)
 
     def _next_weekday(start: datetime) -> datetime:
         day = start
@@ -508,7 +509,7 @@ if __name__ == "__main__":
             day += timedelta(days=1)
         return day
 
-    def _next_run_time(now: datetime) -> datetime:
+    def _next_daytime_run(now: datetime) -> datetime:
         if now.weekday() >= 5:
             next_day = _next_weekday(now + timedelta(days=1))
             return next_day.replace(hour=START_MINUTES // 60, minute=START_MINUTES % 60, second=0, microsecond=0)
@@ -527,6 +528,16 @@ if __name__ == "__main__":
             return next_day.replace(hour=START_MINUTES // 60, minute=START_MINUTES % 60, second=0, microsecond=0)
 
         return now.replace(hour=next_minutes // 60, minute=next_minutes % 60, second=0, microsecond=0)
+
+    def _next_run_time(now: datetime) -> datetime:
+        daily_target = now.replace(hour=DAILY_RUN[0], minute=DAILY_RUN[1], second=0, microsecond=0)
+        if daily_target <= now:
+            daily_target = (now + timedelta(days=1)).replace(
+                hour=DAILY_RUN[0], minute=DAILY_RUN[1], second=0, microsecond=0
+            )
+
+        daytime_target = _next_daytime_run(now)
+        return min(daily_target, daytime_target)
 
     while True:
         now = datetime.now()
