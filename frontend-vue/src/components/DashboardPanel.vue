@@ -82,7 +82,9 @@ const TURNOVER_TECH_API_URL =
 const ETF_HOLDINGS_API_URL =
     import.meta.env.VITE_ETF_HOLDINGS_API_URL || 'http://localhost:5050/api/etf_holdings_counts'
 const ETF_COMMON_TECH_API_URL =
-    import.meta.env.VITE_ETF_COMMON_TECH_API_URL || 'http://localhost:5050/api/etf_Initiative_tech'
+    import.meta.env.VITE_ETF_COMMON_TECH_API_URL || 'http://localhost:5050/api/etf_common_holdings_tech'
+const ODD_LOT_ORDER_API_URL =
+    import.meta.env.VITE_ODD_LOT_ORDER_API_URL || 'http://localhost:5050/api/odd_lot_trade'
 const PORTFOLIO_STORAGE_KEY = 'monitor_portfolio_codes'
 
 const formatDateString = (date: Date) => {
@@ -403,6 +405,47 @@ const getEtfHoldingsTitle = (code?: string) => {
     return `ETFs: ${info.etfs.join(', ')}`
 }
 
+const oddLotOrders = ref<Record<string, { price: string; qty: string }>>({})
+
+const getOddLotOrder = (code?: string, price?: string | number) => {
+    const key = normalizeCode(code)
+    if (!key) return { price: '', qty: '1' }
+    if (!oddLotOrders.value[key]) {
+        const parsed = parseNumber(price)
+        const initialPrice = Number.isFinite(parsed) ? String(parsed) : (price ?? '')
+        oddLotOrders.value[key] = {
+            price: initialPrice === '-' ? '' : String(initialPrice),
+            qty: '1',
+        }
+    }
+    return oddLotOrders.value[key]
+}
+
+const placeOddLotOrder = async (code?: string, action: 'buy' | 'sell' = 'buy') => {
+    const key = normalizeCode(code)
+    if (!key) return
+    const order = getOddLotOrder(key)
+    if (!order.price || !order.qty) return
+    const priceValue = parseNumber(order.price)
+    const quantityValue = Number(order.qty)
+    if (!Number.isFinite(priceValue) || !Number.isFinite(quantityValue)) return
+
+    try {
+        await fetch(ODD_LOT_ORDER_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code: key,
+                action,
+                price: priceValue,
+                quantity: quantityValue,
+            }),
+        })
+    } catch (error) {
+        console.error('Failed to place odd lot order:', error)
+    }
+}
+
 const turnoverRiseTop10List = computed(() => {
     return turnoverToday.value
         .map((stock, index) => ({
@@ -654,12 +697,13 @@ const askLLM = async () => {
                                 placeholder="輸入股號，空白或逗號分隔，會自動儲存" />
                         </div>
                         <div v-if="activeTechTab !== 'commonEtf'"
-                            class="grid grid-cols-5 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                            class="grid grid-cols-6 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                             <div>排行</div>
                             <div>代號</div>
                             <div>名稱</div>
                             <div>納入etf數量</div>
                             <div>成交價</div>
+                            <div>零股下單</div>
                         </div>
                     <div v-else
                         class="grid grid-cols-9 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
@@ -704,7 +748,7 @@ const askLLM = async () => {
                                 <div v-for="stock in activeTechTab === 'turnover'
                                     ? turnoverRiseTop10List
                                     : portfolioDisplayList" :key="stock.id"
-                                    class="grid grid-cols-5 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
+                                    class="grid grid-cols-6 text-center py-3 border-b border-gray-900 transition-colors text-sm cursor-pointer"
                                     :class="selectedStock?.name === stock.name ? 'bg-blue-900/40 hover:bg-blue-900/50' : 'hover:bg-gray-900'"
                                     @click="selectStock(stock)">
                                     <div class="text-gray-400">{{ stock.rank }}</div>
@@ -714,6 +758,32 @@ const askLLM = async () => {
                                         {{ getEtfHoldingsCount(stock.code) }}
                                     </div>
                                     <div class="text-yellow-400">{{ stock.price }}</div>
+                                    <div class="flex items-center justify-center gap-1" @click.stop>
+                                        <input
+                                            v-model="getOddLotOrder(stock.code, stock.price).price"
+                                            class="w-14 bg-[#0f0f0f] text-[10px] text-gray-200 px-1 py-0.5 rounded border border-gray-700"
+                                            placeholder="價"
+                                            @click.stop
+                                        />
+                                        <input
+                                            v-model="getOddLotOrder(stock.code, stock.price).qty"
+                                            class="w-10 bg-[#0f0f0f] text-[10px] text-gray-200 px-1 py-0.5 rounded border border-gray-700"
+                                            placeholder="量"
+                                            @click.stop
+                                        />
+                                        <button
+                                            class="px-1.5 py-0.5 rounded border border-green-600 text-green-300 text-[10px]"
+                                            @click.stop="placeOddLotOrder(stock.code, 'buy')"
+                                        >
+                                            買
+                                        </button>
+                                        <button
+                                            class="px-1.5 py-0.5 rounded border border-red-600 text-red-300 text-[10px]"
+                                            @click.stop="placeOddLotOrder(stock.code, 'sell')"
+                                        >
+                                            賣
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

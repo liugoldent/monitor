@@ -44,12 +44,13 @@ ETF_COLLECTIONS = [
     ("etf_00991A", "00991A"),
     ("etf_00992A", "00992A"),
 ]
-ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
+ETF_COMMON_TECH_COLLECTION = "etf_common_holdings_tech"
 TZ = ZoneInfo("Asia/Taipei")
 
 mongo_client = MongoClient(MONGO_URI)
 
 from openai import OpenAI
+from auto_trade_IntradayOdd import place_intraday_odd_lot
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -260,6 +261,30 @@ class MarketApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self) -> None:
+        if self.path == "/api/odd_lot_trade":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                post_data = self.rfile.read(content_length)
+                payload = json.loads(post_data.decode("utf-8"))
+
+                code = str(payload.get("code", "")).strip()
+                action = str(payload.get("action", "")).strip()
+                price = payload.get("price")
+                quantity = payload.get("quantity")
+
+                if not code or action.lower() not in ("buy", "sell"):
+                    self._send_json(400, {"error": "Invalid code or action"})
+                    return
+                if price is None or quantity is None:
+                    self._send_json(400, {"error": "Missing price or quantity"})
+                    return
+
+                trade = place_intraday_odd_lot(action, code, float(price), int(quantity))
+                self._send_json(200, {"status": "ok", "trade": trade})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+
         if self.path == "/api/chat_llm":
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
