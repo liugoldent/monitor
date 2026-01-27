@@ -68,7 +68,7 @@ def place_intraday_odd_lot(action: str, code: str, price: float, quantity: int) 
     if not os.path.exists(CA_PATH):
         raise RuntimeError(f"找不到憑證檔案: {CA_PATH}")
 
-    api = sj.Shioaji(Simulation=True) 
+    api = sj.Shioaji() 
     api.login(api_key, secret_key)
     api.activate_ca(
         ca_path=CA_PATH,

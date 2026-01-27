@@ -44,7 +44,7 @@ ETF_COLLECTIONS = [
     ("etf_00991A", "00991A"),
     ("etf_00992A", "00992A"),
 ]
-ETF_COMMON_TECH_COLLECTION = "etf_common_holdings_tech"
+ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
 TZ = ZoneInfo("Asia/Taipei")
 
 mongo_client = MongoClient(MONGO_URI)
@@ -355,7 +355,7 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 payload = fetch_etf_common_holdings()
                 self._send_json(200, payload)
                 return
-            if parsed.path == "/api/etf_Initiative_tech":
+            if parsed.path == "/api/etf_common_holdings_tech":
                 payload = fetch_etf_common_holdings_tech()
                 self._send_json(200, payload)
                 return
