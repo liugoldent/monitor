@@ -4,7 +4,8 @@
         "en_name": "TOPIX FUTURE",
         "ch_name": "東證股價指數",
         "country": "jp",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=OSE%3ATOPIX1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=OSE%3ATOPIX1%21",
+        "tw_code": "00640L"
     },
     "nikkei225": {
         "en_name": "NIKKEI 225 MINI INDEX",
@@ -16,13 +17,22 @@
         "en_name": "Hang Seng Index",
         "ch_name": "恒生指數",
         "country": "hk",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=HKEX%3AHSI1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=HKEX%3AHSI1%21",
+        "tw_code": "00665L"
     },
     "twseIndex": {
         "en_name": "TWSW Index",
         "ch_name": "台灣加權指數",
         "country": "tw",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TAIFEX%3ATXF1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TAIFEX%3ATXF1%21",
+        "tw_code": "0050"
+    },
+    "twseFuturesIndex": {
+        "en_name": "TW Futures Index",
+        "ch_name": "台灣指數期貨",
+        "country": "tw",
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TAIFEX%3AMXF1%21",
+        "tw_code": "00631L"
     },
     "totcindex": {
         "en_name": "TAIPEI Index",
@@ -34,25 +44,29 @@
         "en_name": "Nasdaq-100 Index",
         "ch_name": "那斯達克",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME_MINI%3AMNQ1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME_MINI%3AMNQ1%21",
+        "tw_code": "00670L"
     },
     "zs": {
         "en_name": "zs Index",
         "ch_name": "大豆期貨",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CBOT%3AZS1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CBOT%3AZS1%21",
+        "tw_code": "00693U"
     },
     "sox": {
         "en_name": "sox Index",
         "ch_name": "費城半導體指數",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=NASDAQ%3ASOX"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=NASDAQ%3ASOX",
+        "tw_code": "00830"
     },
     "dxy": {
         "en_name": "dxy Index",
         "ch_name": "美元指數",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TVC%3ADXY"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=TVC%3ADXY",
+        "tw_code": "00683L"
     },
     "bovespa": {
         "en_name": "bovespa Index",
@@ -64,7 +78,8 @@
         "en_name": "s&p 500 Index",
         "ch_name": "s&p 500",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME_MINI%3AES1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CME_MINI%3AES1%21",
+        "tw_code": "00647L"
     },
     "euro": {
         "en_name": "Euro FX Futures",
@@ -82,13 +97,15 @@
         "en_name": "gold Future",
         "ch_name": "黃金期貨",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3AMGC1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3AMGC1%21",
+        "tw_code": "00708L"
     },
     "djx": {
         "en_name": "dowjon Index",
         "ch_name": "道瓊工業平均",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CBOT_MINI%3AYM1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=CBOT_MINI%3AYM1%21",
+        "tw_code": "00852L"
     },
     "wti": {
         "en_name": "WTI Crude Oil",
@@ -100,13 +117,15 @@
         "en_name": "Copper Futures",
         "ch_name": "銅",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3AMHG1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3AMHG1%21",
+        "tw_code": "00763U"
     },
     "silver": {
         "en_name": "Silver Futures",
         "ch_name": "銀",
         "country": "us",
-        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3ASIL1%21"
+        "url": "https://tw.tradingview.com/chart/rABGcFih/?symbol=COMEX_MINI%3ASIL1%21",
+        "tw_code": "00738U"
     },
     "dax": {
         "en_name": "Dax index",

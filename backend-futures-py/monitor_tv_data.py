@@ -59,6 +59,7 @@ def load_json(fp: str):
         return json.load(f)
 
 stock_list = load_json('./static/twStock.json')
+index_list = load_json('./static/indexAndFuture.json')
 
 
 def load_env_file(path: str) -> None:
@@ -242,7 +243,10 @@ def _fetch_tradingview_metrics(symbol: str) -> dict:
     url = _get_tradingview_url(symbol)
     if not url:
         return {}
+    return _fetch_tradingview_metrics_by_url(url)
 
+
+def _fetch_tradingview_metrics_by_url(url: str) -> dict:
     driver.get(url)
 
     ma_UpperAll_Xpath = (
@@ -498,6 +502,64 @@ def get_tv_data_etf_common() -> None:
     collection.replace_one({"_id": "latest"}, payload, upsert=True)
     print(f"✅ ETF 共同持股 TradingView 資料已更新，共 {len(items)} 筆")
 
+
+def get_tv_data_index_tw_code() -> None:
+    if not index_list:
+        print("❌ 找不到 indexAndFuture.json 內容")
+        return
+
+    items: list[dict] = []
+    timestamp = _current_timestamp()
+
+    for idx, (key, info) in enumerate(index_list.items(), start=1):
+        tw_code = str(info.get("tw_code", "")).strip()
+        if not tw_code:
+            continue
+        url = str(info.get("url", "")).strip()
+        if not url:
+            print(f"⚠️ {key} 缺少 url，略過")
+            continue
+        name = str(info.get("ch_name", "")).strip()
+
+        metrics = _fetch_tradingview_metrics_by_url(url)
+        if not metrics:
+            print(f"⚠️ {key} 無法取得 TradingView 資料，略過")
+            continue
+
+        price_value = _safe_float(metrics.get("close"))
+        ma5_value = _safe_float(metrics.get("ma5_1d"))
+        ma10_value = _safe_float(metrics.get("ma10_1d"))
+        ma20_value = _safe_float(metrics.get("ma20_1d"))
+
+        payload = {
+            "no": idx,
+            "code": tw_code,
+            "name": name,
+            "close": metrics.get("close", ""),
+            "volumeCombo": metrics.get("volumeCombo", ""),
+            "sqzmom_stronger_2d": metrics.get("sqzmom_stronger_2d", ""),
+            "heikin_Ashi": metrics.get("heikin_Ashi", ""),
+            "ma5_1d": metrics.get("ma5_1d", ""),
+            "ma10_1d": metrics.get("ma10_1d", ""),
+            "ma20_1d": metrics.get("ma20_1d", ""),
+            "ma5_dev": _format_deviation(price_value, ma5_value),
+            "ma10_dev": _format_deviation(price_value, ma10_value),
+            "ma20_dev": _format_deviation(price_value, ma20_value),
+            "tv_updated_time": timestamp,
+        }
+        items.append(payload)
+        time.sleep(1)
+
+    client = MongoClient(MONGO_URI)
+    collection = client["FutureIndex"]["index"]
+    payload = {
+        "_id": "latest",
+        "time": timestamp,
+        "data": items,
+    }
+    collection.replace_one({"_id": "latest"}, payload, upsert=True)
+    print(f"✅ 指數 TradingView 資料已更新，共 {len(items)} 筆")
+
 if __name__ == "__main__":
     START_MINUTES = 9 * 60 + 30
     END_MINUTES = 13 * 60 + 30
@@ -553,3 +615,4 @@ if __name__ == "__main__":
                 time.sleep(sleep_chunk)
                 remaining -= sleep_chunk
         get_tv_data_etf_common()
+        get_tv_data_index_tw_code()
