@@ -432,6 +432,18 @@ const getEtfHoldingsTitle = (code?: string) => {
     return `ETFs: ${info.etfs.join(', ')}`
 }
 
+const turnoverRankMap = computed(() => {
+    return new Map(
+        turnoverToday.value.map((stock, index) => [normalizeCode(stock.code), index + 1]),
+    )
+})
+
+const getTurnoverRank = (code?: string) => {
+    const key = normalizeCode(code)
+    if (!key) return '-'
+    return turnoverRankMap.value.get(key) ?? '-'
+}
+
 const oddLotOrders = ref<Record<string, { price: string; qty: string }>>({})
 
 const getOddLotOrder = (code?: string, price?: string | number) => {
@@ -735,7 +747,8 @@ const askLLM = async () => {
                             <div>零股下單</div>
                         </div>
                     <div v-else
-                        class="grid grid-cols-9 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        class="grid grid-cols-10 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
+                        <div>成交值排行</div>
                         <div>代號</div>
                         <div>名稱</div>
                         <div>成交價</div>
@@ -754,7 +767,8 @@ const askLLM = async () => {
                                         : (commonIndexHoldingsTime || '-') }}
                                 </div>
                             <div v-for="stock in activeTechTab === 'commonEtf' ? etfCommonHoldings : commonIndexHoldings" :key="stock.code"
-                                class="grid grid-cols-9 text-center py-3 border-b border-gray-900 text-sm">
+                                class="grid grid-cols-10 text-center py-3 border-b border-gray-900 text-sm">
+                                <div class="text-gray-300">{{ getTurnoverRank(stock.code) }}</div>
                                 <div class="font-medium text-white">{{ stock.code }}</div>
                                 <div class="font-medium text-white">{{ stock.name }}</div>
                                 <div class="text-yellow-400">{{ stock.close || '-' }}</div>
