@@ -49,7 +49,7 @@ def auto_trade(type):
         else:
             print(f"✅ 憑證檔案路徑: {ca_path}")
         
-        api = sj.Shioaji()
+        api = sj.Shioaji(simulation=False)
         api.login(API_KEY, SECRET_KEY)
         
         api.activate_ca(
@@ -136,7 +136,7 @@ def closePosition():
 def buyOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=34000,                        # price (價格)
+        price=35000,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
@@ -152,7 +152,7 @@ def buyOne(api, contract, quantity=1):
 def sellOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=29500,                        # price (價格)
+        price=30000,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK

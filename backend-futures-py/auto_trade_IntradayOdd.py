@@ -77,29 +77,29 @@ def place_intraday_odd_lot(action: str, code: str, price: float, quantity: int) 
     )
 
     try:
-        contract = _get_contract(api, code)
-        if not contract:
-            raise RuntimeError(f"找不到股票代號: {code}")
+        # contract = _get_contract(api, code)
+        # if not contract:
+        #     raise RuntimeError(f"找不到股票代號: {code}")
 
-        action_enum = sj.constant.Action.Buy if action.lower() == "buy" else sj.constant.Action.Sell
-        computed_quantity = int(10000 // price)
-        if computed_quantity <= 0:
-            raise RuntimeError(f"計算股數為 0，請調整價格或預算 (price={price})")
-        print(api, 111)
-        order = api.Order(
-            price=price,
-            quantity=computed_quantity,
-            action=action_enum,
-            price_type='LMT',
-            order_type='ROD',
-            order_lot='IntradayOdd',
-            account=api.stock_account
-        )
-        trade = api.place_order(contract, order, timeout=0)
-        send_discord_message(
-            f"[{now:%H:%M:%S}] 零股下單成功 {code} {action_enum.name} {computed_quantity} 股 @ {price}"
-        )
-        return str(trade)
+        # action_enum = sj.constant.Action.Buy if action.lower() == "buy" else sj.constant.Action.Sell
+        # computed_quantity = int(10000 // price)
+        # if computed_quantity <= 0:
+        #     raise RuntimeError(f"計算股數為 0，請調整價格或預算 (price={price})")
+        print(111)
+        # order = api.Order(
+        #     price=price,
+        #     quantity=computed_quantity,
+        #     action=action_enum,
+        #     price_type='LMT',
+        #     order_type='ROD',
+        #     order_lot='IntradayOdd',
+        #     account=api.stock_account
+        # )
+        # trade = api.place_order(contract, order, timeout=0)
+        # send_discord_message(
+        #     f"[{now:%H:%M:%S}] 零股下單成功 {code} {action_enum.name} {computed_quantity} 股 @ {price}"
+        # )
+        # return str(trade)
     except Exception as exc:
         error_message = f"[{now:%H:%M:%S}] 零股下單失敗 {code} {action} @ {price}: {exc}"
         print(error_message)

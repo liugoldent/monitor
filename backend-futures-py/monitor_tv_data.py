@@ -47,11 +47,30 @@ options.add_argument("--window-size=1920,1080")
 if not chrome_user_data_dir and platform.system() == "Darwin":
     chrome_user_data_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome")
 
-if chrome_user_data_dir:
+if not chrome_use_debugger and chrome_user_data_dir:
     options.add_argument(f"--user-data-dir={chrome_user_data_dir}")
     options.add_argument(f"--profile-directory={chrome_profile}")
 
-driver = webdriver.Chrome(options=options)
+driver = None
+
+
+def _get_driver() -> webdriver.Chrome:
+    global driver
+    if driver is not None:
+        return driver
+    driver = webdriver.Chrome(options=options)
+    return driver
+
+
+def _reset_driver() -> webdriver.Chrome:
+    global driver
+    try:
+        if driver is not None:
+            driver.quit()
+    except Exception:
+        pass
+    driver = webdriver.Chrome(options=options)
+    return driver
 
 # ---------- 1. 讀取股票清單 ----------
 def load_json(fp: str):
@@ -247,7 +266,16 @@ def _fetch_tradingview_metrics(symbol: str) -> dict:
 
 
 def _fetch_tradingview_metrics_by_url(url: str) -> dict:
-    driver.get(url)
+    driver = _get_driver()
+    try:
+        driver.get(url)
+    except Exception as exc:
+        message = str(exc).lower()
+        if "invalid session id" in message or "disconnected" in message:
+            driver = _reset_driver()
+            driver.get(url)
+        else:
+            raise
 
     ma_UpperAll_Xpath = (
         "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"

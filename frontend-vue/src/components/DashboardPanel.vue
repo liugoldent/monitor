@@ -73,6 +73,8 @@ const turnoverTechMap = ref<Map<string, TurnoverTechItem>>(new Map())
 const etfHoldingsMap = ref<Map<string, EtfHoldingsInfo>>(new Map())
 const etfCommonHoldings = ref<EtfCommonTechItem[]>([])
 const etfCommonHoldingsTime = ref<string>('')
+const commonIndexHoldings = ref<EtfCommonTechItem[]>([])
+const commonIndexHoldingsTime = ref<string>('')
 const turnoverTechDate = ref<string>('')
 const turnoverTechLastSlot = ref<string>('')
 const TURNOVER_API_URL =
@@ -83,6 +85,8 @@ const ETF_HOLDINGS_API_URL =
     import.meta.env.VITE_ETF_HOLDINGS_API_URL || 'http://localhost:5050/api/etf_holdings_counts'
 const ETF_COMMON_TECH_API_URL =
     import.meta.env.VITE_ETF_COMMON_TECH_API_URL || 'http://localhost:5050/api/etf_common_holdings_tech'
+const FUTURE_INDEX_TECH_API_URL =
+    import.meta.env.VITE_FUTURE_INDEX_TECH_API_URL || 'http://localhost:5050/api/future_index_tech'
 const ODD_LOT_ORDER_API_URL =
     import.meta.env.VITE_ODD_LOT_ORDER_API_URL || 'http://localhost:5050/api/odd_lot_trade'
 const PORTFOLIO_STORAGE_KEY = 'monitor_portfolio_codes'
@@ -236,6 +240,28 @@ const fetchEtfCommonHoldings = async () => {
     }
 }
 
+const fetchCommonIndexHoldings = async () => {
+    try {
+        const response = await fetch(FUTURE_INDEX_TECH_API_URL)
+        const payload = await response.json()
+        const data = Array.isArray(payload?.data) ? payload.data : []
+        commonIndexHoldings.value = data.map((item: EtfCommonTechItem) => ({
+            code: normalizeCode(item.code),
+            name: item.name ?? '',
+            close: item.close ?? '',
+            volumeCombo: item.volumeCombo ?? '',
+            sqzmom_stronger_2d: item.sqzmom_stronger_2d ?? '',
+            heikin_Ashi: item.heikin_Ashi ?? '',
+            ma5_dev: item.ma5_dev ?? '',
+            ma10_dev: item.ma10_dev ?? '',
+            ma20_dev: item.ma20_dev ?? '',
+        }))
+        commonIndexHoldingsTime.value = payload?.time ?? ''
+    } catch (error) {
+        console.error('Failed to load future index tech data:', error)
+    }
+}
+
 const refreshTurnoverTech = async (date: string) => {
     const now = new Date()
     const today = formatDateString(now)
@@ -303,6 +329,7 @@ onMounted(() => {
         await refreshTurnoverTech(latestDate)
         await fetchEtfHoldingsCounts()
         await fetchEtfCommonHoldings()
+        await fetchCommonIndexHoldings()
     }
     refreshTurnover()
     refreshTimer = setInterval(() => {
@@ -422,6 +449,7 @@ const getOddLotOrder = (code?: string, price?: string | number) => {
 }
 
 const placeOddLotOrder = async (code?: string, action: 'buy' | 'sell' = 'buy') => {
+    return
     const key = normalizeCode(code)
     if (!key) return
     const order = getOddLotOrder(key)
@@ -488,13 +516,9 @@ const selectedStock = ref<{ name: string; code?: string; price: string | number 
 const selectedQuestion = ref('分析技術面趨勢')
 const llmResponse = ref('')
 const llmLoading = ref(false)
-const activeTechTab = ref<'turnover' | 'portfolio' | 'commonEtf'>('turnover')
+const activeTechTab = ref<'turnover' | 'portfolio' | 'commonEtf' | 'commonIndex'>('turnover')
 const portfolioInput = ref('')
 const portfolioCodes = ref<string[]>([])
-
-const shouldShowIndicators = (stock: { name?: string }) => {
-    return !(activeTechTab.value === 'portfolio' && !stock.name)
-}
 
 onMounted(() => {
     try {
@@ -678,6 +702,11 @@ const askLLM = async () => {
                                     : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'commonEtf'">
                                     ETF 共同持股
                                 </button>
+                                <button class="px-2 py-1 rounded border" :class="activeTechTab === 'commonIndex'
+                                    ? 'bg-blue-600/40 border-blue-500 text-white'
+                                    : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'commonIndex'">
+                                    指數
+                                </button>
                                 <button class="px-2 py-1 rounded border" :class="activeTechTab === 'turnover'
                                     ? 'bg-blue-600/40 border-blue-500 text-white'
                                     : 'bg-transparent border-gray-600 text-gray-400'" @click="activeTechTab = 'turnover'">
@@ -696,7 +725,7 @@ const askLLM = async () => {
                                 class="w-full bg-[#0f0f0f] text-gray-200 text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-500"
                                 placeholder="輸入股號，空白或逗號分隔，會自動儲存" />
                         </div>
-                        <div v-if="activeTechTab !== 'commonEtf'"
+                        <div v-if="activeTechTab !== 'commonEtf' && activeTechTab !== 'commonIndex'"
                             class="grid grid-cols-6 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0">
                             <div>排行</div>
                             <div>代號</div>
@@ -718,11 +747,13 @@ const askLLM = async () => {
                         <div>20日乖離</div>
                     </div>
                         <div class="overflow-y-auto flex-1 bg-black">
-                            <div v-if="activeTechTab === 'commonEtf'">
+                            <div v-if="activeTechTab === 'commonEtf' || activeTechTab === 'commonIndex'">
                                 <div class="px-3 py-2 text-[10px] text-gray-400 border-b border-gray-900">
-                                    {{ etfCommonHoldingsTime || '-' }}
+                                    {{ activeTechTab === 'commonEtf'
+                                        ? (etfCommonHoldingsTime || '-')
+                                        : (commonIndexHoldingsTime || '-') }}
                                 </div>
-                            <div v-for="stock in etfCommonHoldings" :key="stock.code"
+                            <div v-for="stock in activeTechTab === 'commonEtf' ? etfCommonHoldings : commonIndexHoldings" :key="stock.code"
                                 class="grid grid-cols-9 text-center py-3 border-b border-gray-900 text-sm">
                                 <div class="font-medium text-white">{{ stock.code }}</div>
                                 <div class="font-medium text-white">{{ stock.name }}</div>
@@ -740,8 +771,11 @@ const askLLM = async () => {
                                 <div class="text-gray-300">{{ stock.ma10_dev || '-' }}</div>
                                 <div class="text-gray-300">{{ stock.ma20_dev || '-' }}</div>
                             </div>
-                                <div v-if="!etfCommonHoldings.length" class="text-center text-xs text-gray-500 py-6">
+                                <div v-if="activeTechTab === 'commonEtf' && !etfCommonHoldings.length" class="text-center text-xs text-gray-500 py-6">
                                     尚無共同持股資料
+                                </div>
+                                <div v-if="activeTechTab === 'commonIndex' && !commonIndexHoldings.length" class="text-center text-xs text-gray-500 py-6">
+                                    尚無指數資料
                                 </div>
                             </div>
                             <div v-else>
