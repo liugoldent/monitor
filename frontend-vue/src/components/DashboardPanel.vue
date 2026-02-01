@@ -528,7 +528,7 @@ const selectedStock = ref<{ name: string; code?: string; price: string | number 
 const selectedQuestion = ref('分析技術面趨勢')
 const llmResponse = ref('')
 const llmLoading = ref(false)
-const activeTechTab = ref<'turnover' | 'portfolio' | 'commonEtf' | 'commonIndex'>('turnover')
+const activeTechTab = ref<'turnover' | 'portfolio' | 'commonEtf' | 'commonIndex'>('commonEtf')
 const portfolioInput = ref('')
 const portfolioCodes = ref<string[]>([])
 
