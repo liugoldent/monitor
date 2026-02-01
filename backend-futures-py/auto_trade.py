@@ -34,13 +34,13 @@ def auto_trade(type):
     API_KEY = os.getenv("API_KEY")
     SECRET_KEY = os.getenv("SECRET_KEY")
 
-    current_time = testNow.time()
-    night_start = time(15, 0)
-    night_end = time(5, 0)
-    if current_time >= night_start or current_time < night_end:
-        closePosition()
-        send_discord_message(f'[{testNow:%H:%M:%S}] 夜盤時段只做平倉')
-        return
+    # current_time = testNow.time()
+    # night_start = time(15, 0)
+    # night_end = time(5, 0)
+    # if current_time >= night_start or current_time < night_end:
+    #     closePosition()
+    #     send_discord_message(f'[{testNow:%H:%M:%S}] 夜盤時段只做平倉')
+    #     return
 
     try:
         if not os.path.exists(ca_path):
@@ -61,6 +61,8 @@ def auto_trade(type):
         
         contract = api.Contracts.Futures.TMF.TMFR1
 
+        api.quote.subscribe(contract, quote_type='tick')
+
         api.update_status()
 
         # 先平倉
@@ -80,26 +82,6 @@ def auto_trade(type):
     except Exception as e:
         api.logout()
         print('送單錯誤',e)
-
-def testPosition():
-    try:
-        api = sj.Shioaji()
-        API_KEY = os.getenv("API_KEY")
-        SECRET_KEY = os.getenv("SECRET_KEY")
-        api.login(API_KEY, SECRET_KEY)
-
-        api.activate_ca(
-            ca_path,  # 填入憑證路徑
-            ca_passwd=os.getenv("PERSON_ID"),       # ca密碼
-            person_id=os.getenv("PERSON_ID"),     # 身份證字號
-        )
-
-        positions = api.list_positions(api.futopt_account)
-        api.logout()
-        return positions
-    except Exception as e:
-        api.logout()
-        print('送單錯誤',e)   
 
 
 def closePosition():
@@ -136,9 +118,9 @@ def closePosition():
 def buyOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=35000,                        # price (價格)
+        price=0,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
-        price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
+        price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
         octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
         account=api.futopt_account                 # account (下單帳號)
@@ -152,9 +134,9 @@ def buyOne(api, contract, quantity=1):
 def sellOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=30000,                        # price (價格)
+        price=0,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
-        price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
+        price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
         octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
         account=api.futopt_account                 # account (下單帳號)
@@ -163,42 +145,6 @@ def sellOne(api, contract, quantity=1):
     # 執行委託
     trade = api.place_order(contract, order, timeout=0)
     print("委託回傳內容", trade)
-
-# 確認倉位後平倉
-def checkPositionAndReset():
-    testNow = datetime.now(ZoneInfo("Asia/Taipei"))
-
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    ca_path = os.path.join(base_dir, "Sinopac.pfx")
-    API_KEY = os.getenv("API_KEY")
-    SECRET_KEY = os.getenv("SECRET_KEY")
-    #################################
-    api = sj.Shioaji()
-    api.login(API_KEY, SECRET_KEY)
-
-    try:
-        api.activate_ca(
-            ca_path,  # 填入憑證路徑
-            ca_passwd=os.getenv("PERSON_ID"),       # ca密碼
-            person_id=os.getenv("PERSON_ID"),     # 身份證字號
-        )
-
-        positions = api.list_positions(api.futopt_account)
-        contract = api.Contracts.Futures.TMF.TMFR1
-
-        if len(positions) > 0:
-            if positions[0]['direction'] == 'Buy':
-                sellOne(api, contract)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 尾盤多單平倉')
-
-            if positions[0]['direction'] == 'Sell':
-                buyOne(api, contract)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 尾盤空單平倉')
-
-        api.logout()
-    except Exception as e:
-        api.logout()
-        print('送單錯誤',e)
 
 
 def send_discord_message(content: str):

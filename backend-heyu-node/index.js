@@ -74,7 +74,7 @@ async function handler(event) {
     if (
       message.peerId.chatId?.value === 639022533n && 
       username === 'junml1107hr2' &&
-      message.message.includes('点名') && message.message.includes('在岗') && !message.message.includes('同事回复')
+      message.message.includes('点名') && message.message.includes('在岗') && message.message.includes('同事回复') && !message.message.includes('结果')
     ) {
       console.log('有新訊息進來！', event)
       console.log('發訊者 username:', username)
