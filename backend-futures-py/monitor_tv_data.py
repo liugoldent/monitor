@@ -216,34 +216,30 @@ def get_yahoo_turnover():
 def get_etf_common_holdings():
     client = MongoClient(MONGO_URI)
     db = client[ETF_DB_NAME]
-    common_codes = None
     code_name_map: dict[str, str] = {}
+    code_counts: dict[str, int] = {}
 
     for collection_name in ETF_COLLECTIONS:
         doc = db[collection_name].find_one({"_id": "latest"})
         if not doc or not doc.get("data"):
-            common_codes = set()
             continue
-        codes = set()
         for row in doc.get("data", []):
             code = str(row.get("code", "")).strip()
             name = str(row.get("name", "")).strip()
             if not code:
                 continue
-            codes.add(code)
+            code_counts[code] = code_counts.get(code, 0) + 1
             if name and code not in code_name_map:
                 code_name_map[code] = name
-        if common_codes is None:
-            common_codes = codes
-        else:
-            common_codes &= codes
 
-    if not common_codes:
+    threshold = max(len(ETF_COLLECTIONS) - 1, 1)
+    eligible = [code for code, count in code_counts.items() if count >= threshold]
+    if not eligible:
         return []
 
     return [
         {"symbol": code, "name": code_name_map.get(code, "")}
-        for code in sorted(common_codes)
+        for code in sorted(eligible)
     ]
 
 
@@ -278,7 +274,7 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
             raise
 
     ma_UpperAll_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div"
     )
     ma_UpperAll_ = WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.XPATH, ma_UpperAll_Xpath))
@@ -286,7 +282,7 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
     ma_UpperAll_text = ma_UpperAll_.text.replace(',', '')
 
     volumeCombo_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div"
     )
     volumeCombo_ = WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.XPATH, volumeCombo_Xpath))
@@ -311,7 +307,7 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
     heikin_Ashi_text = "1" if heikin_Ashi_raw == "∅" else "0"
 
     ma10_1D_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[2]/div"
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[2]/div"
     )
     ma10_1D_ = WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.XPATH, ma10_1D_Xpath))
@@ -319,7 +315,7 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
     ma10_1D_text = ma10_1D_.text.replace(',', '')
 
     ma5_1D_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[1]/div"
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[1]/div"
     )
     ma5_1D_ = WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.XPATH, ma5_1D_Xpath))
@@ -327,7 +323,7 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
     ma5_1D_text = ma5_1D_.text.replace(',', '')
 
     ma20_1D_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[3]/div"
+        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[3]/div"
     )
     ma20_1D_ = WebDriverWait(driver, 60).until(
         EC.visibility_of_element_located((By.XPATH, ma20_1D_Xpath))
@@ -391,7 +387,7 @@ def get_tv_dataT():
 
         # ma UpperAll
         ma_UpperAll_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div"
         )
         ma_UpperAll_ = WebDriverWait(driver, 60).until(
             EC.visibility_of_element_located((By.XPATH, ma_UpperAll_Xpath))
@@ -400,13 +396,13 @@ def get_tv_dataT():
         print('get Ma Upper All', ma_UpperAll_text)
 
         volumeCombo_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[4]/div"
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div"
         )
         volumeCombo_ = WebDriverWait(driver, 60).until(
             EC.visibility_of_element_located((By.XPATH, volumeCombo_Xpath))
         )
         volumeCombo_text = volumeCombo_.text.replace(',', '')
-        print('get Ma Upper All', volumeCombo_text)
+        print('get Volume Combo', volumeCombo_text)
 
         # 2D SQZMOM Stronger
         sqzmom_stronger_value_2DXpath = (
@@ -431,7 +427,7 @@ def get_tv_dataT():
 
         # ma 10 (1d)
         ma10_1D_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[2]/div"
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[2]/div"
         )
         ma10_1D_ = WebDriverWait(driver, 60).until(
             EC.visibility_of_element_located((By.XPATH, ma10_1D_Xpath))
@@ -441,7 +437,7 @@ def get_tv_dataT():
 
         # ma 5 (1d)
         ma5_1D_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[1]/div"
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[1]/div"
         )
         ma5_1D_ = WebDriverWait(driver, 60).until(
             EC.visibility_of_element_located((By.XPATH, ma5_1D_Xpath))
@@ -451,7 +447,7 @@ def get_tv_dataT():
 
         # ma 10 (1d)
         ma20_1D_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[3]/div[2]/div/div[3]/div"
+            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[3]/div"
         )
         ma20_1D_ = WebDriverWait(driver, 60).until(
             EC.visibility_of_element_located((By.XPATH, ma20_1D_Xpath))
