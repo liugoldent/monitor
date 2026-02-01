@@ -9,7 +9,7 @@ END_OFF = dt_time(20, 0)
 
 
 def _format_timestamp(now: datetime) -> str:
-    return f"{now.month}/{now.day}。{now:%H:%M}"
+    return f"{now.month}月{now.day}日。{now:%H:%M}"
 
 
 def _in_range(now_time: dt_time, start: dt_time, end: dt_time) -> bool:

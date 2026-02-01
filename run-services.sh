@@ -110,8 +110,32 @@ tell application "iTerm"
     write text "python monitor_pocket_etf.py"
   end tell
   delay 1
-  -- ===== Tab 10 : HQT Keedem Schedule =====
-  -- 08:00-10:00 上班 / 18:00-20:00 下班 每分鐘輸出
+  -- ===== Tab 10 : Cloudflared Tunnel =====
+  -- Webhook tunnel
+  tell mainWindow
+    create tab with default profile
+  end tell
+
+  tell current session of mainWindow
+    write text "cloudflared tunnel run --token eyJhIjoiZDM2YTZkNDkzNGEzMjI5ZjI1ZWQwZjQwOWE0OTU1MzEiLCJ0IjoiNzhiM2VlZjctNGNiMy00N2ZhLWEwOGUtMWMzZTU0MWQ2YjgyIiwicyI6Ik1qVTNaV0psTjJNdE0yRTFaQzAwTWpCakxUa3daR0l0TUdZeE1XVmtOVGc0TXpOayJ9"
+  end tell
+  delay 1
+
+  -- ===== Tab 11 : Webhook Server =====
+  -- 接收 webhook 並寫入 CSV
+  tell mainWindow
+    create tab with default profile
+  end tell
+
+  tell current session of mainWindow
+    write text "cd ~/Desktop/self/monitor/backend-futures-py"
+    write text "source .venv/bin/activate"
+    write text "python webhook_server.py"
+  end tell
+  delay 1
+
+  -- ===== Tab 12 : HQT Keedem Schedule =====
+  -- 08:00-09:00 上班 / 18:00-20:00 下班 每分鐘輸出
   tell mainWindow
     create tab with default profile
   end tell
@@ -122,7 +146,7 @@ tell application "iTerm"
     write text "python hqt_keedem_schedule_output.py"
   end tell
   delay 1
-  -- ===== Tab 11 : Frontend =====
+  -- ===== Tab 13 : Frontend =====
   -- 啟動 Frontend
   tell mainWindow
     create tab with default profile
