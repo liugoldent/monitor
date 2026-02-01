@@ -9,7 +9,7 @@ import socketserver
 
 # Configuration
 PORT = 8080
-CSV_FILE = os.path.join(os.path.dirname(__file__), "webhook_data.csv")
+CSV_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data.csv")
 
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
