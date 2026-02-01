@@ -1,6 +1,8 @@
 import shioaji as sj # 載入永豐金Python API
 import os
 import requests
+import csv
+from pathlib import Path
 from datetime import datetime
 from datetime import time
 from zoneinfo import ZoneInfo
@@ -27,6 +29,42 @@ load_env_file()
 base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
+TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
+
+
+def _ensure_trade_log() -> None:
+    if TRADE_LOG_PATH.exists():
+        return
+    TRADE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TRADE_LOG_PATH.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["timestamp", "action", "side", "price", "pnl"])
+
+
+def _append_trade(action: str, side: str, price: float, pnl: float | None = None) -> None:
+    _ensure_trade_log()
+    timestamp = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
+    with TRADE_LOG_PATH.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([timestamp, action, side, price, "" if pnl is None else pnl])
+
+
+def _get_last_entry() -> tuple[str, float] | None:
+    if not TRADE_LOG_PATH.exists():
+        return None
+    with TRADE_LOG_PATH.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    for row in reversed(rows[1:]):
+        if len(row) < 4:
+            continue
+        action = row[1].strip().lower()
+        side = row[2].strip().lower()
+        if action == "enter" and side in {"bull", "bear"}:
+            try:
+                return side, float(row[3])
+            except ValueError:
+                return None
+    return None
 
 # 純下單func
 def auto_trade(type):
@@ -71,10 +109,12 @@ def auto_trade(type):
         # 平倉後進新倉 (預設 1 口)
         if type == 'bull':
             buyOne(api, contract)
+            _append_trade("enter", "bull", 34000)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月多單進場 go bull')
 
         if type == 'bear':
             sellOne(api, contract)
+            _append_trade("enter", "bear", 29500)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月空單進場 go bear')
 
         api.logout()
@@ -104,10 +144,26 @@ def closePosition():
         if len(positions) > 0:
             if positions[0]['direction'] == 'Buy':
                 sellOne(api, contract)
+                last_entry = _get_last_entry()
+                exit_price = 29500
+                if last_entry:
+                    _, entry_price = last_entry
+                    pnl = exit_price - entry_price
+                else:
+                    pnl = None
+                _append_trade("exiting", "bull", exit_price, pnl)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 丟空單平倉')
 
             if positions[0]['direction'] == 'Sell':
                 buyOne(api, contract)
+                last_entry = _get_last_entry()
+                exit_price = 34000
+                if last_entry:
+                    _, entry_price = last_entry
+                    pnl = entry_price - exit_price
+                else:
+                    pnl = None
+                _append_trade("exiting", "bear", exit_price, pnl)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 丟多單平倉')
         api.logout()
     except Exception as e:

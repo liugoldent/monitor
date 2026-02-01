@@ -28,7 +28,7 @@ class FakeEvent:
 
 
 async def main() -> None:
-    text = "期權醫生-浩克策略\n小H1訊號通知\n小型台指近一訊號部位為: 多1口\n"
+    text = "期權醫生-浩克策略\n小H1訊號通知\n小型台指近一訊號部位為: 空1口\n"
     event = FakeEvent(text)
     await bot_message_handler(event)
     await bot_message_handler(event)
