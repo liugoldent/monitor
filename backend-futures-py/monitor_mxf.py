@@ -1,4 +1,5 @@
 import os
+import csv
 from pathlib import Path
 import requests
 import time
@@ -34,6 +35,7 @@ MONGO_URI = require_env("MONGO_URI")
 API_URL = "https://market-data-api.futures-ai.com/chip960_tradeinfo/"
 DB_NAME = "mxf_futures"
 TZ = ZoneInfo("Asia/Taipei")
+CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "mxf_value.csv"
 
 
 def fetch_tradeinfo() -> object:
@@ -77,6 +79,46 @@ def insert_tradeinfo(payload: object, collection_name: str, now: datetime) -> No
         print(f"✅ 成功插入 {len(docs)} 筆資料到集合 {collection_name}")
 
 
+def _to_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except ValueError:
+        return None
+
+
+def _get_signal(tx_bvav: float | None, mtx_bvav: float | None, mtx_tbta: float | None) -> str:
+    if tx_bvav is None or mtx_bvav is None or mtx_tbta is None:
+        return "none"
+    if tx_bvav > 0 and mtx_bvav > 0 and mtx_tbta < 0:
+        return "bull"
+    if tx_bvav < 0 and mtx_bvav < 0 and mtx_tbta > 0:
+        return "bear"
+    return "none"
+
+
+def append_tradeinfo_csv(payload: object, now: datetime) -> None:
+    docs = normalize_documents(payload)
+    if not docs:
+        return
+
+    doc = docs[0]
+    tx_bvav = _to_float(doc.get("tx_bvav"))
+    mtx_bvav = _to_float(doc.get("mtx_bvav"))
+    mtx_tbta = _to_float(doc.get("mtx_tbta"))
+    signal = _get_signal(tx_bvav, mtx_bvav, mtx_tbta)
+
+    CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    file_exists = CSV_PATH.exists()
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    with CSV_PATH.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        if not file_exists:
+            writer.writerow(["time", "tx_bvav", "mtx_bvav", "mtx_tbta", "signal"])
+        writer.writerow([timestamp, tx_bvav, mtx_bvav, mtx_tbta, signal])
+
+
 def get_collection_name(now: datetime) -> str:
     return now.strftime("%Y-%m-%d")
 
@@ -112,6 +154,7 @@ def main() -> None:
                 payload = fetch_tradeinfo()
                 collection_name = get_collection_name(now)
                 insert_tradeinfo(payload, collection_name, now)
+                append_tradeinfo_csv(payload, now)
             except Exception as exc:
                 print(f"❌ 打 API 或寫入失敗: {exc}")
         sleep_until_next_minute()
