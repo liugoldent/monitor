@@ -444,6 +444,13 @@ const getTurnoverRank = (code?: string) => {
     return turnoverRankMap.value.get(key) ?? '-'
 }
 
+const etfCommonHoldingsFiltered = computed(() => {
+    return etfCommonHoldings.value.filter((item) => {
+        const rank = turnoverRankMap.value.get(normalizeCode(item.code))
+        return typeof rank === 'number' && rank <= 25
+    })
+})
+
 const oddLotOrders = ref<Record<string, { price: string; qty: string }>>({})
 
 const getOddLotOrder = (code?: string, price?: string | number) => {
@@ -766,7 +773,7 @@ const askLLM = async () => {
                                         ? (etfCommonHoldingsTime || '-')
                                         : (commonIndexHoldingsTime || '-') }}
                                 </div>
-                            <div v-for="stock in activeTechTab === 'commonEtf' ? etfCommonHoldings : commonIndexHoldings" :key="stock.code"
+                            <div v-for="stock in activeTechTab === 'commonEtf' ? etfCommonHoldingsFiltered : commonIndexHoldings" :key="stock.code"
                                 class="grid grid-cols-10 text-center py-3 border-b border-gray-900 text-sm">
                                 <div class="text-gray-300">{{ getTurnoverRank(stock.code) }}</div>
                                 <div class="font-medium text-white">{{ stock.code }}</div>
@@ -785,8 +792,8 @@ const askLLM = async () => {
                                 <div class="text-gray-300">{{ stock.ma10_dev || '-' }}</div>
                                 <div class="text-gray-300">{{ stock.ma20_dev || '-' }}</div>
                             </div>
-                                <div v-if="activeTechTab === 'commonEtf' && !etfCommonHoldings.length" class="text-center text-xs text-gray-500 py-6">
-                                    尚無共同持股資料
+                                <div v-if="activeTechTab === 'commonEtf' && !etfCommonHoldingsFiltered.length" class="text-center text-xs text-gray-500 py-6">
+                                    尚無符合前25名的共同持股資料
                                 </div>
                                 <div v-if="activeTechTab === 'commonIndex' && !commonIndexHoldings.length" class="text-center text-xs text-gray-500 py-6">
                                     尚無指數資料

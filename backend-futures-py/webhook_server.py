@@ -9,12 +9,173 @@ import socketserver
 import time
 from zoneinfo import ZoneInfo
 
+from auto_trade import _get_last_entry, send_discord_message, sellOne
+from auto_trade_shortCycle import _get_last_entry as _get_last_entry_short
+from auto_trade_shortCycle import send_discord_message as send_discord_message_short
+from auto_trade_shortCycle import sellOne as sell_one_short
+import shioaji as sj
+
 # Configuration
 PORT = 8080
 CSV_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data.csv")
-CLEAR_TIME = (13, 45)
+CLEAR_TIME = (14, 30)
 TZ = ZoneInfo("Asia/Taipei")
+TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
+CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
 
+
+def _to_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    cleaned = str(value).replace(",", "").strip()
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+# 長週期加空
+def check_ma_p80_reentry_and_short() -> None:
+    if not os.path.isfile(CSV_FILE):
+        return
+
+    with open(CSV_FILE, "r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    if len(rows) < 2:
+        return
+
+    prev_row, curr_row = rows[-2], rows[-1]
+    prev_close = _to_float(prev_row.get("Close"))
+    prev_ma_p80 = _to_float(prev_row.get("MA_P80"))
+    curr_close = _to_float(curr_row.get("Close"))
+    curr_ma_p80 = _to_float(curr_row.get("MA_P80"))
+
+    if None in (prev_close, prev_ma_p80, curr_close, curr_ma_p80):
+        return
+
+    if not (prev_close > prev_ma_p80 and curr_close < curr_ma_p80):
+        return
+
+    last_entry = _get_last_entry()
+    if not last_entry or last_entry[0] != "bear":
+        return
+
+    api_key = os.getenv("API_KEY")
+    secret_key = os.getenv("SECRET_KEY")
+    if not api_key or not secret_key:
+        print("❌ 缺少 API_KEY 或 SECRET_KEY")
+        return
+
+    if not os.path.exists(CA_PATH):
+        print(f"❌ 找不到憑證檔案，目前嘗試路徑為: {CA_PATH}")
+        return
+
+    test_now = datetime.now(TZ)
+    api = sj.Shioaji(simulation=False)
+    api.login(api_key, secret_key)
+    api.activate_ca(
+        ca_path=CA_PATH,
+        ca_passwd=os.getenv("PERSON_ID"),
+        person_id=os.getenv("PERSON_ID"),
+    )
+
+    try:
+        contract = api.Contracts.Futures.TMF.TMFR1
+        sellOne(api, contract)
+        send_discord_message(f'[{test_now:%H:%M:%S}] MA_P80 回檔，續空進場')
+    except Exception as exc:
+        print(f"❌ MA_P80 續空下單失敗: {exc}")
+    finally:
+        try:
+            api.logout()
+        except Exception:
+            pass
+
+
+# 短週期加空
+def check_shortcycle_ma_reentry_and_short() -> None:
+    if not os.path.isfile(CSV_FILE):
+        return
+
+    with open(CSV_FILE, "r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    if len(rows) < 2:
+        return
+
+    prev_row, curr_row = rows[-2], rows[-1]
+    prev_close = _to_float(prev_row.get("Close"))
+    curr_close = _to_float(curr_row.get("Close"))
+    prev_ma_n110 = _to_float(prev_row.get("MA_N110"))
+    curr_ma_n110 = _to_float(curr_row.get("MA_N110"))
+    prev_ma_960 = _to_float(prev_row.get("MA_960"))
+    curr_ma_960 = _to_float(curr_row.get("MA_960"))
+    prev_ma_p80 = _to_float(prev_row.get("MA_P80"))
+    curr_ma_p80 = _to_float(curr_row.get("MA_P80"))
+
+    if None in (
+        prev_close,
+        curr_close,
+        prev_ma_n110,
+        curr_ma_n110,
+        prev_ma_960,
+        curr_ma_960,
+        prev_ma_p80,
+        curr_ma_p80,
+    ):
+        return
+
+    triggers = []
+    if prev_close > prev_ma_n110 and curr_close < curr_ma_n110:
+        triggers.append("MA_N110")
+    if prev_close > prev_ma_960 and curr_close < curr_ma_960:
+        triggers.append("MA_960")
+    if prev_close > prev_ma_p80 and curr_close < curr_ma_p80:
+        triggers.append("MA_P80")
+
+    if not triggers:
+        return
+
+    last_entry = _get_last_entry_short()
+    if not last_entry or last_entry[0] != "bear":
+        return
+
+    api_key = os.getenv("API_KEY2")
+    secret_key = os.getenv("SECRET_KEY2")
+    if not api_key or not secret_key:
+        print("❌ 缺少 API_KEY2 或 SECRET_KEY2")
+        return
+
+    if not os.path.exists(CA_PATH):
+        print(f"❌ 找不到憑證檔案，目前嘗試路徑為: {CA_PATH}")
+        return
+
+    test_now = datetime.now(TZ)
+    api = sj.Shioaji(simulation=False)
+    api.login(api_key, secret_key)
+    api.activate_ca(
+        ca_path=CA_PATH,
+        ca_passwd=os.getenv("PERSON_ID"),
+        person_id=os.getenv("PERSON_ID"),
+    )
+
+    try:
+        contract = api.Contracts.Futures.TMF.TMFR1
+        sell_one_short(api, contract)
+        send_discord_message_short(
+            f'[{test_now:%H:%M:%S}] 短週期續空進場 ({", ".join(triggers)})'
+        )
+    except Exception as exc:
+        print(f"❌ 短週期續空下單失敗: {exc}")
+    finally:
+        try:
+            api.logout()
+        except Exception:
+            pass
+
+# 獲取webhook並處理
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == '/webhook':
@@ -85,6 +246,8 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
 
                     print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time})")
                     sys.stdout.flush()  # Ensure output is printed immediately
+                    check_ma_p80_reentry_and_short()
+                    check_shortcycle_ma_reentry_and_short()
                     
                     # Respond success
                     self.send_response(200)

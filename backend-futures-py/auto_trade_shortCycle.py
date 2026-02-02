@@ -31,7 +31,7 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
 TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
-WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data.csv"
+WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_shortCycle.csv"
 
 
 def _ensure_trade_log() -> None:
@@ -92,8 +92,8 @@ def _get_latest_webhook_close() -> float | None:
 # 純下單func
 def auto_trade(type):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
-    API_KEY = os.getenv("API_KEY")
-    SECRET_KEY = os.getenv("SECRET_KEY")
+    API_KEY = os.getenv("API_KEY2")
+    SECRET_KEY = os.getenv("SECRET_KEY2")
 
     # current_time = testNow.time()
     # night_start = time(15, 0)
@@ -153,8 +153,8 @@ def closePosition():
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
     try:
         api = sj.Shioaji()
-        API_KEY = os.getenv("API_KEY")
-        SECRET_KEY = os.getenv("SECRET_KEY")
+        API_KEY = os.getenv("API_KEY2")
+        SECRET_KEY = os.getenv("SECRET_KEY2")
         api.login(API_KEY, SECRET_KEY)
 
         api.activate_ca(
@@ -197,7 +197,6 @@ def closePosition():
 
 
 def buyOne(api, contract, quantity=1):
-    return
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
         price=0,                        # price (價格)
@@ -214,7 +213,6 @@ def buyOne(api, contract, quantity=1):
 
 
 def sellOne(api, contract, quantity=1):
-    return
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
         price=0,                        # price (價格)

@@ -4,6 +4,7 @@
 # Env files
 .env
 .env.*
+*.csv
 
 # Node
 **/node_modules/
