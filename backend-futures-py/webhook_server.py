@@ -246,8 +246,8 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
 
                     print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time})")
                     sys.stdout.flush()  # Ensure output is printed immediately
-                    check_ma_p80_reentry_and_short()
-                    check_shortcycle_ma_reentry_and_short()
+                    # check_ma_p80_reentry_and_short()
+                    # check_shortcycle_ma_reentry_and_short()
                     
                     # Respond success
                     self.send_response(200)

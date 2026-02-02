@@ -197,7 +197,6 @@ def closePosition():
 
 
 def buyOne(api, contract, quantity=1):
-    return
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
         price=0,                        # price (價格)
@@ -214,7 +213,6 @@ def buyOne(api, contract, quantity=1):
 
 
 def sellOne(api, contract, quantity=1):
-    return
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
         price=0,                        # price (價格)
