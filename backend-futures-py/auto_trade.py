@@ -31,7 +31,7 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
 TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
-WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data.csv"
+WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 
 
 def _ensure_trade_log() -> None:
@@ -94,14 +94,6 @@ def auto_trade(type):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
     API_KEY = os.getenv("API_KEY")
     SECRET_KEY = os.getenv("SECRET_KEY")
-
-    # current_time = testNow.time()
-    # night_start = time(15, 0)
-    # night_end = time(5, 0)
-    # if current_time >= night_start or current_time < night_end:
-    #     closePosition()
-    #     send_discord_message(f'[{testNow:%H:%M:%S}] 夜盤時段只做平倉')
-    #     return
 
     try:
         if not os.path.exists(ca_path):
@@ -199,7 +191,7 @@ def closePosition():
 def buyOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=34777,                        # price (價格)
+        price=34000,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
@@ -215,7 +207,7 @@ def buyOne(api, contract, quantity=1):
 def sellOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=28455,                        # price (價格)
+        price=28500,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK

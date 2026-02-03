@@ -10,7 +10,6 @@ import time
 from zoneinfo import ZoneInfo
 
 from auto_trade import _get_last_entry, send_discord_message, sellOne
-from auto_trade_shortCycle import _get_last_entry as _get_last_entry_short
 from auto_trade_shortCycle import send_discord_message as send_discord_message_short
 from auto_trade_shortCycle import sellOne as sell_one_short
 from auto_trade_shortCycle import buyOne as buy_one_short
@@ -18,7 +17,9 @@ import shioaji as sj
 
 # Configuration
 PORT = 8080
-CSV_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data.csv")
+CSV_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_5min.csv")
+CSV_FILE_1MIN = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_1min.csv")
+CSV_FILE_5MIN = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_5min.csv")
 CLEAR_TIME = (14, 30)
 TZ = ZoneInfo("Asia/Taipei")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
@@ -58,8 +59,8 @@ def _read_last_two_rows(path: str) -> list[dict]:
     return rows[-2:] if len(rows) >= 2 else rows
 
 
-def check_ha_mxf_strategy() -> None:
-    rows = _read_last_two_rows(CSV_FILE)
+def check_ha_mxf_strategy(csv_path: str) -> None:
+    rows = _read_last_two_rows(csv_path)
     if len(rows) < 2:
         return
 
@@ -106,7 +107,6 @@ def check_ha_mxf_strategy() -> None:
                 current_side = "bull"
             elif direction == "Sell":
                 current_side = "bear"
-
         if current_side == "bull":
             if signal in {"bear", "none"} or curr_ha_close < curr_ha_open:
                 sell_one_short(api, contract)
@@ -118,13 +118,11 @@ def check_ha_mxf_strategy() -> None:
                 buy_one_short(api, contract)
                 send_discord_message_short(f'[{test_now:%H:%M:%S}] 空單出場 (HA/MXF)')
             return
-        
-        if prev_ha_close < prev_ha_open and signal == "bear" and curr_ha_close >= curr_ha_open:
+        if prev_ha_close < prev_ha_open and signal == "bear":
             sell_one_short(api, contract)
             send_discord_message_short(f'[{test_now:%H:%M:%S}] 進場空單 (HA/MXF)')
             return
-        
-        if prev_ha_close >= prev_ha_open and signal == "bull" and curr_ha_close < curr_ha_open:
+        if prev_ha_close >= prev_ha_open and signal == "bull":
             buy_one_short(api, contract)
             send_discord_message_short(f'[{test_now:%H:%M:%S}] 進場多單 (HA/MXF)')
             return
@@ -154,6 +152,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                 if data:
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     symbol = data.get('symbol', 'Unknown')
+                    timeframe = str(data.get('timeframe', '')).strip()
                     tv_time_ms = data.get('time', '')
                     open_price = data.get('open', '')
                     high_price = data.get('high', '')
@@ -174,13 +173,21 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     except Exception:
                         tv_time = str(tv_time_ms)
 
-                    file_exists = os.path.isfile(CSV_FILE)
-                    with open(CSV_FILE, 'a', newline='', encoding='utf-8') as f:
+                    if timeframe == "5":
+                        target_csv = CSV_FILE_5MIN
+                    elif timeframe == "1":
+                        target_csv = CSV_FILE_1MIN
+                    else:
+                        target_csv = CSV_FILE
+
+                    file_exists = os.path.isfile(target_csv)
+                    with open(target_csv, 'a', newline='', encoding='utf-8') as f:
                         writer = csv.writer(f)
                         if not file_exists:
                             writer.writerow([
                                 'Record Time',
                                 'Symbol',
+                                'Timeframe',
                                 'TradingView Time',
                                 'Open',
                                 'High',
@@ -197,6 +204,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                         writer.writerow([
                             current_time,
                             symbol,
+                            timeframe,
                             tv_time,
                             open_price,
                             high_price,
@@ -211,11 +219,10 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                             ma_n200,
                         ])
 
-                    print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time})")
+                    print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     sys.stdout.flush()  # Ensure output is printed immediately
-                    # check_ma_p80_reentry_and_short()
-                    # check_shortcycle_ma_reentry_and_short()
-                    check_ha_mxf_strategy()
+                    if timeframe == "5":
+                        check_ha_mxf_strategy(target_csv)
                     
                     # Respond success
                     self.send_response(200)
