@@ -59,6 +59,39 @@ def _read_last_two_rows(path: str) -> list[dict]:
     return rows[-2:] if len(rows) >= 2 else rows
 
 
+def _ensure_csv_header(path: str, header: list[str]) -> None:
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", newline="", encoding="utf-8") as handle:
+            reader = csv.reader(handle)
+            rows = list(reader)
+    except Exception:
+        return
+
+    if not rows:
+        return
+
+    current_header = rows[0]
+    if current_header == header:
+        return
+
+    # If header differs, rewrite file with new header and pad existing rows.
+    data_rows = rows[1:]
+    normalized_rows: list[list[str]] = []
+    for row in data_rows:
+        if len(row) < len(header):
+            row = row + [""] * (len(header) - len(row))
+        elif len(row) > len(header):
+            row = row[:len(header)]
+        normalized_rows.append(row)
+
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        writer.writerows(normalized_rows)
+
+
 def check_ha_mxf_strategy(csv_path: str) -> None:
     rows = _read_last_two_rows(csv_path)
     if len(rows) < 2:
@@ -69,6 +102,7 @@ def check_ha_mxf_strategy(csv_path: str) -> None:
     prev_ha_open = _to_float(prev_row.get("HA_Open"))
     curr_ha_close = _to_float(curr_row.get("HA_Close"))
     curr_ha_open = _to_float(curr_row.get("HA_Open"))
+    close = _to_float(curr_row.get("Close"))
     if None in (prev_ha_close, prev_ha_open, curr_ha_close, curr_ha_open):
         return
 
@@ -107,24 +141,38 @@ def check_ha_mxf_strategy(csv_path: str) -> None:
                 current_side = "bull"
             elif direction == "Sell":
                 current_side = "bear"
+        print(current_side, 'current_side')
+
+        # 到時候註解
+        # if current_side is None:
+        #     if prev_ha_close >= prev_ha_open and curr_ha_close < curr_ha_open:
+        #         send_discord_message_short(f'[{test_now:%H:%M:%S}] 多單出場 (HA/MXF)[{close}]')
+        #     if prev_ha_close < prev_ha_open and curr_ha_close >= curr_ha_open:
+        #         send_discord_message_short(f'[{test_now:%H:%M:%S}] 空單出場 (HA/MXF)[{close}]')
+        #     return
+
         if current_side == "bull":
             if signal in {"bear", "none"} or curr_ha_close < curr_ha_open:
                 sell_one_short(api, contract)
-                send_discord_message_short(f'[{test_now:%H:%M:%S}] 多單出場 (HA/MXF)')
+                send_discord_message_short(f'[{test_now:%H:%M:%S}] 多單出場 (HA/MXF)[{close}]')
             return
 
         if current_side == "bear":
             if signal in {"bull", "none"} or curr_ha_close > curr_ha_open:
                 buy_one_short(api, contract)
-                send_discord_message_short(f'[{test_now:%H:%M:%S}] 空單出場 (HA/MXF)')
+                send_discord_message_short(f'[{test_now:%H:%M:%S}] 空單出場 (HA/MXF)[{close}]')
             return
-        if prev_ha_close < prev_ha_open and signal == "bear":
+        
+        print(curr_ha_close < curr_ha_open, 'curr_ha_close < curr_ha_open')
+        if curr_ha_close < curr_ha_open and signal == "bear" and len(positions) == 0:
             sell_one_short(api, contract)
-            send_discord_message_short(f'[{test_now:%H:%M:%S}] 進場空單 (HA/MXF)')
+            send_discord_message_short(f'[{test_now:%H:%M:%S}] 進場空單 (HA/MXF)[{close}]')
             return
-        if prev_ha_close >= prev_ha_open and signal == "bull":
+        
+        print(curr_ha_close >= curr_ha_open, 'curr_ha_close >= curr_ha_open')
+        if curr_ha_close >= curr_ha_open and signal == "bull" and len(positions) == 0:
             buy_one_short(api, contract)
-            send_discord_message_short(f'[{test_now:%H:%M:%S}] 進場多單 (HA/MXF)')
+            send_discord_message_short(f'[{test_now:%H:%M:%S}] 進場多單 (HA/MXF)[{close}]')
             return
     except Exception as exc:
         print(f"❌ HA/MXF 策略下單失敗: {exc}")
@@ -165,6 +213,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     ma_n200 = data.get('ma_n200', '')
                     ha_open = data.get('ha_open', '')
                     ha_close = data.get('ha_close', '')
+                    vwap = data.get('vwap', '')
 
                     tv_time = ""
                     try:
@@ -180,27 +229,31 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     else:
                         target_csv = CSV_FILE
 
+                    header = [
+                        'Record Time',
+                        'Symbol',
+                        'Timeframe',
+                        'TradingView Time',
+                        'Open',
+                        'High',
+                        'Low',
+                        'Close',
+                        'HA_Open',
+                        'HA_Close',
+                        'VWAP',
+                        'MA_960',
+                        'MA_P80',
+                        'MA_P200',
+                        'MA_N110',
+                        'MA_N200',
+                    ]
+                    _ensure_csv_header(target_csv, header)
+
                     file_exists = os.path.isfile(target_csv)
                     with open(target_csv, 'a', newline='', encoding='utf-8') as f:
                         writer = csv.writer(f)
                         if not file_exists:
-                            writer.writerow([
-                                'Record Time',
-                                'Symbol',
-                                'Timeframe',
-                                'TradingView Time',
-                                'Open',
-                                'High',
-                                'Low',
-                                'Close',
-                                'HA_Open',
-                                'HA_Close',
-                                'MA_960',
-                                'MA_P80',
-                                'MA_P200',
-                                'MA_N110',
-                                'MA_N200',
-                            ])
+                            writer.writerow(header)
                         writer.writerow([
                             current_time,
                             symbol,
@@ -212,6 +265,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                             close_price,
                             ha_open,
                             ha_close,
+                            vwap,
                             ma_960,
                             ma_p80,
                             ma_p200,
@@ -219,9 +273,10 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                             ma_n200,
                         ])
 
-                    print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
+                    
                     sys.stdout.flush()  # Ensure output is printed immediately
                     if timeframe == "5":
+                        print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                         check_ha_mxf_strategy(target_csv)
                     
                     # Respond success

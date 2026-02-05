@@ -27,6 +27,19 @@ def load_env_file(path: str = ".env") -> None:
 
 load_env_file()
 
+def _get_env_float(key: str, default: float) -> float:
+    raw = os.getenv(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"⚠️ 無法解析環境變數 {key}={raw!r}，改用預設值 {default}")
+        return default
+
+BUY_ONE_PRICE = _get_env_float("BUY_ONE_PRICE", 34000)
+SELL_ONE_PRICE = _get_env_float("SELL_ONE_PRICE", 28500)
+
 base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
@@ -191,7 +204,7 @@ def closePosition():
 def buyOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=34000,                        # price (價格)
+        price=BUY_ONE_PRICE,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
@@ -207,7 +220,7 @@ def buyOne(api, contract, quantity=1):
 def sellOne(api, contract, quantity=1):
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=28500,                        # price (價格)
+        price=SELL_ONE_PRICE,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.LMT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
