@@ -200,6 +200,53 @@ def _read_last_two_rows(path: str) -> list[dict]:
         rows = list(reader)
     return rows[-2:] if len(rows) >= 2 else rows
 
+
+def _get_latest_mxf_direction() -> str | None:
+    if not os.path.isfile(MXF_VALUE_PATH):
+        return None
+    try:
+        with open(MXF_VALUE_PATH, "r", newline="", encoding="utf-8") as handle:
+            last_row = None
+            for row in csv.reader(handle):
+                if row:
+                    last_row = row
+    except Exception:
+        return None
+
+    if not last_row:
+        return None
+    direction = str(last_row[-1]).strip().lower()
+    return direction if direction in {"bull", "bear"} else None
+
+
+def _get_latest_mxf_switch() -> tuple[str | None, str | None]:
+    if not os.path.isfile(MXF_VALUE_PATH):
+        return None, None
+    try:
+        with open(MXF_VALUE_PATH, "r", newline="", encoding="utf-8") as handle:
+            rows = [row for row in csv.reader(handle) if row]
+    except Exception:
+        return None, None
+
+    if len(rows) < 2:
+        return None, None
+
+    prev_row = rows[-2]
+    curr_row = rows[-1]
+    if len(prev_row) < 2 or len(curr_row) < 2:
+        return None, None
+
+    prev_dir = str(prev_row[-1]).strip().lower()
+    curr_dir = str(curr_row[-1]).strip().lower()
+    if prev_dir not in {"bull", "bear"} or curr_dir not in {"bull", "bear"}:
+        return None, None
+
+    if prev_dir == curr_dir:
+        return None, None
+
+    switch_time = str(curr_row[0]).strip()
+    return switch_time, curr_dir
+
 def _load_vwap_state():
     if not os.path.exists(VWAP_STATE_FILE):
         return {}
@@ -215,262 +262,6 @@ def _save_vwap_state(state):
             json.dump(state, f)
     except Exception:
         pass
-
-def check_vwap_1min_strategy(csv_path: str) -> None:
-    rows = _read_last_two_rows(csv_path)
-    if len(rows) < 2:
-        return
-
-    prev_row, curr_row = rows[-2], rows[-1]
-    timeframe = str(curr_row.get("Timeframe", "")).strip()
-    if timeframe != "1":
-        return
-
-    prev_close = _to_int(prev_row.get("Close"))
-    prev_vwap = _to_int(prev_row.get("VWAP"))
-    prev_vwap_upper = _to_int(prev_row.get("VWAP_Upper"))
-    prev_vwap_lower = _to_int(prev_row.get("VWAP_Lower"))
-
-    curr_close = _to_int(curr_row.get("Close"))
-    curr_vwap = _to_int(curr_row.get("VWAP"))
-    curr_vwap_upper = _to_int(curr_row.get("VWAP_Upper"))
-    curr_vwap_lower = _to_int(curr_row.get("VWAP_Lower"))
-
-    if None in (
-        prev_close,
-        prev_vwap,
-        prev_vwap_upper,
-        prev_vwap_lower,
-        curr_close,
-        curr_vwap,
-        curr_vwap_upper,
-        curr_vwap_lower,
-    ):
-        return
-
-    # Signal uses previous bar; execution uses current bar
-    close_prev = prev_close
-    vwap_prev = prev_vwap
-    vwap_upper_prev = prev_vwap_upper
-    vwap_lower_prev = prev_vwap_lower
-
-    close_r = curr_close
-    vwap_r = curr_vwap
-    vwap_upper_r = curr_vwap_upper
-    vwap_lower_r = curr_vwap_lower
-
-    api_key = os.getenv("API_KEY2")
-    secret_key = os.getenv("SECRET_KEY2")
-    if not api_key or not secret_key:
-        print("❌ 缺少 API_KEY2 或 SECRET_KEY2")
-        return
-
-    if not os.path.exists(CA_PATH):
-        print(f"❌ 找不到憑證檔案，目前嘗試路徑為: {CA_PATH}")
-        return
-
-    with VWAP_LOCK:
-        api = sj.Shioaji(simulation=True)
-        api.login(api_key, secret_key)
-        api.activate_ca(
-            ca_path=CA_PATH,
-            ca_passwd=os.getenv("PERSON_ID"),
-            person_id=os.getenv("PERSON_ID"),
-        )
-        try:
-            api.update_status()
-            contract = api.Contracts.Futures.TMF.TMFR1
-            positions = api.list_positions(api.futopt_account)
-
-            current_side = None
-            if positions:
-                direction = getattr(positions[0], "direction", None)
-                if direction == "Buy":
-                    current_side = "bull"
-                elif direction == "Sell":
-                    current_side = "bear"
-            
-            print(current_side, 'current_side')
-
-            state = _load_vwap_state()
-            if current_side is None and state.get("position_side") is not None:
-                state = {} # Reset state if position is gone
-                _save_vwap_state(state)
-            
-            # --- EXIT LOGIC ---
-            current_side == "bull"
-            if DRY_RUN:
-                send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 心跳：當前模擬持倉方向: {current_side}, 策略狀態: {state}')
-
-            if current_side == "bull":
-                strategy = state.get("strategy")
-                
-                should_exit = False
-                exit_reason = ""
-                
-                # 策略A：出場條件：停利 (TP)：當收盤價接近 VWAP 上方區間的上緣 (VWAP Upper) 時，進行停利，出場價格為 VWAP 上緣 - 5 點。停損 (SL)：當收盤價跌破 VWAP 時，進行停損，出場價格為 VWAP。
-                # 上區間做多出場
-                if strategy == "A":
-                    if close_r >= vwap_upper_r - 5:
-                        should_exit = True; exit_reason = "停利：收盤價接近 VWAP 上方區間的上緣"
-                    elif close_r < vwap_r:
-                        should_exit = True; exit_reason = "停損：收盤價跌破 VWAP"
-                
-                # 策略B：出場條件：停利/停損 (TP/SL)：當收盤價跌破 VWAP 上方區間的上緣 (VWAP Upper) 時，無論是停利還是停損，都在同一個價格點位，出場價格為 VWAP 上緣。
-                # 上上區間出場
-                elif strategy == "B":
-                    if close_r < vwap_upper_r:
-                        should_exit = True; exit_reason = "收平：收盤價跌破 VWAP 上方區間的上緣"
-
-                # 策略C：出場條件：停利 (TP)：當收盤價接近 VWAP 的下緣 (VWAP) 時，進行停利，出場價格為 VWAP - 5 點。停損 (SL)：當收盤價繼續跌下去，跌破 VWAP 的下緣 (VWAP Lower) 時，進行停損，出場價格為 VWAP 下緣。
-                # 下區間做多出場
-                elif strategy == "C":
-                    if close_r >= vwap_r - 5:
-                        should_exit = True; exit_reason = "停利：收盤價接近 VWAP 的下緣"
-                    elif close_r < vwap_lower_r:
-                        should_exit = True; exit_reason = "停損：收盤繼續跌下去，跌破 VWAP 下緣"
-
-                else: 
-                     pass
-
-                if should_exit:
-                    if DRY_RUN:
-                        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 模擬多單出場 ({exit_reason}) @ {close_r}')
-                    else:
-                        _place_market_order(api, contract, "bear") # Sell to close
-                        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 多單出場 ({exit_reason}) @ {close_r}')
-                    _save_vwap_state({})
-                    VWAP_ORDER_STATE.clear()
-                    return
-
-            if current_side == "bear":
-                strategy = state.get("strategy")
-                
-                should_exit = False
-                exit_reason = ""
-                
-                # 下區間做空出場
-                if strategy == "A":
-                    if close_r <= vwap_lower_r + 5:
-                        should_exit = True; exit_reason = "停利：收盤價接近 VWAP 的下緣"
-                    elif close_r > vwap_r:
-                        should_exit = True; exit_reason = "停損：收盤價突破 VWAP 上方區間的上緣"
-                
-                # 下下區間做空出場
-                elif strategy == "B":
-                    if close_r > vwap_lower_r:
-                        should_exit = True; exit_reason = "收平：收盤價站上 VWAP 下方區間的下緣"
-
-                # 策略C：出場條件：停利 (TP)：當收盤價接近 VWAP 的上緣 (VWAP) 時，進行停利，出場價格為 VWAP + 5 點。停損 (SL)：當收盤價繼續漲上去，突破進場價格的高點時，進行停損，出場價格為進場價格的高點。
-                # 上區間做空出場
-                elif strategy == "C":
-                    if close_r <= vwap_r + 5:
-                        should_exit = True; exit_reason = "停利：收盤價接近 VWAP 的上緣"
-                    elif close_r > vwap_upper_r:
-                        should_exit = True; exit_reason = "停損：收盤價突破 VWAP 上方區間的上緣"
-
-                if should_exit:
-                    if DRY_RUN:
-                        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 模擬空單出場 ({exit_reason}) @ {close_r}')
-                    else:
-                        _place_market_order(api, contract, "bull") # Buy to close
-                        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 空單出場 ({exit_reason}) @ {close_r}')
-                    _save_vwap_state({})
-                    VWAP_ORDER_STATE.clear()
-                    return
-            print(current_side, 'after exit logic')
-            # --- ENTRY LOGIC ---
-            if current_side is None:
-                # Determine Desired Entry
-                desired_side = None
-                desired_price = None
-                detected_strategy = None
-                
-                # LONG Logic
-                # 策略A：突破 (Breakout)：當收盤價站上 VWAP，且在 VWAP 上方區間內，視為突破，進場價格為 VWAP + 5 點。
-                # 上區間做多
-                if close_prev < vwap_prev and close_r > vwap_r:
-                    detected_strategy = "A"
-                    desired_side = "bull"
-                    desired_price = vwap_r + 5
-                
-                # 策略B：追價 (Chase)：當收盤價站上 VWAP Upper，視為強勢追價訊號，進場價格為 VWAP Upper + 5 點。
-                # 上上區間做多
-                elif close_prev < vwap_upper_prev and close_r > vwap_upper_r:
-                    detected_strategy = "B"
-                    desired_side = "bull"
-                    desired_price = vwap_upper_r + 5
-                    
-                # 策略C：反彈 (Rebound)：當收盤價由下往上穿越 VWAP Lower，視為反彈，進場價格為 VWAP Lower + 8 點。
-                # 下區間做多
-                elif close_prev < vwap_lower_prev and close_r > vwap_lower_r:
-                    detected_strategy = "C"
-                    desired_side = "bull"
-                    desired_price = vwap_lower_r + 8
-                
-                # SHORT Logic (Overwrites Long if signals conflict, though distinct zones help)
-                # 策略A：突破 (Breakdown)：當收盤價站下 VWAP，且在 VWAP 下方區間內，視為突破，進場價格為 VWAP - 5 點。
-                # 下區間做空
-                if close_prev > vwap_prev and close_r < vwap_r:
-                    detected_strategy = "A"
-                    desired_side = "bear"
-                    desired_price = vwap_r - 5
-                
-                # 策略B：當收盤價站下 VWAP Lower，視為強勢追價訊號，進場價格為 VWAP Lower - 5 點。
-                # 下下區間做空
-                elif close_prev > vwap_lower_prev and close_r < vwap_lower_r:
-                    detected_strategy = "B"
-                    desired_side = "bear"
-                    desired_price = vwap_lower_r - 5
-                    
-                # 策略C：反彈 (Rebound)：當收盤價由上往下穿越 VWAP Upper，視為反彈，進場價格為 VWAP Upper - 8 點。
-                # 上區間做空
-                elif close_prev > vwap_upper_prev and close_r < vwap_upper_r:
-                    detected_strategy = "C"
-                    desired_side = "bear"
-                    desired_price = vwap_upper_r - 5
-
-                # execute entry pending order update
-                trade = VWAP_ORDER_STATE.get("trade")
-                current_order_side = VWAP_ORDER_STATE.get("side")
-                current_order_price = VWAP_ORDER_STATE.get("price")
-
-                if desired_side and desired_price:
-                   desired_price = int(desired_price)
-                   if current_order_side != desired_side or current_order_price != desired_price:
-                        if DRY_RUN:
-                            send_discord_message_short(
-                                f'[{datetime.now(TZ):%H:%M:%S}] 模擬掛單 {desired_side} @ {desired_price} (VWAP-{detected_strategy})'
-                            )
-                            trade = _update_or_replace_order(api, contract, trade, desired_side, desired_price)
-                            VWAP_ORDER_STATE["side"] = desired_side
-                            VWAP_ORDER_STATE["price"] = desired_price
-                            VWAP_ORDER_STATE["trade"] = "SIMULATED_TRADE"
-                        else:
-                            trade = _update_or_replace_order(api, contract, trade, desired_side, desired_price)
-                            VWAP_ORDER_STATE["side"] = desired_side
-                            VWAP_ORDER_STATE["price"] = desired_price
-                            VWAP_ORDER_STATE["trade"] = trade
-                        
-                        _save_vwap_state({
-                            "strategy": detected_strategy, 
-                            "position_side": desired_side
-                        })
-                   elif DRY_RUN:
-                        send_discord_message_short(
-                            f'[{datetime.now(TZ):%H:%M:%S}] 模擬維持委託 {desired_side} @ {desired_price} (VWAP-{detected_strategy})'
-                        )
-                else:
-                    pass
-
-        except Exception as exc:
-            print(f"❌ VWAP 策略下單失敗: {exc}")
-        finally:
-            try:
-                api.logout()
-            except Exception:
-                pass
-
 
 def notify_vwap_cross_signals(csv_path: str) -> None:
     rows = _read_last_two_rows(csv_path)
@@ -497,31 +288,70 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
     if None in (prev_close, curr_close, prev_vwap, vwap, prev_vwap_upper, vwap_upper, prev_vwap_lower, vwap_lower):
         return
 
-    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
+    now = datetime.now(TZ)
+    now_ts = now.strftime("%H:%M:%S")
     state = _load_vwap_state()
-    current_strat = state.get("strategy")   
+    current_strat = state.get("strategy")
+    current_dir = state.get("direction")
+    mxf_dir = _get_latest_mxf_direction()
+    mxf_switch_time, _ = _get_latest_mxf_switch()
+    last_mxf_switch_time = state.get("mxf_switch_time")
+    
+    # 如果 MXF 方向有變化，無論目前是否在策略中，都強制出場並更新狀態
+    if mxf_switch_time and mxf_switch_time != last_mxf_switch_time:
+        send_discord_message_short(f"[{now_ts}] 方向轉換出場")
+        state["mxf_switch_time"] = mxf_switch_time
+        _save_vwap_state(state)
+
+    # 尾盤強制出場
+    force_exit_times = {(13, 44), (4, 59)}
+    force_exit_key = now.strftime("%Y-%m-%d %H:%M")
+    if (now.hour, now.minute) in force_exit_times:
+        if state.get("force_exit_key") != force_exit_key:
+            send_discord_message_short(f"[{now_ts}] 尾盤強制出場")
+            state["force_exit_key"] = force_exit_key
+            _save_vwap_state(state)
+            return
 
     # --- 邏輯 A：VWAP Upper 突破策略 ---
     if not current_strat:
-        if prev_close < prev_vwap_upper and curr_close > vwap_upper:
+        if prev_close < prev_vwap_upper and curr_close > vwap_upper and mxf_dir == "bull":
             _save_vwap_state({"strategy": "A", "direction": "bull"})
-            send_discord_message_short(f"[{now_ts}] 進場多單(A)：站上 VWAP Upper ({vwap_upper})")
+            send_discord_message_short(f"[{now_ts}] 進場多單(A)：站上 VWAP Upper ({curr_close})")
             return # 進場後跳出，避免同根 K 線觸發多個策略
 
-    elif current_strat == "A":
+    elif current_strat == "A" and current_dir == "bull":
         # 跌破上軌、中軌、或下軌皆視為撤退
         if curr_close < vwap_upper or curr_close < vwap or curr_close < vwap_lower:
             _save_vwap_state({})
             send_discord_message_short(f"[{now_ts}] 多單離場(A)：跌破支撐點 ({curr_close})")
 
-    # --- 邏輯 B：VWAP 中線突破策略 ---
     if not current_strat:
-        if prev_close < prev_vwap and curr_close > vwap:
-            _save_vwap_state({"strategy": "B", "direction": "bull"})
-            send_discord_message_short(f"[{now_ts}] 進場多單(B)：站上 VWAP 中線 ({vwap})")
+        if prev_close > prev_vwap_lower and curr_close < vwap_lower and mxf_dir == "bear":
+            _save_vwap_state({"strategy": "D", "direction": "bear"})
+            send_discord_message_short(f"[{now_ts}] 進場空單(D)：跌破 VWAP Lower ({curr_close})")
             return
 
-    elif current_strat == "B":
+    elif current_strat == "D" and current_dir == "bear":
+        # 突破下軌、中軌、或上軌皆視為撤退
+        if curr_close > vwap_lower or curr_close > vwap or curr_close > vwap_upper:
+            _save_vwap_state({})
+            send_discord_message_short(f"[{now_ts}] 空單離場(D)：突破壓力點 ({curr_close})")
+
+    # --- 邏輯 B：VWAP 中線突破策略 ---
+    if not current_strat:
+        if prev_close < prev_vwap and curr_close > vwap and mxf_dir == "bull":
+            tp_price = vwap_upper - 5
+            _save_vwap_state({
+                "strategy": "B",
+                "direction": "bull",
+                "take_profit_price": tp_price,
+            })
+            send_discord_message_short(f"[{now_ts}] 進場多單(B)：站上 VWAP 中線 ({curr_close})")
+            send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
+            return
+
+    elif current_strat == "B" and current_dir == "bull":
         # 跌破中軌或下軌皆視為撤退
         stop_loss = curr_close < vwap or curr_close < vwap_lower
         # 停利改為：只要接近或超過 Upper - 5
@@ -532,14 +362,43 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             _save_vwap_state({})
             send_discord_message_short(f"[{now_ts}] 多單離場(B)：{reason} ({curr_close})")
 
-    # --- 邏輯 C：VWAP Lower 抄底策略 ---
     if not current_strat:
-        if prev_close < prev_vwap_lower and curr_close > vwap_lower:
-            _save_vwap_state({"strategy": "C", "direction": "bull"})
-            send_discord_message_short(f"[{now_ts}] 進場多單(C)：下軌反彈 ({vwap_lower})")
+        if prev_close > prev_vwap and curr_close < vwap and mxf_dir == "bear":
+            tp_price = vwap_lower + 5
+            _save_vwap_state({
+                "strategy": "E",
+                "direction": "bear",
+                "take_profit_price": tp_price,
+            })
+            send_discord_message_short(f"[{now_ts}] 進場空單(E)：跌破 VWAP 中線 ({curr_close})")
+            send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
             return
 
-    elif current_strat == "C":
+    elif current_strat == "E" and current_dir == "bear":
+        # 突破中軌或上軌皆視為撤退
+        stop_loss = curr_close > vwap or curr_close > vwap_upper
+        # 停利改為：只要接近或跌破 Lower + 5
+        take_profit = curr_close <= (vwap_lower + 5)
+        
+        if stop_loss or take_profit:
+            reason = "停利觸及下軌" if take_profit else "突破中軌或上軌停損"
+            _save_vwap_state({})
+            send_discord_message_short(f"[{now_ts}] 空單離場(E)：{reason} ({curr_close})")
+
+    # --- 邏輯 C：VWAP Lower 抄底策略 ---
+    if not current_strat:
+        if prev_close < prev_vwap_lower and curr_close > vwap_lower and mxf_dir == "bull":
+            tp_price = vwap - 5
+            _save_vwap_state({
+                "strategy": "C",
+                "direction": "bull",
+                "take_profit_price": tp_price,
+            })
+            send_discord_message_short(f"[{now_ts}] 進場多單(C)：下軌反彈 ({curr_close})")
+            send_discord_message_short(f"[{now_ts}] 下線進場後的停利單：{tp_price}")
+            return
+
+    elif current_strat == "C" and current_dir == "bull":
         stop_loss = curr_close < vwap_lower
         # 停利改為：只要接近或超過 VWAP 中線 - 5
         take_profit = curr_close >= (vwap - 5)
@@ -548,6 +407,28 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             reason = "停利觸及中軌" if take_profit else "跌破下軌停損"
             _save_vwap_state({})
             send_discord_message_short(f"[{now_ts}] 多單離場(C)：{reason} ({curr_close})")
+
+    if not current_strat:
+        if prev_close > prev_vwap_upper and curr_close < vwap_upper and mxf_dir == "bear":
+            tp_price = vwap + 5
+            _save_vwap_state({
+                "strategy": "F",
+                "direction": "bear",
+                "take_profit_price": tp_price,
+            })
+            send_discord_message_short(f"[{now_ts}] 進場空單(F)：上軌反轉 ({curr_close})")
+            send_discord_message_short(f"[{now_ts}] 上線進場後的停利單：{tp_price}")
+            return
+
+    elif current_strat == "F" and current_dir == "bear":
+        stop_loss = curr_close > vwap_upper
+        # 停利改為：只要接近或跌破 VWAP 中線 + 5
+        take_profit = curr_close <= (vwap + 5)
+        
+        if stop_loss or take_profit:
+            reason = "停利觸及中軌" if take_profit else "突破上軌停損"
+            _save_vwap_state({})
+            send_discord_message_short(f"[{now_ts}] 空單離場(F)：{reason} ({curr_close})")
 
 # 獲取webhook並處理
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
