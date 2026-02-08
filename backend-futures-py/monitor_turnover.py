@@ -1,5 +1,6 @@
 import os
 import time
+import json
 from pathlib import Path
 from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
@@ -40,6 +41,8 @@ load_env_file()
 MONGO_URI = require_env("MONGO_URI")
 DB_NAME = "yahoo_turnover"
 TZ = ZoneInfo("Asia/Taipei")
+FUTURE_URL = "https://tw.stock.yahoo.com/future/WTX&"
+FUTURE_VALUE_PATH = Path(__file__).resolve().parent / "tv_doc" / "future_max_values.json"
 
 def get_realtime_turnover():
     driver = None
@@ -128,6 +131,68 @@ def get_realtime_turnover():
         if driver is not None:
             driver.quit()
 
+def _parse_number(raw: str) -> float | None:
+    if raw is None:
+        return None
+    text = str(raw).replace(",", "").strip()
+    if text == "":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def fetch_future_max_values() -> dict | None:
+    driver = None
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+
+        fetch_time = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{fetch_time} 正在抓取期貨資料：{FUTURE_URL} ...")
+        driver.get(FUTURE_URL)
+
+        buy_xpath = '//*[@id="main-2-FutureChartOverview-Proxy"]/div/div[3]/div[2]/ul/li[8]/span[2]'
+        sell_xpath = '//*[@id="main-2-FutureChartOverview-Proxy"]/div/div[3]/div[2]/ul/li[18]/span[2]'
+
+        buy_el = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.XPATH, buy_xpath))
+        )
+        sell_el = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.XPATH, sell_xpath))
+        )
+
+        max_buy_value = _parse_number(buy_el.text)
+        max_sell_value = _parse_number(sell_el.text)
+
+        if max_buy_value is None or max_sell_value is None:
+            print("⚠️ 期貨最大買/賣值解析失敗。")
+            return None
+
+        payload = {
+            "maxBuyValue": max_buy_value,
+            "maxSellValue": max_sell_value,
+            "time": fetch_time,
+            "source": FUTURE_URL,
+        }
+        FUTURE_VALUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        FUTURE_VALUE_PATH.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        print(f"✅ 已寫入 {FUTURE_VALUE_PATH}")
+        return payload
+    except Exception as exc:
+        print(f"❌ 抓取期貨資料失敗: {exc}")
+        return None
+    finally:
+        if driver is not None:
+            driver.quit()
+
 
 def get_collection_name(now: datetime) -> str:
     return now.strftime("%Y-%m-%d")
@@ -197,6 +262,8 @@ def run_turnover_once() -> None:
 
 
 def main() -> None:
+    last_future_fetch_date = None
+    future_fetch_done = set()
     while True:
         try:
             now = datetime.now(TZ)
@@ -205,6 +272,15 @@ def main() -> None:
                     run_turnover_once()
                 except Exception as exc:
                     print(f"❌ 抓取或寫入失敗: {exc}")
+            today = now.date()
+            if last_future_fetch_date != today:
+                future_fetch_done = set()
+                last_future_fetch_date = today
+            if (now.hour, now.minute) in {(8, 40), (14, 30)}:
+                slot = (today, now.hour, now.minute)
+                if slot not in future_fetch_done:
+                    fetch_future_max_values()
+                    future_fetch_done.add(slot)
             sleep_until_next_minute()
         except Exception as exc:
             print(f"❌ 主迴圈發生未預期錯誤: {exc}")
