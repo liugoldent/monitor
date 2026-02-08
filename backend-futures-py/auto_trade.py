@@ -231,7 +231,7 @@ def closePosition():
                 exit_price = _get_latest_webhook_close() or 29500
                 if last_entry:
                     _, entry_price = last_entry
-                    pnl = exit_price - entry_price
+                    pnl = (exit_price - entry_price) * 10
                 else:
                     pnl = None
                 _append_trade("exiting", "bull", exit_price, pnl)
@@ -243,7 +243,7 @@ def closePosition():
                 exit_price = _get_latest_webhook_close() or 34000
                 if last_entry:
                     _, entry_price = last_entry
-                    pnl = entry_price - exit_price
+                    pnl = (entry_price - exit_price) * 10
                 else:
                     pnl = None
                 _append_trade("exiting", "bear", exit_price, pnl)
