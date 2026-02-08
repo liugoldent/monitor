@@ -26,6 +26,7 @@ TZ = ZoneInfo("Asia/Taipei")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
 CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
 MXF_VALUE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "mxf_value.csv")
+FUTURE_VALUE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "future_max_values.json")
 
 VWAP_OFFSET = 5
 VWAP_ORDER_STATE = {"side": None, "price": None, "trade": None}
@@ -185,6 +186,7 @@ def _update_or_replace_order(api, contract, trade, side: str, price: float):
 
 
 VWAP_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "vwap_state.json")
+API_CLIENT = None
 
 def _to_int(value) -> int | None:
     number = _to_float(value)
@@ -263,6 +265,110 @@ def _save_vwap_state(state):
     except Exception:
         pass
 
+
+def _get_future_entry_price(side: str) -> float | None:
+    if not os.path.isfile(FUTURE_VALUE_PATH):
+        return None
+    try:
+        with open(FUTURE_VALUE_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+    key = "maxBuyValue" if side == "bull" else "maxSellValue"
+    value = _to_float(payload.get(key))
+    if value is None:
+        return None
+    return value - 50 if key == "maxBuyValue" else value + 50
+
+
+def _get_api_client():
+    global API_CLIENT
+    if API_CLIENT is not None:
+        return API_CLIENT
+    api = sj.Shioaji(simulation=False)
+    api.login(os.getenv("API_KEY2"), os.getenv("SECRET_KEY2"))
+    api.activate_ca(
+        ca_path=CA_PATH,
+        ca_passwd=os.getenv("PERSON_ID"),
+        person_id=os.getenv("PERSON_ID"),
+    )
+    try:
+        api.update_status()
+    except Exception:
+        pass
+
+    callback = getattr(api, "set_order_callback", None)
+    if callable(callback):
+        def _order_cb(stat, msg):
+            try:
+                state = _load_vwap_state()
+                tp_id = state.get("tp_order_id")
+                if not tp_id:
+                    return
+                order_id = getattr(msg, "order_id", None) or getattr(msg, "id", None) or getattr(msg, "seqno", None)
+                status = getattr(msg, "status", None) or getattr(msg, "order_status", None) or ""
+                if str(order_id) == str(tp_id) and str(status).lower() in {"filled", "fill", "filled_all"}:
+                    _save_vwap_state({})
+                    send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 停利單成交，清空策略狀態')
+            except Exception:
+                return
+        try:
+            callback(_order_cb)
+        except Exception:
+            pass
+
+    API_CLIENT = api
+    return api
+
+
+def _extract_order_id(trade):
+    if trade is None:
+        return None
+    order = getattr(trade, "order", None)
+    if order is not None:
+        for attr in ("id", "order_id", "seqno"):
+            value = getattr(order, attr, None)
+            if value:
+                return str(value)
+    for attr in ("id", "order_id", "seqno"):
+        value = getattr(trade, attr, None)
+        if value:
+            return str(value)
+    return None
+
+
+def _place_entry_and_tp(side: str, tp_price: float | None) -> None:
+    entry_price = _get_future_entry_price(side)
+    if entry_price is None:
+        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 找不到進場價，略過下單')
+        return
+    if DRY_RUN:
+        send_discord_message_short(
+            f'[{datetime.now(TZ):%H:%M:%S}] 模擬進場 {side} LMT @ {_round_int(entry_price)}'
+        )
+        if tp_price is not None:
+            send_discord_message_short(
+                f'[{datetime.now(TZ):%H:%M:%S}] 模擬停利單 {("sell" if side == "bull" else "buy")} LMT @ {_round_int(tp_price)}'
+            )
+        return
+
+    try:
+        api = _get_api_client()
+        contract = api.Contracts.Futures.TMF.TMFR1
+        _place_limit_order(api, contract, side, entry_price, quantity=1)
+
+        if tp_price is None:
+            return
+        tp_side = "bear" if side == "bull" else "bull"
+        tp_trade = _place_limit_order(api, contract, tp_side, tp_price, quantity=1)
+        tp_order_id = _extract_order_id(tp_trade)
+        if tp_order_id:
+            state = _load_vwap_state()
+            state["tp_order_id"] = tp_order_id
+            _save_vwap_state(state)
+    except Exception as exc:
+        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 下單失敗：{exc}')
+
 def notify_vwap_cross_signals(csv_path: str) -> None:
     rows = _read_last_two_rows(csv_path)
     if len(rows) < 2:
@@ -318,6 +424,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if prev_close < prev_vwap_upper and curr_close > vwap_upper and mxf_dir == "bull":
             _save_vwap_state({"strategy": "A", "direction": "bull"})
             send_discord_message_short(f"[{now_ts}] 進場多單(A)：站上 VWAP Upper ({curr_close})")
+            _place_entry_and_tp("bull", None)
             return # 進場後跳出，避免同根 K 線觸發多個策略
 
     elif current_strat == "A" and current_dir == "bull":
@@ -330,6 +437,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if prev_close > prev_vwap_lower and curr_close < vwap_lower and mxf_dir == "bear":
             _save_vwap_state({"strategy": "D", "direction": "bear"})
             send_discord_message_short(f"[{now_ts}] 進場空單(D)：跌破 VWAP Lower ({curr_close})")
+            _place_entry_and_tp("bear", None)
             return
 
     elif current_strat == "D" and current_dir == "bear":
@@ -349,6 +457,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場多單(B)：站上 VWAP 中線 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
+            _place_entry_and_tp("bull", tp_price)
             return
 
     elif current_strat == "B" and current_dir == "bull":
@@ -372,6 +481,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場空單(E)：跌破 VWAP 中線 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
+            _place_entry_and_tp("bear", tp_price)
             return
 
     elif current_strat == "E" and current_dir == "bear":
@@ -396,6 +506,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場多單(C)：下軌反彈 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 下線進場後的停利單：{tp_price}")
+            _place_entry_and_tp("bull", tp_price)
             return
 
     elif current_strat == "C" and current_dir == "bull":
@@ -418,6 +529,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場空單(F)：上軌反轉 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 上線進場後的停利單：{tp_price}")
+            _place_entry_and_tp("bear", tp_price)
             return
 
     elif current_strat == "F" and current_dir == "bear":
