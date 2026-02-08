@@ -71,6 +71,40 @@ def _get_last_entry() -> tuple[str, float] | None:
     return None
 
 
+def _get_recent_pnls(limit: int = 3) -> list[float]:
+    if not TRADE_LOG_PATH.exists():
+        return []
+    pnls: list[float] = []
+    with TRADE_LOG_PATH.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    for row in reversed(rows[1:]):
+        if len(row) < 5:
+            continue
+        raw = str(row[4]).strip()
+        if raw == "":
+            continue
+        try:
+            pnls.append(float(raw))
+        except ValueError:
+            continue
+        if len(pnls) >= limit:
+            break
+    return pnls
+
+
+def _get_entry_quantity() -> int:
+    pnls = _get_recent_pnls(3)
+    if not pnls:
+        return 1
+    if pnls[0] > 0:
+        return 1
+    if len(pnls) >= 3 and pnls[0] < 0 and pnls[1] < 0 and pnls[2] < 0:
+        return 3
+    if len(pnls) >= 2 and pnls[0] < 0 and pnls[1] < 0:
+        return 2
+    return 1
+
+
 def _get_latest_webhook_close() -> float | None:
     if not WEBHOOK_DATA_PATH.exists():
         return None
@@ -146,15 +180,16 @@ def auto_trade(type):
         # 先平倉
         closePosition()
 
-        # 平倉後進新倉 (預設 1 口)
+        entry_qty = _get_entry_quantity()
+        # 平倉後進新倉
         if type == 'bull':
-            buyOne(api, contract)
+            buyOne(api, contract, quantity=entry_qty)
             entry_price = _get_latest_webhook_close() or 34000
             _append_trade("enter", "bull", entry_price)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月多單進場 go bull')
 
         if type == 'bear':
-            sellOne(api, contract)
+            sellOne(api, contract, quantity=entry_qty)
             entry_price = _get_latest_webhook_close() or 29500
             _append_trade("enter", "bear", entry_price)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月空單進場 go bear')
@@ -184,8 +219,14 @@ def closePosition():
         contract = api.Contracts.Futures.TMF.TMFR1
 
         if len(positions) > 0:
-            if positions[0]['direction'] == 'Buy':
-                sellOne(api, contract)
+            pos = positions[0]
+            pos_qty = pos.get("quantity") or pos.get("qty") or pos.get("amount") or 1
+            try:
+                pos_qty = int(pos_qty)
+            except Exception:
+                pos_qty = 1
+            if pos['direction'] == 'Buy':
+                sellOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close() or 29500
                 if last_entry:
@@ -196,8 +237,8 @@ def closePosition():
                 _append_trade("exiting", "bull", exit_price, pnl)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 丟空單平倉')
 
-            if positions[0]['direction'] == 'Sell':
-                buyOne(api, contract)
+            if pos['direction'] == 'Sell':
+                buyOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close() or 34000
                 if last_entry:
