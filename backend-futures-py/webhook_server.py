@@ -369,6 +369,17 @@ def _place_entry_and_tp(side: str, tp_price: float | None) -> None:
     except Exception as exc:
         send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 下單失敗：{exc}')
 
+
+def _has_position() -> bool | None:
+    if DRY_RUN:
+        return None
+    try:
+        api = _get_api_client()
+        positions = api.list_positions(api.futopt_account)
+        return bool(positions)
+    except Exception:
+        return None
+
 def notify_vwap_cross_signals(csv_path: str) -> None:
     rows = _read_last_two_rows(csv_path)
     if len(rows) < 2:
@@ -418,6 +429,16 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             state["force_exit_key"] = force_exit_key
             _save_vwap_state(state)
             return
+
+    # 每分鐘檢查倉位，沒倉位就清空策略狀態（未來真正策略時要打開）
+    # pos_check_key = now.strftime("%Y-%m-%d %H:%M")
+    # if state.get("pos_check_key") != pos_check_key:
+    #     has_pos = _has_position()
+    #     state["pos_check_key"] = pos_check_key
+    #     if has_pos is False:
+    #         _save_vwap_state({})
+    #         return
+    #     _save_vwap_state(state)
 
     # --- 邏輯 A：VWAP Upper 突破策略 ---
     if not current_strat:
