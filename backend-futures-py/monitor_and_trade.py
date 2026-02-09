@@ -40,7 +40,7 @@ api_id = int(require_env("API_ID"))
 api_hash = require_env("API_HASH")
 
 # 台指期 Bot
-TARGET_BOT_USERNAME = "iqtCodeHBot"
+TARGET_BOT_USERNAME = "taiwan_mxf_bot"
 
 client = TelegramClient("session_monitor", api_id, api_hash)
 
