@@ -10,6 +10,11 @@ const router = createRouter({
       component: HomeView,
     },
     {
+      path: '/mxf',
+      name: 'mxf',
+      component: () => import('../views/MxfView.vue'),
+    },
+    {
       path: '/about',
       name: 'about',
       // route level code-splitting

@@ -128,6 +128,46 @@ def fetch_latest_mxf(date_str: str | None) -> dict:
     }
 
 
+def _get_mxf_signal(tx_bvav: float | None, mtx_bvav: float | None, mtx_tbta: float | None) -> str:
+    if tx_bvav is None or mtx_bvav is None or mtx_tbta is None:
+        return "none"
+    if tx_bvav > 0 and mtx_bvav > 0 and mtx_tbta < 0:
+        return "bull"
+    if tx_bvav < 0 and mtx_bvav < 0 and mtx_tbta > 0:
+        return "bear"
+    return "none"
+
+
+def fetch_mxf_series(date_str: str | None) -> dict:
+    db = mongo_client[MXF_DB_NAME]
+    collection_name = get_collection_name(date_str) if date_str else None
+    docs = []
+    if collection_name:
+        docs = list(db[collection_name].find({}, {"_id": 0}).sort("time", 1))
+
+    if not docs:
+        fallback_name = _get_latest_collection_name(db)
+        if not fallback_name:
+            return {}
+        docs = list(db[fallback_name].find({}, {"_id": 0}).sort("time", 1))
+        collection_name = fallback_name
+
+    data = []
+    for doc in docs:
+        tx_bvav = doc.get("tx_bvav")
+        mtx_bvav = doc.get("mtx_bvav")
+        mtx_tbta = doc.get("mtx_tbta")
+        data.append({
+            "time": doc.get("time"),
+            "tx_bvav": tx_bvav,
+            "mtx_bvav": mtx_bvav,
+            "mtx_tbta": mtx_tbta,
+            "signal": _get_mxf_signal(tx_bvav, mtx_bvav, mtx_tbta),
+        })
+
+    return {"data": data, "collection_name": collection_name}
+
+
 def fetch_etf_holdings_counts() -> dict:
     db = mongo_client[ETF_DB_NAME]
     code_counts: dict[str, int] = {}
@@ -357,7 +397,10 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 self._send_json(200, payload)
                 return
             if parsed.path == "/api/mxf":
-                payload = fetch_latest_mxf(date_str)
+                if query.get("all", ["0"])[0] == "1":
+                    payload = fetch_mxf_series(date_str)
+                else:
+                    payload = fetch_latest_mxf(date_str)
                 self._send_json(200, payload)
                 return
             if parsed.path == "/api/etf_holdings_counts":
