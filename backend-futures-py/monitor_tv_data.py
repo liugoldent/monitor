@@ -72,6 +72,28 @@ def _reset_driver() -> webdriver.Chrome:
     driver = webdriver.Chrome(options=options)
     return driver
 
+
+TRADINGVIEW_XPATHS = {
+    "ma_UpperAll": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[10]/div",
+    "sqzmom_stronger_2d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[3]/div",
+    "heikin_Ashi": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[5]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[5]/div",
+    "ma5_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div",
+    "ma5_2d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div",
+    "ma10_2d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[6]/div",
+    "ma5_w": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[7]/div",
+    "ma10_w": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[8]/div",
+    "ma20_w": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[9]/div",
+    "close": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[1]/div[1]/div[2]/div/div[5]/div[2]",
+}
+
+
+def _get_text_by_xpath(driver: webdriver.Chrome, xpath: str, timeout: int = 60) -> str:
+    element = WebDriverWait(driver, timeout).until(
+        EC.visibility_of_element_located((By.XPATH, xpath))
+    )
+    return element.text.replace(",", "")
+
+
 # ---------- 1. 讀取股票清單 ----------
 def load_json(fp: str):
     with open(fp, 'r', encoding='utf-8') as f:
@@ -273,79 +295,32 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
         else:
             raise
 
-    ma_UpperAll_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div"
+    ma_UpperAll_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma_UpperAll"])
+    sqzmom_stronger_value_2d_text = _get_text_by_xpath(
+        driver, TRADINGVIEW_XPATHS["sqzmom_stronger_2d"]
     )
-    ma_UpperAll_ = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, ma_UpperAll_Xpath))
-    )
-    ma_UpperAll_text = ma_UpperAll_.text.replace(',', '')
 
-    volumeCombo_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div"
-    )
-    volumeCombo_ = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, volumeCombo_Xpath))
-    )
-    volumeCombo_text = volumeCombo_.text.replace(',', '')
-
-    sqzmom_stronger_value_2DXpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[3]/div"
-    )
-    sqzmom_stronger_value_2d = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, sqzmom_stronger_value_2DXpath))
-    )
-    sqzmom_stronger_value_2d_text = sqzmom_stronger_value_2d.text.replace(',', '')
-
-    heikin_Ashi_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[5]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[5]/div"
-    )
-    heikin_Ashi_ = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, heikin_Ashi_Xpath))
-    )
-    heikin_Ashi_raw = heikin_Ashi_.text.replace(',', '').strip()
+    heikin_Ashi_raw = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["heikin_Ashi"]).strip()
     heikin_Ashi_text = "1" if heikin_Ashi_raw == "∅" else "0"
 
-    ma10_1D_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[2]/div"
-    )
-    ma10_1D_ = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, ma10_1D_Xpath))
-    )
-    ma10_1D_text = ma10_1D_.text.replace(',', '')
-
-    ma5_1D_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[1]/div"
-    )
-    ma5_1D_ = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, ma5_1D_Xpath))
-    )
-    ma5_1D_text = ma5_1D_.text.replace(',', '')
-
-    ma20_1D_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[3]/div"
-    )
-    ma20_1D_ = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, ma20_1D_Xpath))
-    )
-    ma20_1D_text = ma20_1D_.text.replace(',', '')
-
-    close_1D_Xpath = (
-        "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[1]/div[1]/div[2]/div/div[5]/div[2]"
-    )
-    close_1D_ = WebDriverWait(driver, 60).until(
-        EC.visibility_of_element_located((By.XPATH, close_1D_Xpath))
-    )
-    close_1D_text = close_1D_.text.replace(',', '')
+    ma5_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma5_1d"])
+    ma5_2D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma5_2d"])
+    ma10_2D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma10_2d"])
+    ma5_W_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma5_w"])
+    ma10_W_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma10_w"])
+    ma20_W_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma20_w"])
+    close_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["close"])
 
     return {
         "ma_UpperAll": ma_UpperAll_text,
-        "volumeCombo": volumeCombo_text,
         "sqzmom_stronger_2d": sqzmom_stronger_value_2d_text,
         "heikin_Ashi": heikin_Ashi_text,
         "ma5_1d": ma5_1D_text,
-        "ma10_1d": ma10_1D_text,
-        "ma20_1d": ma20_1D_text,
+        "ma5_2d": ma5_2D_text,
+        "ma10_2d": ma10_2D_text,
+        "ma5_w": ma5_W_text,
+        "ma10_w": ma10_W_text,
+        "ma20_w": ma20_W_text,
         "close": close_1D_text,
     }
 
@@ -383,77 +358,30 @@ def get_tv_dataT():
         if stock_list[symbol]["market"] == 'twse':
             url = f"https://tw.tradingview.com/chart/rABGcFih/?symbol=TWSE%3A{symbol}"
 
-        driver.get(url)
+        metrics = _fetch_tradingview_metrics_by_url(url)
+        if not metrics:
+            print(f"⚠️ 找不到 {symbol}，略過")
+            continue
 
-        # ma UpperAll
-        ma_UpperAll_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div"
-        )
-        ma_UpperAll_ = WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, ma_UpperAll_Xpath))
-        )
-        ma_UpperAll_text = ma_UpperAll_.text.replace(',', '')
-        print('get Ma Upper All', ma_UpperAll_text)
+        ma_UpperAll_text = metrics.get("ma_UpperAll", "")
+        sqzmom_stronger_value_2d_text = metrics.get("sqzmom_stronger_2d", "")
+        heikin_Ashi_text = metrics.get("heikin_Ashi", "")
+        ma5_1D_text = metrics.get("ma5_1d", "")
+        ma5_2D_text = metrics.get("ma5_2d", "")
+        ma10_2D_text = metrics.get("ma10_2d", "")
+        ma5_W_text = metrics.get("ma5_w", "")
+        ma10_W_text = metrics.get("ma10_w", "")
+        ma20_W_text = metrics.get("ma20_w", "")
 
-        volumeCombo_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div"
-        )
-        volumeCombo_ = WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, volumeCombo_Xpath))
-        )
-        volumeCombo_text = volumeCombo_.text.replace(',', '')
-        print('get Volume Combo', volumeCombo_text)
-
-        # 2D SQZMOM Stronger
-        sqzmom_stronger_value_2DXpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[3]/div"
-        )
-        sqzmom_stronger_value_2d = WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, sqzmom_stronger_value_2DXpath))
-        )
-        sqzmom_stronger_value_2d_text = sqzmom_stronger_value_2d.text.replace(',', '')
-        print('get SQZMOM_stronger 2D Finish', sqzmom_stronger_value_2d_text)
-
-        # heikin Ashi
-        heikin_Ashi_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[5]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[5]/div"
-        )
-        heikin_Ashi_ = WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, heikin_Ashi_Xpath))
-        )
-        heikin_Ashi_raw = heikin_Ashi_.text.replace(',', '').strip()
-        heikin_Ashi_text = "1" if heikin_Ashi_raw == "∅" else "0"
-        print('get Heikin Ashi Finish', heikin_Ashi_text)
-
-        # ma 10 (1d)
-        ma10_1D_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[2]/div"
-        )
-        ma10_1D_ = WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, ma10_1D_Xpath))
-        )
-        ma10_1D_text = ma10_1D_.text.replace(',', '')
-        print('get Ma 10 (1d) Finish', ma10_1D_text)
-
-        # ma 5 (1d)
-        ma5_1D_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[1]/div"
-        )
-        ma5_1D_ = WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, ma5_1D_Xpath))
-        )
-        ma5_1D_text = ma5_1D_.text.replace(',', '')
-        print('get Ma 5 (1d) Finish', ma5_1D_text)
-
-        # ma 10 (1d)
-        ma20_1D_Xpath = (
-            "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[3]/div"
-        )
-        ma20_1D_ = WebDriverWait(driver, 60).until(
-            EC.visibility_of_element_located((By.XPATH, ma20_1D_Xpath))
-        )
-        ma20_1D_text = ma20_1D_.text.replace(',', '')
-        print('get Ma 20 (1d) Finish', ma20_1D_text)
+        print("get Ma Upper All", ma_UpperAll_text)
+        print("get SQZMOM_stronger 2D Finish", sqzmom_stronger_value_2d_text)
+        print("get Heikin Ashi Finish", heikin_Ashi_text)
+        print("get Ma 5 (1d) Finish", ma5_1D_text)
+        print("get Ma 5 (2d) Finish", ma5_2D_text)
+        print("get Ma 10 (2d) Finish", ma10_2D_text)
+        print("get Ma 5 (w) Finish", ma5_W_text)
+        print("get Ma 10 (w) Finish", ma10_W_text)
+        print("get Ma 20 (w) Finish", ma20_W_text)
 
 
         update_wantgoo_doc_by_code(
@@ -461,12 +389,14 @@ def get_tv_dataT():
             symbol,
             {
                 "ma_UpperAll": ma_UpperAll_text,
-                "volumeCombo": volumeCombo_text,
                 "sqzmom_stronger_2d": sqzmom_stronger_value_2d_text,
                 "heikin_Ashi": heikin_Ashi_text,
                 "ma5_1d": ma5_1D_text,
-                "ma10_1d": ma10_1D_text,
-                "ma20_1d": ma20_1D_text,
+                "ma5_2d": ma5_2D_text,
+                "ma10_2d": ma10_2D_text,
+                "ma5_w": ma5_W_text,
+                "ma10_w": ma10_W_text,
+                "ma20_w": ma20_W_text,
             }
         )
         time.sleep(1)
@@ -493,24 +423,20 @@ def get_tv_data_etf_common() -> None:
             continue
 
         price_value = _safe_float(metrics.get("close"))
-        ma5_value = _safe_float(metrics.get("ma5_1d"))
-        ma10_value = _safe_float(metrics.get("ma10_1d"))
-        ma20_value = _safe_float(metrics.get("ma20_1d"))
 
         payload = {
             "no": idx,
             "code": symbol,
             "name": name,
             "close": metrics.get("close", ""),
-            "volumeCombo": metrics.get("volumeCombo", ""),
             "sqzmom_stronger_2d": metrics.get("sqzmom_stronger_2d", ""),
             "heikin_Ashi": metrics.get("heikin_Ashi", ""),
             "ma5_1d": metrics.get("ma5_1d", ""),
-            "ma10_1d": metrics.get("ma10_1d", ""),
-            "ma20_1d": metrics.get("ma20_1d", ""),
-            "ma5_dev": _format_deviation(price_value, ma5_value),
-            "ma10_dev": _format_deviation(price_value, ma10_value),
-            "ma20_dev": _format_deviation(price_value, ma20_value),
+            "ma5_2d": metrics.get("ma5_2d", ""),
+            "ma10_2d": metrics.get("ma10_2d", ""),
+            "ma5_w": metrics.get("ma5_w", ""),
+            "ma10_w": metrics.get("ma10_w", ""),
+            "ma20_w": metrics.get("ma20_w", ""),
             "tv_updated_time": timestamp,
         }
         items.append(payload)
@@ -551,24 +477,20 @@ def get_tv_data_index_tw_code() -> None:
             continue
 
         price_value = _safe_float(metrics.get("close"))
-        ma5_value = _safe_float(metrics.get("ma5_1d"))
-        ma10_value = _safe_float(metrics.get("ma10_1d"))
-        ma20_value = _safe_float(metrics.get("ma20_1d"))
 
         payload = {
             "no": idx,
             "code": tw_code,
             "name": name,
             "close": metrics.get("close", ""),
-            "volumeCombo": metrics.get("volumeCombo", ""),
             "sqzmom_stronger_2d": metrics.get("sqzmom_stronger_2d", ""),
             "heikin_Ashi": metrics.get("heikin_Ashi", ""),
             "ma5_1d": metrics.get("ma5_1d", ""),
-            "ma10_1d": metrics.get("ma10_1d", ""),
-            "ma20_1d": metrics.get("ma20_1d", ""),
-            "ma5_dev": _format_deviation(price_value, ma5_value),
-            "ma10_dev": _format_deviation(price_value, ma10_value),
-            "ma20_dev": _format_deviation(price_value, ma20_value),
+            "ma5_2d": metrics.get("ma5_2d", ""),
+            "ma10_2d": metrics.get("ma10_2d", ""),
+            "ma5_w": metrics.get("ma5_w", ""),
+            "ma10_w": metrics.get("ma10_w", ""),
+            "ma20_w": metrics.get("ma20_w", ""),
             "tv_updated_time": timestamp,
         }
         items.append(payload)

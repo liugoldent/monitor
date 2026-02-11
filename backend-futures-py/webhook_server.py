@@ -123,6 +123,39 @@ def _clear_csv_keep_header(path: str, header: list[str]) -> None:
         writer.writerow(header_to_write)
 
 
+def _ensure_trade_log() -> None:
+    if os.path.isfile(TRADE_LOG_PATH):
+        return
+    os.makedirs(os.path.dirname(TRADE_LOG_PATH), exist_ok=True)
+    with open(TRADE_LOG_PATH, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["timestamp", "action", "side", "price", "pnl"])
+
+
+def _append_trade(action: str, side: str, price: float, pnl: float | None = None) -> None:
+    _ensure_trade_log()
+    timestamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    with open(TRADE_LOG_PATH, "a", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([timestamp, action, side, price, "" if pnl is None else pnl])
+
+
+def _log_entry(side: str, price: float) -> None:
+    _append_trade("enter", side, price)
+
+
+def _log_exit(side: str, price: float) -> None:
+    last_entry = _get_last_entry()
+    pnl = None
+    if last_entry:
+        _, entry_price = last_entry
+        if side == "bull":
+            pnl = (price - entry_price) * 10
+        else:
+            pnl = (entry_price - price) * 10
+    _append_trade("exiting", side, price, pnl)
+
+
 def _place_limit_order(api, contract, side: str, price: float, quantity: int = 1):
     if DRY_RUN:
         send_discord_message_short(
@@ -459,6 +492,8 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
     
     # 如果 MXF 方向有變化，無論目前是否在策略中，都強制出場並更新狀態
     if mxf_switch_time and mxf_switch_time != last_mxf_switch_time:
+        if current_dir in {"bull", "bear"}:
+            _log_exit(current_dir, curr_close)
         send_discord_message_short(f"[{now_ts}] 方向轉換出場")
         state["mxf_switch_time"] = mxf_switch_time
         _save_vwap_state(state)
@@ -468,6 +503,8 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
     force_exit_key = now.strftime("%Y-%m-%d %H:%M")
     if (now.hour, now.minute) in force_exit_times:
         if state.get("force_exit_key") != force_exit_key:
+            if current_dir in {"bull", "bear"}:
+                _log_exit(current_dir, curr_close)
             send_discord_message_short(f"[{now_ts}] 尾盤強制出場")
             state["force_exit_key"] = force_exit_key
             _save_vwap_state(state)
@@ -488,6 +525,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if prev_close < prev_vwap_upper and curr_close > vwap_upper:
             _save_vwap_state({"strategy": "A", "direction": "bull"})
             send_discord_message_short(f"[{now_ts}] 進場多單(A)：站上 VWAP Upper ({curr_close})")
+            _log_entry("bull", curr_close)
             _place_entry_and_tp("bull", None)
             return # 進場後跳出，避免同根 K 線觸發多個策略
 
@@ -500,6 +538,8 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
                 "direction": "bear",
                 "take_profit_price": tp_price,
             })
+            _log_exit("bull", curr_close)
+            _log_entry("bear", curr_close)
             send_discord_message_short(f"[{now_ts}] 多單離場(A)：跌破支撐點 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 進場空單(F)：上軌反轉 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 上線進場後的停利單：{tp_price}")
@@ -509,6 +549,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if prev_close > prev_vwap_lower and curr_close < vwap_lower:
             _save_vwap_state({"strategy": "D", "direction": "bear"})
             send_discord_message_short(f"[{now_ts}] 進場空單(D)：跌破 VWAP Lower ({curr_close})")
+            _log_entry("bear", curr_close)
             _place_entry_and_tp("bear", None)
             return
 
@@ -521,6 +562,8 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
                 "direction": "bull",
                 "take_profit_price": tp_price,
             })
+            _log_exit("bear", curr_close)
+            _log_entry("bull", curr_close)
             send_discord_message_short(f"[{now_ts}] 空單離場(D)：突破壓力點 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 進場多單(C)：下軌反彈 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 下線進場後的停利單：{tp_price}")
@@ -537,6 +580,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場多單(B)：站上 VWAP 中線 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
+            _log_entry("bull", curr_close)
             _place_entry_and_tp("bull", tp_price)
             return
 
@@ -549,6 +593,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if stop_loss or take_profit:
             if take_profit:
                 _save_vwap_state({})
+                _log_exit("bull", curr_close)
                 send_discord_message_short(f"[{now_ts}] 多單離場(B)：停利觸及上軌 ({curr_close})")
             else:
                 tp_price = vwap_lower + 5
@@ -557,6 +602,8 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
                     "direction": "bear",
                     "take_profit_price": tp_price,
                 })
+                _log_exit("bull", curr_close)
+                _log_entry("bear", curr_close)
                 send_discord_message_short(f"[{now_ts}] 多單離場(B)：跌破中軌或下軌停損 ({curr_close})")
                 send_discord_message_short(f"[{now_ts}] 進場空單(E)：跌破 VWAP 中線 ({curr_close})")
                 send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
@@ -572,6 +619,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場空單(E)：跌破 VWAP 中線 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
+            _log_entry("bear", curr_close)
             _place_entry_and_tp("bear", tp_price)
             return
 
@@ -584,6 +632,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if stop_loss or take_profit:
             if take_profit:
                 _save_vwap_state({})
+                _log_exit("bear", curr_close)
                 send_discord_message_short(f"[{now_ts}] 空單離場(E)：停利觸及下軌 ({curr_close})")
             else:
                 tp_price = vwap_upper - 5
@@ -592,6 +641,8 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
                     "direction": "bull",
                     "take_profit_price": tp_price,
                 })
+                _log_exit("bear", curr_close)
+                _log_entry("bull", curr_close)
                 send_discord_message_short(f"[{now_ts}] 空單離場(E)：突破中軌或上軌停損 ({curr_close})")
                 send_discord_message_short(f"[{now_ts}] 進場多單(B)：站上 VWAP 中線 ({curr_close})")
                 send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
@@ -608,6 +659,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場多單(C)：下軌反彈 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 下線進場後的停利單：{tp_price}")
+            _log_entry("bull", curr_close)
             _place_entry_and_tp("bull", tp_price)
             return
 
@@ -619,9 +671,12 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if stop_loss or take_profit:
             if take_profit:
                 _save_vwap_state({})
+                _log_exit("bull", curr_close)
                 send_discord_message_short(f"[{now_ts}] 多單離場(C)：停利觸及中軌 ({curr_close})")
             else:
                 _save_vwap_state({"strategy": "D", "direction": "bear"})
+                _log_exit("bull", curr_close)
+                _log_entry("bear", curr_close)
                 send_discord_message_short(f"[{now_ts}] 多單離場(C)：跌破下軌停損 ({curr_close})")
                 send_discord_message_short(f"[{now_ts}] 進場空單(D)：跌破 VWAP Lower ({curr_close})")
                 _place_entry_and_tp("bear", None)
@@ -636,6 +691,7 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
             })
             send_discord_message_short(f"[{now_ts}] 進場空單(F)：上軌反轉 ({curr_close})")
             send_discord_message_short(f"[{now_ts}] 上線進場後的停利單：{tp_price}")
+            _log_entry("bear", curr_close)
             _place_entry_and_tp("bear", tp_price)
             return
 
@@ -647,68 +703,82 @@ def notify_vwap_cross_signals(csv_path: str) -> None:
         if stop_loss or take_profit:
             if take_profit:
                 _save_vwap_state({})
+                _log_exit("bear", curr_close)
                 send_discord_message_short(f"[{now_ts}] 空單離場(F)：停利觸及中軌 ({curr_close})")
             else:
                 _save_vwap_state({"strategy": "A", "direction": "bull"})
+                _log_exit("bear", curr_close)
+                _log_entry("bull", curr_close)
                 send_discord_message_short(f"[{now_ts}] 空單離場(F)：突破上軌停損 ({curr_close})")
                 send_discord_message_short(f"[{now_ts}] 進場多單(A)：站上 VWAP Upper ({curr_close})")
                 _place_entry_and_tp("bull", None)
 
 
-def notify_ma960_signals(csv_path: str) -> None:
+def notify_vwap_trend_signals(csv_path: str) -> None:
     rows = _read_last_two_rows(csv_path)
     if len(rows) < 2:
         return
 
-    prev_row, curr_row = rows[-2], rows[-1]
+    curr_row = rows[-1]
     timeframe = str(curr_row.get("Timeframe", "")).strip()
     if timeframe != "1":
         return
 
-    prev_close = _to_int(prev_row.get("Close"))
     curr_close = _to_int(curr_row.get("Close"))
-    prev_ma = _to_int(prev_row.get("MA_960"))
-    curr_ma = _to_int(curr_row.get("MA_960"))
-
-    if None in (prev_close, curr_close, prev_ma, curr_ma):
+    curr_vwap = _to_int(curr_row.get("VWAP"))
+    if curr_close is None or curr_vwap is None:
         return
 
-    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
+    now = datetime.now(TZ)
+    now_ts = now.strftime("%H:%M:%S")
     state = _load_vwap_state()
-    ma_state = state.get("ma960_state")
-    ma_dir = state.get("ma960_direction")
+    trend_dir = state.get("vwap_trend_direction")
 
-    if not ma_state:
-        if prev_close < prev_ma and curr_close > curr_ma:
-            state["ma960_state"] = "active"
-            state["ma960_direction"] = "bull"
+    force_exit_times = {(13, 44), (4, 59)}
+    if (now.hour, now.minute) in force_exit_times:
+        if trend_dir:
+            _log_exit(trend_dir, curr_close)
+            send_discord_message_short(f"[{now_ts}] VWAP 方向策略尾盤出場")
+            state.pop("vwap_trend_direction", None)
             _save_vwap_state(state)
-            send_discord_message_short(f"[{now_ts}] MA960 多單進場：站上 MA_960 ({curr_ma})")
+            _close_all_positions()
+        return
+
+    if not trend_dir:
+        if curr_close > curr_vwap:
+            state["vwap_trend_direction"] = "bull"
+            _save_vwap_state(state)
+            send_discord_message_short(f"[{now_ts}] VWAP 方向策略多單進場：站上 VWAP ({curr_vwap})")
+            _log_entry("bull", curr_close)
             _place_entry_order("bull")
-            return
-        if prev_close > prev_ma and curr_close < curr_ma:
-            state["ma960_state"] = "active"
-            state["ma960_direction"] = "bear"
+        elif curr_close < curr_vwap:
+            state["vwap_trend_direction"] = "bear"
             _save_vwap_state(state)
-            send_discord_message_short(f"[{now_ts}] MA960 空單進場：跌破 MA_960 ({curr_ma})")
+            send_discord_message_short(f"[{now_ts}] VWAP 方向策略空單進場：跌破 VWAP ({curr_vwap})")
+            _log_entry("bear", curr_close)
             _place_entry_order("bear")
-            return
+        return
 
-    if ma_state and ma_dir == "bull":
-        if curr_close < curr_ma:
-            state.pop("ma960_state", None)
-            state.pop("ma960_direction", None)
-            _save_vwap_state(state)
-            send_discord_message_short(f"[{now_ts}] MA960 多單出場：跌破 MA_960 ({curr_ma})")
-            _close_all_positions()
+    if trend_dir == "bull" and curr_close < curr_vwap:
+        state["vwap_trend_direction"] = "bear"
+        _save_vwap_state(state)
+        send_discord_message_short(f"[{now_ts}] VWAP 方向策略反手空單：跌破 VWAP ({curr_vwap})")
+        _log_exit("bull", curr_close)
+        _log_entry("bear", curr_close)
+        _close_all_positions()
+        _place_entry_order("bear")
+        return
 
-    if ma_state and ma_dir == "bear":
-        if curr_close > curr_ma:
-            state.pop("ma960_state", None)
-            state.pop("ma960_direction", None)
-            _save_vwap_state(state)
-            send_discord_message_short(f"[{now_ts}] MA960 空單出場：站上 MA_960 ({curr_ma})")
-            _close_all_positions()
+    if trend_dir == "bear" and curr_close > curr_vwap:
+        state["vwap_trend_direction"] = "bull"
+        _save_vwap_state(state)
+        send_discord_message_short(f"[{now_ts}] VWAP 方向策略反手多單：站上 VWAP ({curr_vwap})")
+        _log_exit("bear", curr_close)
+        _log_entry("bull", curr_close)
+        _close_all_positions()
+        _place_entry_order("bull")
+        return
+
 
 # 獲取webhook並處理
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
@@ -794,8 +864,8 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                         # check_ha_mxf_strategy(target_csv)
                     elif timeframe == "1":
                         # check_vwap_1min_strategy(target_csv)
-                        notify_vwap_cross_signals(target_csv)
-                        # notify_ma960_signals(target_csv)
+                        # notify_vwap_cross_signals(target_csv)
+                        notify_vwap_trend_signals(target_csv)
                     
                     # Respond success
                     self.send_response(200)
