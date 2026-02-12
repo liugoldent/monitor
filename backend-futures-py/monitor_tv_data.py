@@ -12,10 +12,9 @@ from selenium.webdriver.chrome.options import Options
 import pandas as pd
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 from pymongo import MongoClient, UpdateOne
 
-
-options = Options()
 
 # service = Service()  # 自動找到 chromedriver
 # 以環境變數調整 Chrome 啟動方式。
@@ -30,26 +29,29 @@ chrome_profile = os.getenv("CHROME_PROFILE", "Default")
 # 若未指定 headless，預設 False（沿用你原本 GUI + remote debug 的使用習慣）
 use_headless = chrome_headless_env.lower() == "true" if chrome_headless_env else False
 
-# 非 headless 才預設使用 debugger，地址未指定時 fallback 127.0.0.1:9222
-if not use_headless and chrome_use_debugger:
-    options.debugger_address = chrome_debugger or "127.0.0.1:9222"
-
-# headless 模式（容器內預設開啟）
-if use_headless:
-    options.add_argument("--headless=new")
-
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("--disable-gpu")
-options.add_argument("--window-size=1920,1080")
-
 # 預設 user-data-dir: 若未指定且在 macOS，沿用原本資料夾
 if not chrome_user_data_dir and platform.system() == "Darwin":
     chrome_user_data_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome")
 
-if not chrome_use_debugger and chrome_user_data_dir:
-    options.add_argument(f"--user-data-dir={chrome_user_data_dir}")
-    options.add_argument(f"--profile-directory={chrome_profile}")
+def _build_options(use_debugger: bool) -> Options:
+    opts = Options()
+    if not use_headless and use_debugger:
+        opts.debugger_address = chrome_debugger or "127.0.0.1:9222"
+    if use_headless:
+        opts.add_argument("--headless=new")
+
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--window-size=1920,1080")
+
+    if not use_debugger and chrome_user_data_dir:
+        opts.add_argument(f"--user-data-dir={chrome_user_data_dir}")
+        opts.add_argument(f"--profile-directory={chrome_profile}")
+    return opts
+
+
+options = _build_options(chrome_use_debugger)
 
 driver = None
 
@@ -58,7 +60,15 @@ def _get_driver() -> webdriver.Chrome:
     global driver
     if driver is not None:
         return driver
-    driver = webdriver.Chrome(options=options)
+    try:
+        driver = webdriver.Chrome(options=options)
+    except Exception as exc:
+        # 如果預設 debugger(127.0.0.1:9222) 連不上，改成一般啟動再試一次
+        if not use_headless and chrome_use_debugger:
+            print(f"⚠️ Chrome debugger 啟動失敗，改用一般模式重試: {repr(exc)}")
+            driver = webdriver.Chrome(options=_build_options(False))
+        else:
+            raise
     return driver
 
 
@@ -69,20 +79,28 @@ def _reset_driver() -> webdriver.Chrome:
             driver.quit()
     except Exception:
         pass
-    driver = webdriver.Chrome(options=options)
+    try:
+        driver = webdriver.Chrome(options=options)
+    except Exception as exc:
+        if not use_headless and chrome_use_debugger:
+            print(f"⚠️ Chrome debugger 重建失敗，改用一般模式重試: {repr(exc)}")
+            driver = webdriver.Chrome(options=_build_options(False))
+        else:
+            raise
     return driver
 
 
 TRADINGVIEW_XPATHS = {
-    "ma_UpperAll": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[10]/div",
-    "sqzmom_stronger_2d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[3]/div",
+    "sqzmom_stronger_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[3]/div",
     "heikin_Ashi": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[5]/div[2]/div/div[1]/div/div[2]/div[2]/div[2]/div/div[5]/div",
-    "ma5_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div",
-    "ma5_2d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div",
-    "ma10_2d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[6]/div",
-    "ma5_w": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[7]/div",
-    "ma10_w": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[8]/div",
-    "ma20_w": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[9]/div",
+    "ma5_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[1]/div",
+    "ma10_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[2]/div",
+    "ma20_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[3]/div",
+    "ma25_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div",
+    "ma50_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div",
+    "ma100_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[6]/div",
+    "upperAllFirstDay": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[7]/div",
+    "rollBack": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[8]/div",
     "close": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[1]/div[1]/div[2]/div/div[5]/div[2]",
 }
 
@@ -92,6 +110,18 @@ def _get_text_by_xpath(driver: webdriver.Chrome, xpath: str, timeout: int = 60) 
         EC.visibility_of_element_located((By.XPATH, xpath))
     )
     return element.text.replace(",", "")
+
+
+def _get_text_by_xpath_optional(
+    driver: webdriver.Chrome,
+    xpath: str,
+    timeout: int = 10,
+    default: str = "",
+) -> str:
+    try:
+        return _get_text_by_xpath(driver, xpath, timeout=timeout)
+    except TimeoutException:
+        return default
 
 
 # ---------- 1. 讀取股票清單 ----------
@@ -169,6 +199,13 @@ def _format_deviation(price: float | None, ma_value: float | None) -> str:
         return ""
     deviation = (price - ma_value) / ma_value * 100
     return f"{deviation:+.2f}%"
+
+
+def _normalize_binary_text(value: str) -> str:
+    numeric = _safe_float(value)
+    if numeric is None:
+        return value.strip()
+    return f"{numeric:.2f}"
 
 
 def _upsert_yahoo_turnover_items(collection_name: str, items: list[dict]) -> None:
@@ -295,32 +332,40 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
         else:
             raise
 
-    ma_UpperAll_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma_UpperAll"])
+    WebDriverWait(driver, 20).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+
     sqzmom_stronger_value_2d_text = _get_text_by_xpath(
-        driver, TRADINGVIEW_XPATHS["sqzmom_stronger_2d"]
+        driver, TRADINGVIEW_XPATHS["sqzmom_stronger_1d"]
     )
 
     heikin_Ashi_raw = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["heikin_Ashi"]).strip()
     heikin_Ashi_text = "1" if heikin_Ashi_raw == "∅" else "0"
 
     ma5_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma5_1d"])
-    ma5_2D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma5_2d"])
-    ma10_2D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma10_2d"])
-    ma5_W_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma5_w"])
-    ma10_W_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma10_w"])
-    ma20_W_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma20_w"])
+    ma10_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma10_1d"])
+    ma20_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma20_1d"])
+    ma25_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma25_1d"])
+    ma50_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma50_1d"])
+    ma100_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma100_1d"])
+    rollBack_text = _normalize_binary_text(_get_text_by_xpath(driver, TRADINGVIEW_XPATHS["rollBack"]))
+    upperAllFirstDay_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["upperAllFirstDay"])
+    )
     close_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["close"])
 
     return {
-        "ma_UpperAll": ma_UpperAll_text,
-        "sqzmom_stronger_2d": sqzmom_stronger_value_2d_text,
+        "sqzmom_stronger_1d": sqzmom_stronger_value_2d_text,
         "heikin_Ashi": heikin_Ashi_text,
         "ma5_1d": ma5_1D_text,
-        "ma5_2d": ma5_2D_text,
-        "ma10_2d": ma10_2D_text,
-        "ma5_w": ma5_W_text,
-        "ma10_w": ma10_W_text,
-        "ma20_w": ma20_W_text,
+        "ma10_1d": ma10_1D_text,
+        "ma20_1d": ma20_1D_text,
+        "ma25_1d": ma25_1D_text,
+        "ma50_1d": ma50_1D_text,
+        "ma100_1d": ma100_1D_text,
+        "rollBack": rollBack_text,
+        "upperAllFirstDay": upperAllFirstDay_text,
         "close": close_1D_text,
     }
 
@@ -363,40 +408,43 @@ def get_tv_dataT():
             print(f"⚠️ 找不到 {symbol}，略過")
             continue
 
-        ma_UpperAll_text = metrics.get("ma_UpperAll", "")
-        sqzmom_stronger_value_2d_text = metrics.get("sqzmom_stronger_2d", "")
+        sqzmom_stronger_value_2d_text = metrics.get("sqzmom_stronger_1d", "")
         heikin_Ashi_text = metrics.get("heikin_Ashi", "")
         ma5_1D_text = metrics.get("ma5_1d", "")
-        ma5_2D_text = metrics.get("ma5_2d", "")
-        ma10_2D_text = metrics.get("ma10_2d", "")
-        ma5_W_text = metrics.get("ma5_w", "")
-        ma10_W_text = metrics.get("ma10_w", "")
-        ma20_W_text = metrics.get("ma20_w", "")
+        ma10_1D_text = metrics.get("ma10_1d", "")
+        ma20_1D_text = metrics.get("ma20_1d", "")
+        ma25_1D_text = metrics.get("ma25_1d", "")
+        ma50_1D_text = metrics.get("ma50_1d", "")
+        ma100_1D_text = metrics.get("ma100_1d", "")
+        rollBack_text = metrics.get("rollBack", "")
+        upperAllFirstDay_text = metrics.get("upperAllFirstDay", "")
 
-        print("get Ma Upper All", ma_UpperAll_text)
         print("get SQZMOM_stronger 2D Finish", sqzmom_stronger_value_2d_text)
         print("get Heikin Ashi Finish", heikin_Ashi_text)
         print("get Ma 5 (1d) Finish", ma5_1D_text)
-        print("get Ma 5 (2d) Finish", ma5_2D_text)
-        print("get Ma 10 (2d) Finish", ma10_2D_text)
-        print("get Ma 5 (w) Finish", ma5_W_text)
-        print("get Ma 10 (w) Finish", ma10_W_text)
-        print("get Ma 20 (w) Finish", ma20_W_text)
+        print("get Ma 10 (1d) Finish", ma10_1D_text)
+        print("get Ma 20 (1d) Finish", ma20_1D_text)
+        print("get Ma 25 (1d) Finish", ma25_1D_text)
+        print("get Ma 50 (1d) Finish", ma50_1D_text)
+        print("get Ma 100 (1d) Finish", ma100_1D_text)
+        print("get rollBack Finish", rollBack_text)
+        print("get upperAllFirstDay Finish", upperAllFirstDay_text)
 
 
         update_wantgoo_doc_by_code(
             date,
             symbol,
             {
-                "ma_UpperAll": ma_UpperAll_text,
-                "sqzmom_stronger_2d": sqzmom_stronger_value_2d_text,
+                "sqzmom_stronger_1d": sqzmom_stronger_value_2d_text,
                 "heikin_Ashi": heikin_Ashi_text,
                 "ma5_1d": ma5_1D_text,
-                "ma5_2d": ma5_2D_text,
-                "ma10_2d": ma10_2D_text,
-                "ma5_w": ma5_W_text,
-                "ma10_w": ma10_W_text,
-                "ma20_w": ma20_W_text,
+                "ma10_1d": ma10_1D_text,
+                "ma20_1d": ma20_1D_text,
+                "ma25_1d": ma25_1D_text,
+                "ma50_1d": ma50_1D_text,
+                "ma100_1d": ma100_1D_text,
+                "rollBack": rollBack_text,
+                "upperAllFirstDay": upperAllFirstDay_text,
             }
         )
         time.sleep(1)
@@ -417,26 +465,30 @@ def get_tv_data_etf_common() -> None:
         name = doc.get("name", "")
         print(name, symbol)
 
-        metrics = _fetch_tradingview_metrics(symbol)
+        try:
+            metrics = _fetch_tradingview_metrics(symbol)
+        except Exception as exc:
+            print(f"⚠️ {symbol} 抓取 TradingView 失敗，略過: {repr(exc)}")
+            continue
         if not metrics:
             print(f"⚠️ 找不到 {symbol}，略過")
             continue
-
-        price_value = _safe_float(metrics.get("close"))
 
         payload = {
             "no": idx,
             "code": symbol,
             "name": name,
             "close": metrics.get("close", ""),
-            "sqzmom_stronger_2d": metrics.get("sqzmom_stronger_2d", ""),
+            "sqzmom_stronger_1d": metrics.get("sqzmom_stronger_1d", ""),
             "heikin_Ashi": metrics.get("heikin_Ashi", ""),
             "ma5_1d": metrics.get("ma5_1d", ""),
-            "ma5_2d": metrics.get("ma5_2d", ""),
-            "ma10_2d": metrics.get("ma10_2d", ""),
-            "ma5_w": metrics.get("ma5_w", ""),
-            "ma10_w": metrics.get("ma10_w", ""),
-            "ma20_w": metrics.get("ma20_w", ""),
+            "ma10_1d": metrics.get("ma10_1d", ""),
+            "ma20_1d": metrics.get("ma20_1d", ""),
+            "ma25_1d": metrics.get("ma25_1d", ""),
+            "ma50_1d": metrics.get("ma50_1d", ""),
+            "ma100_1d": metrics.get("ma100_1d", ""),
+            "rollBack": metrics.get("rollBack", ""),
+            "upperAllFirstDay": metrics.get("upperAllFirstDay", ""),
             "tv_updated_time": timestamp,
         }
         items.append(payload)
@@ -471,7 +523,11 @@ def get_tv_data_index_tw_code() -> None:
             continue
         name = str(info.get("ch_name", "")).strip()
 
-        metrics = _fetch_tradingview_metrics_by_url(url)
+        try:
+            metrics = _fetch_tradingview_metrics_by_url(url)
+        except Exception as exc:
+            print(f"⚠️ {key} 抓取 TradingView 失敗，略過: {repr(exc)}")
+            continue
         if not metrics:
             print(f"⚠️ {key} 無法取得 TradingView 資料，略過")
             continue
@@ -483,14 +539,16 @@ def get_tv_data_index_tw_code() -> None:
             "code": tw_code,
             "name": name,
             "close": metrics.get("close", ""),
-            "sqzmom_stronger_2d": metrics.get("sqzmom_stronger_2d", ""),
+            "sqzmom_stronger_1d": metrics.get("sqzmom_stronger_1d", ""),
             "heikin_Ashi": metrics.get("heikin_Ashi", ""),
             "ma5_1d": metrics.get("ma5_1d", ""),
-            "ma5_2d": metrics.get("ma5_2d", ""),
-            "ma10_2d": metrics.get("ma10_2d", ""),
-            "ma5_w": metrics.get("ma5_w", ""),
-            "ma10_w": metrics.get("ma10_w", ""),
-            "ma20_w": metrics.get("ma20_w", ""),
+            "ma10_1d": metrics.get("ma10_1d", ""),
+            "ma20_1d": metrics.get("ma20_1d", ""),
+            "ma25_1d": metrics.get("ma25_1d", ""),
+            "ma50_1d": metrics.get("ma50_1d", ""),
+            "ma100_1d": metrics.get("ma100_1d", ""),
+            "rollBack": metrics.get("rollBack", ""),
+            "upperAllFirstDay": metrics.get("upperAllFirstDay", ""),
             "tv_updated_time": timestamp,
         }
         items.append(payload)

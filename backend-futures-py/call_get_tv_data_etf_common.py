@@ -1,4 +1,5 @@
 import sys
+import traceback
 
 
 def main() -> int:
@@ -13,7 +14,8 @@ def main() -> int:
         get_tv_data_etf_common()
         get_tv_data_index_tw_code()
     except Exception as exc:
-        print(f"❌ get_tv_data_etf_common() 執行失敗: {exc}")
+        print(f"❌ get_tv_data_etf_common() 執行失敗: {repr(exc)}")
+        traceback.print_exc()
         return 2
 
     print("✅ get_tv_data_etf_common() 執行完成")

@@ -47,16 +47,15 @@ type EtfCommonTechItem = {
     name?: string
     close?: string | number
     volumeCombo?: string | number
-    sqzmom_stronger_2d?: string | number
+    sqzmom_stronger_1d?: string | number
     heikin_Ashi?: string | number
-    ma5_dev?: string
-    ma10_dev?: string
-    ma20_dev?: string
-    ma5_w?: string | number
-    ma10_w?: string | number
-    ma20_w?: string | number
     ma5_1d?: string | number
-    ma10_2d?: string | number
+    ma10_1d?: string | number
+    ma25_1d?: string | number
+    ma50_1d?: string | number
+    ma100_1d?: string | number
+    rollBack?: string | number
+    upperAllFirstDay?: string | number
     no?: number
 }
 
@@ -227,16 +226,15 @@ const fetchEtfCommonHoldings = async () => {
             name: item.name ?? '',
             close: item.close ?? '',
             volumeCombo: item.volumeCombo ?? '',
-            sqzmom_stronger_2d: item.sqzmom_stronger_2d ?? '',
+            sqzmom_stronger_1d: item.sqzmom_stronger_1d ?? '',
             heikin_Ashi: item.heikin_Ashi ?? '',
-            ma5_dev: item.ma5_dev ?? '',
-            ma10_dev: item.ma10_dev ?? '',
-            ma20_dev: item.ma20_dev ?? '',
-            ma5_w: item.ma5_w,
-            ma10_w: item.ma10_w,
-            ma20_w: item.ma20_w,
             ma5_1d: item.ma5_1d,
-            ma10_2d: item.ma10_2d,
+            ma10_1d: item.ma10_1d,
+            ma25_1d: item.ma25_1d,
+            ma50_1d: item.ma50_1d,
+            ma100_1d: item.ma100_1d,
+            rollBack: item.rollBack,
+            upperAllFirstDay: item.upperAllFirstDay,
             no: item.no
         }))
         etfCommonHoldingsTime.value = payload?.time ?? ''
@@ -255,16 +253,15 @@ const fetchCommonIndexHoldings = async () => {
             name: item.name ?? '',
             close: item.close ?? '',
             volumeCombo: item.volumeCombo ?? '',
-            sqzmom_stronger_2d: item.sqzmom_stronger_2d ?? '',
+            sqzmom_stronger_1d: item.sqzmom_stronger_1d ?? '',
             heikin_Ashi: item.heikin_Ashi ?? '',
-            ma5_dev: item.ma5_dev ?? '',
-            ma10_dev: item.ma10_dev ?? '',
-            ma20_dev: item.ma20_dev ?? '',
-            ma5_w: item.ma5_w,
-            ma10_w: item.ma10_w,
-            ma20_w: item.ma20_w,
             ma5_1d: item.ma5_1d,
-            ma10_2d: item.ma10_2d,
+            ma10_1d: item.ma10_1d,
+            ma25_1d: item.ma25_1d,
+            ma50_1d: item.ma50_1d,
+            ma100_1d: item.ma100_1d,
+            rollBack: item.rollBack,
+            upperAllFirstDay: item.upperAllFirstDay,
             no: item.no
         }))
         commonIndexHoldingsTime.value = payload?.time ?? ''
@@ -583,14 +580,14 @@ const askLLM = async () => {
 // Helper methods for calculations
 const isWeeklyMaOk = (item: EtfCommonTechItem) => {
     const close = parseNumber(item.close)
-    const ma5w = parseNumber(item.ma5_w)
-    const ma10w = parseNumber(item.ma10_w)
-    const ma20w = parseNumber(item.ma20_w)
+    const ma25 = parseNumber(item.ma25_1d)
+    const ma50 = parseNumber(item.ma50_1d)
+    const ma100 = parseNumber(item.ma100_1d)
 
     // Ensure all are valid numbers before comparison
-    if ([close, ma5w, ma10w, ma20w].some(isNaN)) return false
+    if ([close, ma25, ma50, ma100].some(isNaN)) return false
 
-    return close > ma5w && close > ma10w && close > ma20w
+    return close > ma25 && close > ma50 && close > ma100
 }
 
 const getBias = (closeStr: string | number | undefined, maStr: string | number | undefined) => {
@@ -602,6 +599,18 @@ const getBias = (closeStr: string | number | undefined, maStr: string | number |
     // (Close - MA) / MA * 100
     const bias = ((close - ma) / ma) * 100
     return bias.toFixed(2) + '%'
+}
+
+const isBiasLessThan = (
+    closeStr: string | number | undefined,
+    maStr: string | number | undefined,
+    threshold = 10
+) => {
+    const close = parseNumber(closeStr)
+    const ma = parseNumber(maStr)
+    if (isNaN(close) || isNaN(ma) || ma === 0) return false
+    const bias = ((close - ma) / ma) * 100
+    return bias > 0 && bias < threshold
 }
 
 </script>
@@ -715,17 +724,18 @@ const getBias = (closeStr: string | number | undefined, maStr: string | number |
                         <div class="overflow-y-auto flex-1 bg-black">
                             <div v-if="activeTechTab === 'commonEtf' || activeTechTab === 'commonIndex'">
                                 <div
-                                    class="grid grid-cols-10 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0 sticky top-0 z-10">
+                                    class="grid grid-cols-11 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0 sticky top-0 z-10">
                                     <div>成交值排行</div>
                                     <div>代號</div>
                                     <div>名稱</div>
                                     <div>成交價</div>
                                     <div>動能增強</div>
                                     <div>平均K棒</div>
-                                    <div>站在周線的5-10-20上？</div>
+                                    <div>是否站在周線上</div>
+                                    <div>第一天站上所有均線</div>
                                     <div>5日乖離率</div>
                                     <div>10日乖離率</div>
-                                    <div>20日乖離率</div>
+                                    <div>回檔</div>
                                 </div>
                                 <div class="px-3 py-2 text-[10px] text-gray-400 border-b border-gray-900">
                                     {{ activeTechTab === 'commonEtf'
@@ -734,15 +744,15 @@ const getBias = (closeStr: string | number | undefined, maStr: string | number |
                                 </div>
                                 <div v-for="stock in activeTechTab === 'commonEtf' ? etfCommonHoldingsFiltered : commonIndexHoldings"
                                     :key="stock.code"
-                                    class="grid grid-cols-10 text-center py-3 border-b border-gray-900 text-sm">
+                                    class="grid grid-cols-11 text-center py-3 border-b border-gray-900 text-sm">
                                     <div class="text-gray-300">{{ getTurnoverRank(stock.code) }}
                                     </div>
                                     <div class="font-medium text-white">{{ stock.code }}</div>
                                     <div class="font-medium text-white">{{ stock.name }}</div>
                                     <div class="text-yellow-400">{{ stock.close || '-' }}</div>
                                     <div
-                                        :class="Number(stock.sqzmom_stronger_2d) === 1 ? 'text-green-400' : 'text-red-400'">
-                                        {{ Number(stock.sqzmom_stronger_2d) === 1 ? 'v' : 'x' }}
+                                        :class="Number(stock.sqzmom_stronger_1d) === 1 ? 'text-green-400' : 'text-red-400'">
+                                        {{ Number(stock.sqzmom_stronger_1d) === 1 ? 'v' : 'x' }}
                                     </div>
                                     <div :class="Number(stock.heikin_Ashi) === 1 ? 'text-green-400' : 'text-red-400'">
                                         {{ Number(stock.heikin_Ashi) === 1 ? 'v' : 'x' }}
@@ -750,9 +760,19 @@ const getBias = (closeStr: string | number | undefined, maStr: string | number |
                                     <div :class="isWeeklyMaOk(stock) ? 'text-green-400' : 'text-red-400'">
                                         {{ isWeeklyMaOk(stock) ? 'v' : 'x' }}
                                     </div>
+                                    <div :class="Number(stock.upperAllFirstDay) === 1 ? 'text-green-400' : 'text-red-400'">
+                                        {{ Number(stock.upperAllFirstDay) === 1 ? 'v' : 'x' }}
+                                    </div>
                                     <div class="text-gray-300">{{ getBias(stock.close, stock.ma5_1d) }}</div>
-                                    <div class="text-gray-300">{{ getBias(stock.close, stock.ma10_2d) }}</div>
-                                    <div class="text-gray-300">{{ getBias(stock.close, stock.ma10_2d) }}</div>
+                                    <div
+                                        :class="isBiasLessThan(stock.close, stock.ma10_1d)
+                                            ? 'bg-yellow-500/20 text-yellow-200 font-semibold'
+                                            : 'text-gray-300'">
+                                        {{ getBias(stock.close, stock.ma10_1d) }}
+                                    </div>
+                                    <div :class="Number(stock.rollBack) === 1 ? 'text-green-400' : 'text-red-400'">
+                                        {{ Number(stock.rollBack) === 1 ? 'v' : 'x' }}
+                                    </div>
                                 </div>
                                 <div v-if="activeTechTab === 'commonEtf' && !etfCommonHoldingsFiltered.length"
                                     class="text-center text-xs text-gray-500 py-6">

@@ -79,7 +79,7 @@ async function handler(event) {
       console.log('有新訊息進來！', event)
       console.log('發訊者 username:', username)
       console.log(1)
-      // setTimeout(() => CLIENT.sendMessage(message.chatId, { message: '1' }), 2000)
+      setTimeout(() => CLIENT.sendMessage(message.chatId, { message: '1' }), 2000)
     }
   }
 }
