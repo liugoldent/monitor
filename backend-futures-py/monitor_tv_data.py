@@ -96,13 +96,34 @@ TRADINGVIEW_XPATHS = {
     "ma5_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[1]/div",
     "ma10_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[2]/div",
     "ma20_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[3]/div",
-    "ma25_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div",
-    "ma50_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div",
-    "ma100_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[6]/div",
-    "upperAllFirstDay": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[7]/div",
-    "rollBack": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[8]/div",
+    "ma50_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[4]/div",
+    "ma100_1d": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[5]/div",
+    "entry_signal": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[6]/div",
+    "add_position_signal": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[7]/div",
+    "buyback_signal": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[8]/div",
+    "reduce_1_signal": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[9]/div",
+    "reduce_2_signal": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[10]/div",
+    "clear_position_signal": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[11]/div",
+    "has_position_signal": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[2]/div[2]/div[2]/div[2]/div/div[12]/div",
     "close": "/html/body/div[2]/div/div[5]/div[1]/div[1]/div/div[2]/div[1]/div[2]/div/div[1]/div[1]/div[1]/div[2]/div/div[5]/div[2]",
 }
+
+TRADINGVIEW_FORECAST_XPATHS = {
+    "target_price": '//*[@id="js-category-content"]/div[2]/div/div[1]/div[1]/div[1]/div[1]/div/div[1]/span[1]/span[1]',
+    "strong_buy_score": '//*[@id="js-category-content"]/div[2]/div/div[1]/div[1]/div[2]/div[2]/div/div[2]/div[3]',
+    "buy_score": '//*[@id="js-category-content"]/div[2]/div/div[1]/div[1]/div[2]/div[2]/div/div[2]/div[6]',
+    "hold_score": '//*[@id="js-category-content"]/div[2]/div/div[1]/div[1]/div[2]/div[2]/div/div[2]/div[9]',
+    "sell_score": '//*[@id="js-category-content"]/div[2]/div/div[1]/div[1]/div[2]/div[2]/div/div[2]/div[12]',
+    "strong_sell_score": '//*[@id="js-category-content"]/div[2]/div/div[1]/div[1]/div[2]/div[2]/div/div[2]/div[15]',
+}
+
+TRADINGVIEW_ANALYST_RATING_LABELS = [
+    ("strong_buy_score", "強力買入"),
+    ("buy_score", "買入"),
+    ("hold_score", "保持"),
+    ("sell_score", "賣出"),
+    ("strong_sell_score", "強力賣出"),
+]
 
 
 def _get_text_by_xpath(driver: webdriver.Chrome, xpath: str, timeout: int = 60) -> str:
@@ -320,6 +341,98 @@ def _fetch_tradingview_metrics(symbol: str) -> dict:
     return _fetch_tradingview_metrics_by_url(url)
 
 
+def _get_tradingview_forecast_url(symbol: str) -> str | None:
+    info = stock_list.get(symbol)
+    if not info:
+        return None
+    if info.get("market") == "tpex":
+        market = "TPEX"
+    elif info.get("market") == "twse":
+        market = "TWSE"
+    else:
+        return None
+    return f"https://tw.tradingview.com/symbols/{market}-{symbol}/forecast/"
+
+
+def _fetch_tradingview_forecast_metrics(symbol: str) -> dict:
+    url = _get_tradingview_forecast_url(symbol)
+    if not url:
+        return {}
+
+    driver = _get_driver()
+    try:
+        driver.get(url)
+    except Exception as exc:
+        message = str(exc).lower()
+        if "invalid session id" in message or "disconnected" in message:
+            driver = _reset_driver()
+            driver.get(url)
+        else:
+            raise
+
+    WebDriverWait(driver, 20).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+
+    title_text = (driver.title or "").lower()
+    source_head = (driver.page_source or "")[:6000].lower()
+    missing_markers = (
+        "404",
+        "page not found",
+        "couldn't find",
+        "cannot be found",
+        "找不到",
+        "頁面不存在",
+    )
+    if any(marker in title_text or marker in source_head for marker in missing_markers):
+        print(f"⚠️ {symbol} forecast 頁面不存在或無資料，略過")
+        return {}
+
+    max_retry = 3
+    retry_sleep_seconds = 3
+    target_price = ""
+    rating_scores: dict[str, str] = {}
+
+    for attempt in range(1, max_retry + 1):
+        target_price = _get_text_by_xpath_optional(
+            driver, TRADINGVIEW_FORECAST_XPATHS["target_price"], timeout=15
+        )
+        rating_scores = {
+            key: _get_text_by_xpath_optional(driver, xpath, timeout=12)
+            for key, xpath in TRADINGVIEW_FORECAST_XPATHS.items()
+            if key != "target_price"
+        }
+
+        numeric_scores = [
+            _safe_float(rating_scores.get(score_key))
+            for score_key, _ in TRADINGVIEW_ANALYST_RATING_LABELS
+        ]
+        has_scores = all(score is not None for score in numeric_scores)
+        all_zero_scores = has_scores and all(score == 0 for score in numeric_scores)
+        first_two_zero_scores = (
+            len(numeric_scores) >= 2
+            and numeric_scores[0] is not None
+            and numeric_scores[1] is not None
+            and numeric_scores[0] == 0
+            and numeric_scores[1] == 0
+        )
+        if not (all_zero_scores or first_two_zero_scores):
+            break
+        if attempt < max_retry:
+            print(f"⚠️ {symbol} forecast 評級分數異常（全 0 或前兩項為 0），第 {attempt} 次重試中...")
+            time.sleep(retry_sleep_seconds)
+
+    print(rating_scores.get("strong_buy_score", ""), rating_scores.get("buy_score", ""), rating_scores.get("hold_score", ""), rating_scores.get("sell_score", ""), rating_scores.get("strong_sell_score", ""))
+    return {
+        "target_price": target_price,
+        "strong_buy_score": rating_scores.get("strong_buy_score", ""),
+        "buy_score": rating_scores.get("buy_score", ""),
+        "hold_score": rating_scores.get("hold_score", ""),
+        "sell_score": rating_scores.get("sell_score", ""),
+        "strong_sell_score": rating_scores.get("strong_sell_score", ""),
+    }
+
+
 def _fetch_tradingview_metrics_by_url(url: str) -> dict:
     driver = _get_driver()
     try:
@@ -346,12 +459,28 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
     ma5_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma5_1d"])
     ma10_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma10_1d"])
     ma20_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma20_1d"])
-    ma25_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma25_1d"])
     ma50_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma50_1d"])
     ma100_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["ma100_1d"])
-    rollBack_text = _normalize_binary_text(_get_text_by_xpath(driver, TRADINGVIEW_XPATHS["rollBack"]))
-    upperAllFirstDay_text = _normalize_binary_text(
-        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["upperAllFirstDay"])
+    entry_signal_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["entry_signal"])
+    )
+    add_position_signal_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["add_position_signal"])
+    )
+    buyback_signal_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["buyback_signal"])
+    )
+    reduce_1_signal_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["reduce_1_signal"])
+    )
+    reduce_2_signal_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["reduce_2_signal"])
+    )
+    clear_position_signal_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["clear_position_signal"])
+    )
+    has_position_signal_text = _normalize_binary_text(
+        _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["has_position_signal"])
     )
     close_1D_text = _get_text_by_xpath(driver, TRADINGVIEW_XPATHS["close"])
 
@@ -361,11 +490,15 @@ def _fetch_tradingview_metrics_by_url(url: str) -> dict:
         "ma5_1d": ma5_1D_text,
         "ma10_1d": ma10_1D_text,
         "ma20_1d": ma20_1D_text,
-        "ma25_1d": ma25_1D_text,
         "ma50_1d": ma50_1D_text,
         "ma100_1d": ma100_1D_text,
-        "rollBack": rollBack_text,
-        "upperAllFirstDay": upperAllFirstDay_text,
+        "entry_signal": entry_signal_text,
+        "add_position_signal": add_position_signal_text,
+        "buyback_signal": buyback_signal_text,
+        "reduce_1_signal": reduce_1_signal_text,
+        "reduce_2_signal": reduce_2_signal_text,
+        "clear_position_signal": clear_position_signal_text,
+        "has_position_signal": has_position_signal_text,
         "close": close_1D_text,
     }
 
@@ -407,29 +540,43 @@ def get_tv_dataT():
         if not metrics:
             print(f"⚠️ 找不到 {symbol}，略過")
             continue
+        try:
+            forecast_metrics = _fetch_tradingview_forecast_metrics(symbol)
+        except Exception as exc:
+            print(f"⚠️ {symbol} 抓取 forecast 失敗，略過 forecast 欄位: {repr(exc)}")
+            forecast_metrics = {}
 
         sqzmom_stronger_value_2d_text = metrics.get("sqzmom_stronger_1d", "")
         heikin_Ashi_text = metrics.get("heikin_Ashi", "")
         ma5_1D_text = metrics.get("ma5_1d", "")
         ma10_1D_text = metrics.get("ma10_1d", "")
         ma20_1D_text = metrics.get("ma20_1d", "")
-        ma25_1D_text = metrics.get("ma25_1d", "")
         ma50_1D_text = metrics.get("ma50_1d", "")
         ma100_1D_text = metrics.get("ma100_1d", "")
-        rollBack_text = metrics.get("rollBack", "")
-        upperAllFirstDay_text = metrics.get("upperAllFirstDay", "")
+        entry_signal_text = metrics.get("entry_signal", "")
+        add_position_signal_text = metrics.get("add_position_signal", "")
+        buyback_signal_text = metrics.get("buyback_signal", "")
+        reduce_1_signal_text = metrics.get("reduce_1_signal", "")
+        reduce_2_signal_text = metrics.get("reduce_2_signal", "")
+        clear_position_signal_text = metrics.get("clear_position_signal", "")
+        has_position_signal_text = metrics.get("has_position_signal", "")
+        target_price_text = forecast_metrics.get("target_price", "")
 
         print("get SQZMOM_stronger 2D Finish", sqzmom_stronger_value_2d_text)
         print("get Heikin Ashi Finish", heikin_Ashi_text)
         print("get Ma 5 (1d) Finish", ma5_1D_text)
         print("get Ma 10 (1d) Finish", ma10_1D_text)
         print("get Ma 20 (1d) Finish", ma20_1D_text)
-        print("get Ma 25 (1d) Finish", ma25_1D_text)
         print("get Ma 50 (1d) Finish", ma50_1D_text)
         print("get Ma 100 (1d) Finish", ma100_1D_text)
-        print("get rollBack Finish", rollBack_text)
-        print("get upperAllFirstDay Finish", upperAllFirstDay_text)
-
+        print("get 進場訊號 Finish", entry_signal_text)
+        print("get 加碼訊號 Finish", add_position_signal_text)
+        print("get 補回訊號 Finish", buyback_signal_text)
+        print("get 減碼1訊號 Finish", reduce_1_signal_text)
+        print("get 減碼2訊號 Finish", reduce_2_signal_text)
+        print("get 清倉訊號 Finish", clear_position_signal_text)
+        print("get 有部位訊號 Finish", has_position_signal_text)
+        print("get target price Finish", target_price_text)
 
         update_wantgoo_doc_by_code(
             date,
@@ -440,11 +587,21 @@ def get_tv_dataT():
                 "ma5_1d": ma5_1D_text,
                 "ma10_1d": ma10_1D_text,
                 "ma20_1d": ma20_1D_text,
-                "ma25_1d": ma25_1D_text,
                 "ma50_1d": ma50_1D_text,
                 "ma100_1d": ma100_1D_text,
-                "rollBack": rollBack_text,
-                "upperAllFirstDay": upperAllFirstDay_text,
+                "entry_signal": entry_signal_text,
+                "add_position_signal": add_position_signal_text,
+                "buyback_signal": buyback_signal_text,
+                "reduce_1_signal": reduce_1_signal_text,
+                "reduce_2_signal": reduce_2_signal_text,
+                "clear_position_signal": clear_position_signal_text,
+                "has_position_signal": has_position_signal_text,
+                "target_price": target_price_text,
+                "strong_buy_score": forecast_metrics.get("strong_buy_score", ""),
+                "buy_score": forecast_metrics.get("buy_score", ""),
+                "hold_score": forecast_metrics.get("hold_score", ""),
+                "sell_score": forecast_metrics.get("sell_score", ""),
+                "strong_sell_score": forecast_metrics.get("strong_sell_score", ""),
             }
         )
         time.sleep(1)
@@ -473,6 +630,11 @@ def get_tv_data_etf_common() -> None:
         if not metrics:
             print(f"⚠️ 找不到 {symbol}，略過")
             continue
+        try:
+            forecast_metrics = _fetch_tradingview_forecast_metrics(symbol)
+        except Exception as exc:
+            print(f"⚠️ {symbol} 抓取 forecast 失敗，略過 forecast 欄位: {repr(exc)}")
+            forecast_metrics = {}
 
         payload = {
             "no": idx,
@@ -484,11 +646,21 @@ def get_tv_data_etf_common() -> None:
             "ma5_1d": metrics.get("ma5_1d", ""),
             "ma10_1d": metrics.get("ma10_1d", ""),
             "ma20_1d": metrics.get("ma20_1d", ""),
-            "ma25_1d": metrics.get("ma25_1d", ""),
             "ma50_1d": metrics.get("ma50_1d", ""),
             "ma100_1d": metrics.get("ma100_1d", ""),
-            "rollBack": metrics.get("rollBack", ""),
-            "upperAllFirstDay": metrics.get("upperAllFirstDay", ""),
+            "entry_signal": metrics.get("entry_signal", ""),
+            "add_position_signal": metrics.get("add_position_signal", ""),
+            "buyback_signal": metrics.get("buyback_signal", ""),
+            "reduce_1_signal": metrics.get("reduce_1_signal", ""),
+            "reduce_2_signal": metrics.get("reduce_2_signal", ""),
+            "clear_position_signal": metrics.get("clear_position_signal", ""),
+            "has_position_signal": metrics.get("has_position_signal", ""),
+            "target_price": forecast_metrics.get("target_price", ""),
+            "strong_buy_score": forecast_metrics.get("strong_buy_score", ""),
+            "buy_score": forecast_metrics.get("buy_score", ""),
+            "hold_score": forecast_metrics.get("hold_score", ""),
+            "sell_score": forecast_metrics.get("sell_score", ""),
+            "strong_sell_score": forecast_metrics.get("strong_sell_score", ""),
             "tv_updated_time": timestamp,
         }
         items.append(payload)
@@ -544,11 +716,15 @@ def get_tv_data_index_tw_code() -> None:
             "ma5_1d": metrics.get("ma5_1d", ""),
             "ma10_1d": metrics.get("ma10_1d", ""),
             "ma20_1d": metrics.get("ma20_1d", ""),
-            "ma25_1d": metrics.get("ma25_1d", ""),
             "ma50_1d": metrics.get("ma50_1d", ""),
             "ma100_1d": metrics.get("ma100_1d", ""),
-            "rollBack": metrics.get("rollBack", ""),
-            "upperAllFirstDay": metrics.get("upperAllFirstDay", ""),
+            "entry_signal": metrics.get("entry_signal", ""),
+            "add_position_signal": metrics.get("add_position_signal", ""),
+            "buyback_signal": metrics.get("buyback_signal", ""),
+            "reduce_1_signal": metrics.get("reduce_1_signal", ""),
+            "reduce_2_signal": metrics.get("reduce_2_signal", ""),
+            "clear_position_signal": metrics.get("clear_position_signal", ""),
+            "has_position_signal": metrics.get("has_position_signal", ""),
             "tv_updated_time": timestamp,
         }
         items.append(payload)

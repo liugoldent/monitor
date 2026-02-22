@@ -42,15 +42,23 @@ def _ensure_trade_log() -> None:
     TRADE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with TRADE_LOG_PATH.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["timestamp", "action", "side", "price", "pnl"])
+        writer.writerow(["timestamp", "action", "side", "price", "pnl", "quantity"])
 
 
-def _append_trade(action: str, side: str, price: float, pnl: float | None = None) -> None:
+def _append_trade(
+    action: str,
+    side: str,
+    price: float,
+    pnl: float | None = None,
+    quantity: int | None = None,
+) -> None:
     _ensure_trade_log()
     timestamp = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
     with TRADE_LOG_PATH.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow([timestamp, action, side, price, "" if pnl is None else pnl])
+        writer.writerow(
+            [timestamp, action, side, price, "" if pnl is None else pnl, "" if quantity is None else quantity]
+        )
 
 
 def _get_last_entry() -> tuple[str, float] | None:
@@ -185,13 +193,13 @@ def auto_trade(type):
         if type == 'bull':
             buyOne(api, contract, quantity=entry_qty)
             entry_price = _get_latest_webhook_close() or 34000
-            _append_trade("enter", "bull", entry_price)
+            _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月多單進場 go bull')
 
         if type == 'bear':
             sellOne(api, contract, quantity=entry_qty)
             entry_price = _get_latest_webhook_close() or 29500
-            _append_trade("enter", "bear", entry_price)
+            _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月空單進場 go bear')
 
         api.logout()
@@ -220,7 +228,7 @@ def closePosition():
 
         if len(positions) > 0:
             pos = positions[0]
-            pos_qty = pos.get("quantity") or pos.get("qty") or pos.get("amount") or 1
+            pos_qty = len(positions)
             try:
                 pos_qty = int(pos_qty)
             except Exception:
@@ -234,7 +242,7 @@ def closePosition():
                     pnl = (exit_price - entry_price) * 10
                 else:
                     pnl = None
-                _append_trade("exiting", "bull", exit_price, pnl)
+                _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 丟空單平倉')
 
             if pos['direction'] == 'Sell':
@@ -246,7 +254,7 @@ def closePosition():
                     pnl = (entry_price - exit_price) * 10
                 else:
                     pnl = None
-                _append_trade("exiting", "bear", exit_price, pnl)
+                _append_trade("exiting", "bear", exit_price, pnl, quantity=pos_qty)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 丟多單平倉')
         api.logout()
     except Exception as e:

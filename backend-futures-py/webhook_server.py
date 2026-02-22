@@ -10,7 +10,6 @@ import time
 import threading
 from zoneinfo import ZoneInfo
 
-from auto_trade import _get_last_entry, send_discord_message, sellOne
 from auto_trade_shortCycle import send_discord_message as send_discord_message_short
 from auto_trade_shortCycle import sellOne as sell_one_short
 from auto_trade_shortCycle import buyOne as buy_one_short
@@ -123,109 +122,9 @@ def _clear_csv_keep_header(path: str, header: list[str]) -> None:
         writer.writerow(header_to_write)
 
 
-def _ensure_trade_log() -> None:
-    if os.path.isfile(TRADE_LOG_PATH):
-        return
-    os.makedirs(os.path.dirname(TRADE_LOG_PATH), exist_ok=True)
-    with open(TRADE_LOG_PATH, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(["timestamp", "action", "side", "price", "pnl"])
-
-
-def _append_trade(action: str, side: str, price: float, pnl: float | None = None) -> None:
-    _ensure_trade_log()
-    timestamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-    with open(TRADE_LOG_PATH, "a", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow([timestamp, action, side, price, "" if pnl is None else pnl])
-
-
-def _log_entry(side: str, price: float) -> None:
-    _append_trade("enter", side, price)
-
-
-def _log_exit(side: str, price: float) -> None:
-    last_entry = _get_last_entry()
-    pnl = None
-    if last_entry:
-        _, entry_price = last_entry
-        if side == "bull":
-            pnl = (price - entry_price) * 10
-        else:
-            pnl = (entry_price - price) * 10
-    _append_trade("exiting", side, price, pnl)
-
-
-def _place_limit_order(api, contract, side: str, price: float, quantity: int = 1):
-    if DRY_RUN:
-        send_discord_message_short(
-            f'[{datetime.now(TZ):%H:%M:%S}] 模擬委託 {side} LMT @ {_round_int(price)}'
-        )
-        return None
-    order = api.Order(
-        action=sj.constant.Action.Buy if side == "bull" else sj.constant.Action.Sell,
-        price=price,
-        quantity=quantity,
-        price_type=sj.constant.FuturesPriceType.LMT,
-        order_type=sj.constant.OrderType.ROD,
-        octype=sj.constant.FuturesOCType.Auto,
-        account=api.futopt_account,
-    )
-    return api.place_order(contract, order, timeout=0)
-
-
-def _place_market_order(api, contract, side: str, quantity: int = 1):
-    if DRY_RUN:
-        send_discord_message_short(
-            f'[{datetime.now(TZ):%H:%M:%S}] 模擬市價 {side}'
-        )
-        return None
-    order = api.Order(
-        action=sj.constant.Action.Buy if side == "bull" else sj.constant.Action.Sell,
-        price=0,
-        quantity=quantity,
-        price_type=sj.constant.FuturesPriceType.MKT,
-        order_type=sj.constant.OrderType.ROD,
-        octype=sj.constant.FuturesOCType.Auto,
-        account=api.futopt_account,
-    )
-    return api.place_order(contract, order, timeout=0)
-
-
-def _update_or_replace_order(api, contract, trade, side: str, price: float):
-    update_fn = getattr(api, "update_order", None)
-    cancel_fn = getattr(api, "cancel_order", None)
-
-    if DRY_RUN:
-        send_discord_message_short(
-            f'[{datetime.now(TZ):%H:%M:%S}] 模擬改價 {side} -> {_round_int(price)}'
-        )
-        return None
-
-    if trade is not None and callable(update_fn):
-        try:
-            update_fn(trade, price=price)
-            return trade
-        except Exception:
-            pass
-
-    if trade is not None and callable(cancel_fn):
-        try:
-            cancel_fn(trade)
-        except Exception:
-            pass
-
-    return _place_limit_order(api, contract, side, price)
-
-
-VWAP_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "vwap_state.json")
+MA960_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "ma960_state.json")
 API_CLIENT = None
 
-def _to_int(value) -> int | None:
-    number = _to_float(value)
-    if number is None:
-        return None
-    return int(round(number))
 
 def _read_last_two_rows(path: str) -> list[dict]:
     if not os.path.isfile(path):
@@ -236,82 +135,39 @@ def _read_last_two_rows(path: str) -> list[dict]:
     return rows[-2:] if len(rows) >= 2 else rows
 
 
-def _get_latest_mxf_direction() -> str | None:
-    if not os.path.isfile(MXF_VALUE_PATH):
+def _get_latest_trade_entry() -> tuple[str, float] | None:
+    if not os.path.isfile(TRADE_LOG_PATH):
         return None
     try:
-        with open(MXF_VALUE_PATH, "r", newline="", encoding="utf-8") as handle:
-            last_row = None
-            for row in csv.reader(handle):
-                if row:
-                    last_row = row
+        with open(TRADE_LOG_PATH, "r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
     except Exception:
         return None
 
-    if not last_row:
-        return None
-    direction = str(last_row[-1]).strip().lower()
-    return direction if direction in {"bull", "bear"} else None
+    for row in reversed(rows):
+        action = str(row.get("action", "")).strip().lower()
+        side = str(row.get("side", "")).strip().lower()
+        price = _to_float(row.get("price"))
+        if action == "enter" and side in {"bull", "bear"} and price is not None:
+            return side, price
+    return None
 
 
-def _get_latest_mxf_switch() -> tuple[str | None, str | None]:
-    if not os.path.isfile(MXF_VALUE_PATH):
-        return None, None
-    try:
-        with open(MXF_VALUE_PATH, "r", newline="", encoding="utf-8") as handle:
-            rows = [row for row in csv.reader(handle) if row]
-    except Exception:
-        return None, None
-
-    if len(rows) < 2:
-        return None, None
-
-    prev_row = rows[-2]
-    curr_row = rows[-1]
-    if len(prev_row) < 2 or len(curr_row) < 2:
-        return None, None
-
-    prev_dir = str(prev_row[-1]).strip().lower()
-    curr_dir = str(curr_row[-1]).strip().lower()
-    if prev_dir not in {"bull", "bear"} or curr_dir not in {"bull", "bear"}:
-        return None, None
-
-    if prev_dir == curr_dir:
-        return None, None
-
-    switch_time = str(curr_row[0]).strip()
-    return switch_time, curr_dir
-
-def _load_vwap_state():
-    if not os.path.exists(VWAP_STATE_FILE):
+def _load_ma960_state():
+    if not os.path.exists(MA960_STATE_FILE):
         return {}
     try:
-        with open(VWAP_STATE_FILE, "r") as f:
+        with open(MA960_STATE_FILE, "r") as f:
             return json.load(f)
     except Exception:
         return {}
 
-def _save_vwap_state(state):
+def _save_ma960_state(state):
     try:
-        with open(VWAP_STATE_FILE, "w") as f:
+        with open(MA960_STATE_FILE, "w") as f:
             json.dump(state, f)
     except Exception:
         pass
-
-
-def _get_future_entry_price(side: str) -> float | None:
-    if not os.path.isfile(FUTURE_VALUE_PATH):
-        return None
-    try:
-        with open(FUTURE_VALUE_PATH, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except Exception:
-        return None
-    key = "maxBuyValue" if side == "bull" else "maxSellValue"
-    value = _to_float(payload.get(key))
-    if value is None:
-        return None
-    return value - 50 if key == "maxBuyValue" else value + 50
 
 
 def _get_api_client():
@@ -354,55 +210,6 @@ def _get_api_client():
     return api
 
 
-def _extract_order_id(trade):
-    if trade is None:
-        return None
-    order = getattr(trade, "order", None)
-    if order is not None:
-        for attr in ("id", "order_id", "seqno"):
-            value = getattr(order, attr, None)
-            if value:
-                return str(value)
-    for attr in ("id", "order_id", "seqno"):
-        value = getattr(trade, attr, None)
-        if value:
-            return str(value)
-    return None
-
-
-def _place_entry_and_tp(side: str, tp_price: float | None) -> None:
-    entry_price = _get_future_entry_price(side)
-    if entry_price is None:
-        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 找不到進場價，略過下單')
-        return
-    if DRY_RUN:
-        send_discord_message_short(
-            f'[{datetime.now(TZ):%H:%M:%S}] 模擬進場 {side} LMT @ {_round_int(entry_price)}'
-        )
-        if tp_price is not None:
-            send_discord_message_short(
-                f'[{datetime.now(TZ):%H:%M:%S}] 模擬停利單 {("sell" if side == "bull" else "buy")} LMT @ {_round_int(tp_price)}'
-            )
-        return
-
-    try:
-        api = _get_api_client()
-        contract = api.Contracts.Futures.TMF.TMFR1
-        _place_limit_order(api, contract, side, entry_price, quantity=1)
-
-        if tp_price is None:
-            return
-        tp_side = "bear" if side == "bull" else "bull"
-        tp_trade = _place_limit_order(api, contract, tp_side, tp_price, quantity=1)
-        tp_order_id = _extract_order_id(tp_trade)
-        if tp_order_id:
-            state = _load_vwap_state()
-            state["tp_order_id"] = tp_order_id
-            _save_vwap_state(state)
-    except Exception as exc:
-        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 下單失敗：{exc}')
-
-
 def _has_position() -> bool | None:
     if DRY_RUN:
         return None
@@ -414,22 +221,24 @@ def _has_position() -> bool | None:
         return None
 
 
-def _place_entry_order(side: str) -> None:
-    entry_price = _get_future_entry_price(side)
-    if entry_price is None:
-        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 找不到進場價，略過下單')
-        return
-    if DRY_RUN:
-        send_discord_message_short(
-            f'[{datetime.now(TZ):%H:%M:%S}] 模擬進場 {side} LMT @ {_round_int(entry_price)}'
-        )
-        return
-    try:
-        api = _get_api_client()
-        contract = api.Contracts.Futures.TMF.TMFR1
-        _place_limit_order(api, contract, side, entry_price, quantity=1)
-    except Exception as exc:
-        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 下單失敗：{exc}')
+def _set_ma960_state(side: str, action: str, quantity: int | None = None) -> None:
+    state = _load_ma960_state()
+    state["ma960_side"] = side
+    state["ma960_last_action"] = action
+    if quantity is not None:
+        try:
+            state["ma960_order_quantity"] = int(quantity)
+        except Exception:
+            state["ma960_order_quantity"] = quantity
+    _save_ma960_state(state)
+
+
+def _clear_ma960_state() -> None:
+    state = _load_ma960_state()
+    state.pop("ma960_side", None)
+    state.pop("ma960_last_action", None)
+    state.pop("ma960_order_quantity", None)
+    _save_ma960_state(state)
 
 
 def _close_all_positions() -> None:
@@ -449,335 +258,140 @@ def _close_all_positions() -> None:
                 qty = int(qty)
             except Exception:
                 qty = 1
+
             if direction == "Buy":
-                _place_limit_order(api, contract, "bear", _get_future_entry_price("bear") or 0, quantity=qty)
+                sell_one_short(api, contract, quantity=qty)
             elif direction == "Sell":
-                _place_limit_order(api, contract, "bull", _get_future_entry_price("bull") or 0, quantity=qty)
+                buy_one_short(api, contract, quantity=qty)
     except Exception as exc:
         send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 平倉失敗：{exc}')
 
-def notify_vwap_cross_signals(csv_path: str) -> None:
+
+def run_h_trade_ma960_strategy(csv_path: str) -> bool:
     rows = _read_last_two_rows(csv_path)
     if len(rows) < 2:
-        return
+        return False
 
     prev_row, curr_row = rows[-2], rows[-1]
     timeframe = str(curr_row.get("Timeframe", "")).strip()
     if timeframe != "1":
-        return
+        return False
 
-    prev_close = _to_int(prev_row.get("Close"))
-    curr_close = _to_int(curr_row.get("Close"))
+    prev_close = _to_float(prev_row.get("Close"))
+    curr_close = _to_float(curr_row.get("Close"))
+    prev_ma_960 = _to_float(prev_row.get("MA_960"))
+    curr_ma_960 = _to_float(curr_row.get("MA_960"))
+    if None in (prev_close, curr_close, prev_ma_960, curr_ma_960):
+        return False
 
-    prev_vwap = _to_int(prev_row.get("VWAP"))
-    vwap = _to_int(curr_row.get("VWAP"))
+    latest_entry = _get_latest_trade_entry()
+    if latest_entry is None:
+        return False
+    trade_side, entry_price = latest_entry
 
-    prev_vwap_upper = _to_int(prev_row.get("VWAP_Upper"))
-    vwap_upper = _to_int(curr_row.get("VWAP_Upper"))
-    
-    prev_vwap_lower = _to_int(prev_row.get("VWAP_Lower"))
-    vwap_lower = _to_int(curr_row.get("VWAP_Lower"))
+    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
+    state = _load_ma960_state()
+    ma960_side = str(state.get("ma960_side", "")).strip().lower()
+    has_position = _has_position()
 
-    if None in (prev_close, curr_close, prev_vwap, vwap, prev_vwap_upper, vwap_upper, prev_vwap_lower, vwap_lower):
-        return
+    if ma960_side not in {"bull", "bear"} and trade_side in {"bull", "bear"}:
+        _set_ma960_state(trade_side, "sync")
+        ma960_side = trade_side
 
-    now = datetime.now(TZ)
-    now_ts = now.strftime("%H:%M:%S")
-    state = _load_vwap_state()
-    current_strat = state.get("strategy")
-    current_dir = state.get("direction")
-    mxf_dir = _get_latest_mxf_direction()
-    mxf_switch_time, _ = _get_latest_mxf_switch()
-    last_mxf_switch_time = state.get("mxf_switch_time")
-    
-    # 如果 MXF 方向有變化，無論目前是否在策略中，都強制出場並更新狀態
-    if mxf_switch_time and mxf_switch_time != last_mxf_switch_time:
-        if current_dir in {"bull", "bear"}:
-            _log_exit(current_dir, curr_close)
-        send_discord_message_short(f"[{now_ts}] 方向轉換出場")
-        state["mxf_switch_time"] = mxf_switch_time
-        _save_vwap_state(state)
-
-    # 尾盤強制出場
-    force_exit_times = {(13, 44), (4, 59)}
-    force_exit_key = now.strftime("%Y-%m-%d %H:%M")
-    if (now.hour, now.minute) in force_exit_times:
-        if state.get("force_exit_key") != force_exit_key:
-            if current_dir in {"bull", "bear"}:
-                _log_exit(current_dir, curr_close)
-            send_discord_message_short(f"[{now_ts}] 尾盤強制出場")
-            state["force_exit_key"] = force_exit_key
-            _save_vwap_state(state)
-            return
-
-    # 每分鐘檢查倉位，沒倉位就清空策略狀態（未來真正策略時要打開）
-    # pos_check_key = now.strftime("%Y-%m-%d %H:%M")
-    # if state.get("pos_check_key") != pos_check_key:
-    #     has_pos = _has_position()
-    #     state["pos_check_key"] = pos_check_key
-    #     if has_pos is False:
-    #         _save_vwap_state({})
-    #         return
-    #     _save_vwap_state(state)
-
-    # --- 邏輯 A：VWAP Upper 突破策略 ---
-    if not current_strat:
-        if prev_close < prev_vwap_upper and curr_close > vwap_upper:
-            _save_vwap_state({"strategy": "A", "direction": "bull"})
-            send_discord_message_short(f"[{now_ts}] 進場多單(A)：站上 VWAP Upper ({curr_close})")
-            _log_entry("bull", curr_close)
-            _place_entry_and_tp("bull", None)
-            return # 進場後跳出，避免同根 K 線觸發多個策略
-
-    elif current_strat == "A" and current_dir == "bull":
-        # 跌破上軌、中軌、或下軌皆視為撤退
-        if curr_close < vwap_upper or curr_close < vwap or curr_close < vwap_lower:
-            tp_price = vwap + 5
-            _save_vwap_state({
-                "strategy": "F",
-                "direction": "bear",
-                "take_profit_price": tp_price,
-            })
-            _log_exit("bull", curr_close)
-            _log_entry("bear", curr_close)
-            send_discord_message_short(f"[{now_ts}] 多單離場(A)：跌破支撐點 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 進場空單(F)：上軌反轉 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 上線進場後的停利單：{tp_price}")
-            _place_entry_and_tp("bear", tp_price)
-
-    if not current_strat:
-        if prev_close > prev_vwap_lower and curr_close < vwap_lower:
-            _save_vwap_state({"strategy": "D", "direction": "bear"})
-            send_discord_message_short(f"[{now_ts}] 進場空單(D)：跌破 VWAP Lower ({curr_close})")
-            _log_entry("bear", curr_close)
-            _place_entry_and_tp("bear", None)
-            return
-
-    elif current_strat == "D" and current_dir == "bear":
-        # 突破下軌、中軌、或上軌皆視為撤退
-        if curr_close > vwap_lower or curr_close > vwap or curr_close > vwap_upper:
-            tp_price = vwap - 5
-            _save_vwap_state({
-                "strategy": "C",
-                "direction": "bull",
-                "take_profit_price": tp_price,
-            })
-            _log_exit("bear", curr_close)
-            _log_entry("bull", curr_close)
-            send_discord_message_short(f"[{now_ts}] 空單離場(D)：突破壓力點 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 進場多單(C)：下軌反彈 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 下線進場後的停利單：{tp_price}")
-            _place_entry_and_tp("bull", tp_price)
-
-    # --- 邏輯 B：VWAP 中線突破策略 ---
-    if not current_strat:
-        if prev_close < prev_vwap and curr_close > vwap:
-            tp_price = vwap_upper - 5
-            _save_vwap_state({
-                "strategy": "B",
-                "direction": "bull",
-                "take_profit_price": tp_price,
-            })
-            send_discord_message_short(f"[{now_ts}] 進場多單(B)：站上 VWAP 中線 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
-            _log_entry("bull", curr_close)
-            _place_entry_and_tp("bull", tp_price)
-            return
-
-    elif current_strat == "B" and current_dir == "bull":
-        # 跌破中軌或下軌皆視為撤退
-        stop_loss = curr_close < vwap or curr_close < vwap_lower
-        # 停利改為：只要接近或超過 Upper - 5
-        take_profit = curr_close >= (vwap_upper - 5)
-        
-        if stop_loss or take_profit:
-            if take_profit:
-                _save_vwap_state({})
-                _log_exit("bull", curr_close)
-                send_discord_message_short(f"[{now_ts}] 多單離場(B)：停利觸及上軌 ({curr_close})")
-            else:
-                tp_price = vwap_lower + 5
-                _save_vwap_state({
-                    "strategy": "E",
-                    "direction": "bear",
-                    "take_profit_price": tp_price,
-                })
-                _log_exit("bull", curr_close)
-                _log_entry("bear", curr_close)
-                send_discord_message_short(f"[{now_ts}] 多單離場(B)：跌破中軌或下軌停損 ({curr_close})")
-                send_discord_message_short(f"[{now_ts}] 進場空單(E)：跌破 VWAP 中線 ({curr_close})")
-                send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
-                _place_entry_and_tp("bear", tp_price)
-
-    if not current_strat:
-        if prev_close > prev_vwap and curr_close < vwap:
-            tp_price = vwap_lower + 5
-            _save_vwap_state({
-                "strategy": "E",
-                "direction": "bear",
-                "take_profit_price": tp_price,
-            })
-            send_discord_message_short(f"[{now_ts}] 進場空單(E)：跌破 VWAP 中線 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
-            _log_entry("bear", curr_close)
-            _place_entry_and_tp("bear", tp_price)
-            return
-
-    elif current_strat == "E" and current_dir == "bear":
-        # 突破中軌或上軌皆視為撤退
-        stop_loss = curr_close > vwap or curr_close > vwap_upper
-        # 停利改為：只要接近或跌破 Lower + 5
-        take_profit = curr_close <= (vwap_lower + 5)
-        
-        if stop_loss or take_profit:
-            if take_profit:
-                _save_vwap_state({})
-                _log_exit("bear", curr_close)
-                send_discord_message_short(f"[{now_ts}] 空單離場(E)：停利觸及下軌 ({curr_close})")
-            else:
-                tp_price = vwap_upper - 5
-                _save_vwap_state({
-                    "strategy": "B",
-                    "direction": "bull",
-                    "take_profit_price": tp_price,
-                })
-                _log_exit("bear", curr_close)
-                _log_entry("bull", curr_close)
-                send_discord_message_short(f"[{now_ts}] 空單離場(E)：突破中軌或上軌停損 ({curr_close})")
-                send_discord_message_short(f"[{now_ts}] 進場多單(B)：站上 VWAP 中線 ({curr_close})")
-                send_discord_message_short(f"[{now_ts}] 中線進場後的停利單：{tp_price}")
-                _place_entry_and_tp("bull", tp_price)
-
-    # --- 邏輯 C：VWAP Lower 抄底策略 ---
-    if not current_strat:
-        if prev_close < prev_vwap_lower and curr_close > vwap_lower:
-            tp_price = vwap - 5
-            _save_vwap_state({
-                "strategy": "C",
-                "direction": "bull",
-                "take_profit_price": tp_price,
-            })
-            send_discord_message_short(f"[{now_ts}] 進場多單(C)：下軌反彈 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 下線進場後的停利單：{tp_price}")
-            _log_entry("bull", curr_close)
-            _place_entry_and_tp("bull", tp_price)
-            return
-
-    elif current_strat == "C" and current_dir == "bull":
-        stop_loss = curr_close < vwap_lower
-        # 停利改為：只要接近或超過 VWAP 中線 - 5
-        take_profit = curr_close >= (vwap - 5)
-        
-        if stop_loss or take_profit:
-            if take_profit:
-                _save_vwap_state({})
-                _log_exit("bull", curr_close)
-                send_discord_message_short(f"[{now_ts}] 多單離場(C)：停利觸及中軌 ({curr_close})")
-            else:
-                _save_vwap_state({"strategy": "D", "direction": "bear"})
-                _log_exit("bull", curr_close)
-                _log_entry("bear", curr_close)
-                send_discord_message_short(f"[{now_ts}] 多單離場(C)：跌破下軌停損 ({curr_close})")
-                send_discord_message_short(f"[{now_ts}] 進場空單(D)：跌破 VWAP Lower ({curr_close})")
-                _place_entry_and_tp("bear", None)
-
-    if not current_strat:
-        if prev_close > prev_vwap_upper and curr_close < vwap_upper:
-            tp_price = vwap + 5
-            _save_vwap_state({
-                "strategy": "F",
-                "direction": "bear",
-                "take_profit_price": tp_price,
-            })
-            send_discord_message_short(f"[{now_ts}] 進場空單(F)：上軌反轉 ({curr_close})")
-            send_discord_message_short(f"[{now_ts}] 上線進場後的停利單：{tp_price}")
-            _log_entry("bear", curr_close)
-            _place_entry_and_tp("bear", tp_price)
-            return
-
-    elif current_strat == "F" and current_dir == "bear":
-        stop_loss = curr_close > vwap_upper
-        # 停利改為：只要接近或跌破 VWAP 中線 + 5
-        take_profit = curr_close <= (vwap + 5)
-        
-        if stop_loss or take_profit:
-            if take_profit:
-                _save_vwap_state({})
-                _log_exit("bear", curr_close)
-                send_discord_message_short(f"[{now_ts}] 空單離場(F)：停利觸及中軌 ({curr_close})")
-            else:
-                _save_vwap_state({"strategy": "A", "direction": "bull"})
-                _log_exit("bear", curr_close)
-                _log_entry("bull", curr_close)
-                send_discord_message_short(f"[{now_ts}] 空單離場(F)：突破上軌停損 ({curr_close})")
-                send_discord_message_short(f"[{now_ts}] 進場多單(A)：站上 VWAP Upper ({curr_close})")
-                _place_entry_and_tp("bull", None)
-
-
-def notify_vwap_trend_signals(csv_path: str) -> None:
-    rows = _read_last_two_rows(csv_path)
-    if len(rows) < 2:
-        return
-
-    curr_row = rows[-1]
-    timeframe = str(curr_row.get("Timeframe", "")).strip()
-    if timeframe != "1":
-        return
-
-    curr_close = _to_int(curr_row.get("Close"))
-    curr_vwap = _to_int(curr_row.get("VWAP"))
-    if curr_close is None or curr_vwap is None:
-        return
-
-    now = datetime.now(TZ)
-    now_ts = now.strftime("%H:%M:%S")
-    state = _load_vwap_state()
-    trend_dir = state.get("vwap_trend_direction")
-
-    force_exit_times = {(13, 44), (4, 59)}
-    if (now.hour, now.minute) in force_exit_times:
-        if trend_dir:
-            _log_exit(trend_dir, curr_close)
-            send_discord_message_short(f"[{now_ts}] VWAP 方向策略尾盤出場")
-            state.pop("vwap_trend_direction", None)
-            _save_vwap_state(state)
-            _close_all_positions()
-        return
-
-    if not trend_dir:
-        if curr_close > curr_vwap:
-            state["vwap_trend_direction"] = "bull"
-            _save_vwap_state(state)
-            send_discord_message_short(f"[{now_ts}] VWAP 方向策略多單進場：站上 VWAP ({curr_vwap})")
-            _log_entry("bull", curr_close)
-            _place_entry_order("bull")
-        elif curr_close < curr_vwap:
-            state["vwap_trend_direction"] = "bear"
-            _save_vwap_state(state)
-            send_discord_message_short(f"[{now_ts}] VWAP 方向策略空單進場：跌破 VWAP ({curr_vwap})")
-            _log_entry("bear", curr_close)
-            _place_entry_order("bear")
-        return
-
-    if trend_dir == "bull" and curr_close < curr_vwap:
-        state["vwap_trend_direction"] = "bear"
-        _save_vwap_state(state)
-        send_discord_message_short(f"[{now_ts}] VWAP 方向策略反手空單：跌破 VWAP ({curr_vwap})")
-        _log_exit("bull", curr_close)
-        _log_entry("bear", curr_close)
+    # 先檢查停損：多單跌破 MA960 / 空單站上 MA960
+    if ma960_side == "bull" and curr_close < curr_ma_960:
         _close_all_positions()
-        _place_entry_order("bear")
-        return
+        _clear_ma960_state()
+        send_discord_message_short(
+            f"[{now_ts}] MA960 停損出場：多單跌破 MA960 ({int(curr_close)} < {int(curr_ma_960)})"
+        )
+        return True
 
-    if trend_dir == "bear" and curr_close > curr_vwap:
-        state["vwap_trend_direction"] = "bull"
-        _save_vwap_state(state)
-        send_discord_message_short(f"[{now_ts}] VWAP 方向策略反手多單：站上 VWAP ({curr_vwap})")
-        _log_exit("bear", curr_close)
-        _log_entry("bull", curr_close)
+    if ma960_side == "bear" and curr_close > curr_ma_960:
         _close_all_positions()
-        _place_entry_order("bull")
-        return
+        _clear_ma960_state()
+        send_discord_message_short(
+            f"[{now_ts}] MA960 停損出場：空單站上 MA960 ({int(curr_close)} > {int(curr_ma_960)})"
+        )
+        return True
+
+    # 若已無倉位，清掉 ma960 狀態
+    if has_position is False and ma960_side in {"bull", "bear"}:
+        _clear_ma960_state()
+
+    if trade_side == "bull":
+        is_profit = curr_close > entry_price
+        add_signal = prev_close < prev_ma_960 and curr_close > curr_ma_960 # 加碼單
+        reverse_signal = prev_close > prev_ma_960 and curr_close < curr_ma_960 # 反向單
+
+        if is_profit and add_signal:
+            if has_position is False:
+                return False
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}] MA960 加碼多單：close({int(curr_close)}) > entry({int(entry_price)}) 且上穿 MA960"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                buy_one_short(api, contract, quantity=1)
+                _set_ma960_state("bull", "add", quantity=1)
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] MA960 加碼多單失敗：{exc}")
+                return False
+
+        if (not is_profit) and reverse_signal:
+            reverse_qty = 2 if has_position else 1
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}] MA960 反向空單：close({int(curr_close)}) < entry({int(entry_price)}) 且下破 MA960"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                sell_one_short(api, contract, quantity=reverse_qty)
+                _set_ma960_state("bear", "reverse", quantity=reverse_qty)
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] MA960 反向空單失敗：{exc}")
+                return False
+
+    if trade_side == "bear":
+        is_profit = curr_close < entry_price
+        add_signal = prev_close > prev_ma_960 and curr_close < curr_ma_960
+        reverse_signal = prev_close < prev_ma_960 and curr_close > curr_ma_960
+
+        if is_profit and add_signal:
+            if has_position is False:
+                return False
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}] MA960 加碼空單：close({int(curr_close)}) < entry({int(entry_price)}) 且下破 MA960"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                sell_one_short(api, contract, quantity=1)
+                _set_ma960_state("bear", "add", quantity=1)
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] MA960 加碼空單失敗：{exc}")
+                return False
+
+        if (not is_profit) and reverse_signal:
+            reverse_qty = 2 if has_position else 1
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}] MA960 反向多單：close({int(curr_close)}) > entry({int(entry_price)}) 且上穿 MA960"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                buy_one_short(api, contract, quantity=reverse_qty)
+                _set_ma960_state("bull", "reverse", quantity=reverse_qty)
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] MA960 反向多單失敗：{exc}")
+                return False
+
+    return False
 
 
 # 獲取webhook並處理
@@ -861,11 +475,8 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     sys.stdout.flush()  # Ensure output is printed immediately
                     if timeframe == "5":
                         print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
-                        # check_ha_mxf_strategy(target_csv)
                     elif timeframe == "1":
-                        # check_vwap_1min_strategy(target_csv)
-                        # notify_vwap_cross_signals(target_csv)
-                        notify_vwap_trend_signals(target_csv)
+                        run_h_trade_ma960_strategy(target_csv)
                     
                     # Respond success
                     self.send_response(200)

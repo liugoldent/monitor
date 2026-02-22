@@ -54,7 +54,7 @@ type EtfCommonTechItem = {
     ma25_1d?: string | number
     ma50_1d?: string | number
     ma100_1d?: string | number
-    rollBack?: string | number
+    reducePosition?: string | number
     upperAllFirstDay?: string | number
     no?: number
 }
@@ -233,7 +233,7 @@ const fetchEtfCommonHoldings = async () => {
             ma25_1d: item.ma25_1d,
             ma50_1d: item.ma50_1d,
             ma100_1d: item.ma100_1d,
-            rollBack: item.rollBack,
+            reducePosition: item.reducePosition,
             upperAllFirstDay: item.upperAllFirstDay,
             no: item.no
         }))
@@ -260,7 +260,7 @@ const fetchCommonIndexHoldings = async () => {
             ma25_1d: item.ma25_1d,
             ma50_1d: item.ma50_1d,
             ma100_1d: item.ma100_1d,
-            rollBack: item.rollBack,
+            reducePosition: item.reducePosition,
             upperAllFirstDay: item.upperAllFirstDay,
             no: item.no
         }))
@@ -770,8 +770,8 @@ const isBiasLessThan = (
                                             : 'text-gray-300'">
                                         {{ getBias(stock.close, stock.ma10_1d) }}
                                     </div>
-                                    <div :class="Number(stock.rollBack) === 1 ? 'text-green-400' : 'text-red-400'">
-                                        {{ Number(stock.rollBack) === 1 ? 'v' : 'x' }}
+                                    <div :class="Number(stock.reducePosition) === 1 ? 'text-green-400' : 'text-red-400'">
+                                        {{ Number(stock.reducePosition) === 1 ? 'v' : 'x' }}
                                     </div>
                                 </div>
                                 <div v-if="activeTechTab === 'commonEtf' && !etfCommonHoldingsFiltered.length"
