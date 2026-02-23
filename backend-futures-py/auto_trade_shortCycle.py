@@ -1,7 +1,7 @@
 import shioaji as sj # 載入永豐金Python API
 import os
 import requests
-import csv
+import json
 from pathlib import Path
 from collections import deque
 from datetime import datetime
@@ -43,7 +43,31 @@ SELL_ONE_PRICE = _get_env_float("SELL_ONE_PRICE", 0)
 base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
-TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
+FUTURE_VALUE_PATH = Path(__file__).resolve().parent / "tv_doc" / "future_max_values.json"
+
+def _parse_number(raw: str) -> float | None:
+    if raw is None:
+        return None
+    text = str(raw).replace(",", "").strip()
+    if text == "":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _get_future_max_values() -> tuple[float | None, float | None]:
+    if not FUTURE_VALUE_PATH.exists():
+        return None, None
+    try:
+        payload = json.loads(FUTURE_VALUE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None, None
+    max_buy = _parse_number(payload.get("maxBuyValue"))
+    max_sell = _parse_number(payload.get("maxSellValue"))
+    return max_buy, max_sell
+
 
 # 純下單func
 def auto_trade(type):
@@ -133,9 +157,11 @@ def closePosition():
 
 
 def buyOne(api, contract, quantity=1):
+    max_buy, _ = _get_future_max_values()
+    price = max_buy
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=BUY_ONE_PRICE,                        # price (價格)
+        price=price - 50,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
@@ -149,9 +175,11 @@ def buyOne(api, contract, quantity=1):
 
 
 def sellOne(api, contract, quantity=1):
+    _, max_sell = _get_future_max_values()
+    price = max_sell
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=SELL_ONE_PRICE,                        # price (價格)
+        price=price + 50,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
         order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK

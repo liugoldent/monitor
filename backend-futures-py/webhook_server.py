@@ -63,6 +63,28 @@ def _to_float(value: str | None) -> float | None:
         return float(cleaned)
     except ValueError:
         return None
+    
+def _parse_number(raw: str) -> float | None:
+    if raw is None:
+        return None
+    text = str(raw).replace(",", "").strip()
+    if text == "":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+def _get_future_max_values() -> tuple[float | None, float | None]:
+    if not FUTURE_VALUE_PATH.exists():
+        return None, None
+    try:
+        payload = json.loads(FUTURE_VALUE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None, None
+    max_buy = _parse_number(payload.get("maxBuyValue"))
+    max_sell = _parse_number(payload.get("maxSellValue"))
+    return max_buy, max_sell
 
 
 def _round_int(value) -> str:
@@ -186,33 +208,10 @@ def _get_api_client():
     except Exception:
         pass
 
-    callback = getattr(api, "set_order_callback", None)
-    if callable(callback):
-        def _order_cb(stat, msg):
-            try:
-                state = _load_vwap_state()
-                tp_id = state.get("tp_order_id")
-                if not tp_id:
-                    return
-                order_id = getattr(msg, "order_id", None) or getattr(msg, "id", None) or getattr(msg, "seqno", None)
-                status = getattr(msg, "status", None) or getattr(msg, "order_status", None) or ""
-                if str(order_id) == str(tp_id) and str(status).lower() in {"filled", "fill", "filled_all"}:
-                    _save_vwap_state({})
-                    send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 停利單成交，清空策略狀態')
-            except Exception:
-                return
-        try:
-            callback(_order_cb)
-        except Exception:
-            pass
-
-    API_CLIENT = api
     return api
 
 
 def _has_position() -> bool | None:
-    if DRY_RUN:
-        return None
     try:
         api = _get_api_client()
         positions = api.list_positions(api.futopt_account)
@@ -281,6 +280,7 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
     curr_close = _to_float(curr_row.get("Close"))
     prev_ma_960 = _to_float(prev_row.get("MA_960"))
     curr_ma_960 = _to_float(curr_row.get("MA_960"))
+    print(f"檢查 MA960 策略：prev_close={prev_close}, curr_close={curr_close}, prev_ma_960={prev_ma_960}, curr_ma_960={curr_ma_960}")
     if None in (prev_close, curr_close, prev_ma_960, curr_ma_960):
         return False
 
@@ -288,45 +288,57 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
     if latest_entry is None:
         return False
     trade_side, entry_price = latest_entry
+    print(f"最新交易紀錄：side={trade_side}, entry_price={entry_price}")
 
     now_ts = datetime.now(TZ).strftime("%H:%M:%S")
     state = _load_ma960_state()
     ma960_side = str(state.get("ma960_side", "")).strip().lower()
     has_position = _has_position()
+    print(ma960_side, 'ma960_side')
+    print(has_position, 'has_position')
+    print(trade_side, 'trade_side')
 
-    if ma960_side not in {"bull", "bear"} and trade_side in {"bull", "bear"}:
-        _set_ma960_state(trade_side, "sync")
-        ma960_side = trade_side
+    # if ma960_side not in {"bull", "bear"} and trade_side in {"bull", "bear"}:
+    #     _set_ma960_state(trade_side, "sync")
+    #     ma960_side = trade_side
 
     # 先檢查停損：多單跌破 MA960 / 空單站上 MA960
     if ma960_side == "bull" and curr_close < curr_ma_960:
         _close_all_positions()
         _clear_ma960_state()
         send_discord_message_short(
-            f"[{now_ts}] MA960 停損出場：多單跌破 MA960 ({int(curr_close)} < {int(curr_ma_960)})"
+            f"[{now_ts}] MA960 出場：多單跌破 MA960 ({int(curr_close)} < {int(curr_ma_960)})"
         )
-        return True
 
     if ma960_side == "bear" and curr_close > curr_ma_960:
         _close_all_positions()
         _clear_ma960_state()
         send_discord_message_short(
-            f"[{now_ts}] MA960 停損出場：空單站上 MA960 ({int(curr_close)} > {int(curr_ma_960)})"
+            f"[{now_ts}] MA960 出場：空單站上 MA960 ({int(curr_close)} > {int(curr_ma_960)})"
         )
-        return True
 
     # 若已無倉位，清掉 ma960 狀態
-    if has_position is False and ma960_side in {"bull", "bear"}:
-        _clear_ma960_state()
+    # if has_position is False and ma960_side in {"bull", "bear"}:
+    #     print(33)
+    #     _clear_ma960_state()
 
-    if trade_side == "bull":
+    # 平倉後，再檢查一次，以免出現停損後立刻加碼的情況
+    ma960_side = str(state.get("ma960_side", "")).strip().lower()
+    has_position = _has_position()
+    print(ma960_side not in {"bull", "bear"}, 'ma960_side not in {"bull", "bear"}')
+    print(has_position, 'has_position')
+
+    if trade_side == "bull" and ma960_side not in {"bull", "bear"}:
         is_profit = curr_close > entry_price
         add_signal = prev_close < prev_ma_960 and curr_close > curr_ma_960 # 加碼單
         reverse_signal = prev_close > prev_ma_960 and curr_close < curr_ma_960 # 反向單
 
+        print(f'現在H策略：{"bull"}')
+        print(f'賺錢嗎？{is_profit}')
+        print(f'加碼訊號？{add_signal}')
+        print(f'反向訊號？{reverse_signal}')
+
         if is_profit and add_signal:
-            if has_position is False:
-                return False
             try:
                 send_discord_message_short(
                     f"[{now_ts}] MA960 加碼多單：close({int(curr_close)}) > entry({int(entry_price)}) 且上穿 MA960"
@@ -355,14 +367,17 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
                 send_discord_message_short(f"[{now_ts}] MA960 反向空單失敗：{exc}")
                 return False
 
-    if trade_side == "bear":
+    if trade_side == "bear" and ma960_side not in {"bull", "bear"}:
         is_profit = curr_close < entry_price
         add_signal = prev_close > prev_ma_960 and curr_close < curr_ma_960
         reverse_signal = prev_close < prev_ma_960 and curr_close > curr_ma_960
 
+        print(f'現在H策略：{"bear"}')
+        print(f'賺錢嗎？{is_profit}')
+        print(f'加碼訊號？{add_signal}')
+        print(f'反向訊號？{reverse_signal}')
+
         if is_profit and add_signal:
-            if has_position is False:
-                return False
             try:
                 send_discord_message_short(
                     f"[{now_ts}] MA960 加碼空單：close({int(curr_close)}) < entry({int(entry_price)}) 且下破 MA960"
@@ -400,13 +415,10 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         if self.path == '/webhook':
             try:
                 # Get content length
-
                 content_length = int(self.headers.get('Content-Length', 0))
-                print(content_length)
                 
                 # Read body
                 body = self.rfile.read(content_length).decode('utf-8')
-                print(body)
                 data = json.loads(body)
 
                 if data:
@@ -532,8 +544,6 @@ def run_server():
         server_address = ('', PORT)
         httpd = ThreadingHTTPServer(server_address, WebhookHandler)
         Thread(target=_daily_clear_worker, daemon=True).start()
-        print(f"🚀 Webhook server started on port {PORT}")
-        print(f"📂 Saving data to: {CSV_FILE}")
         sys.stdout.flush()
         httpd.serve_forever()
     except KeyboardInterrupt:

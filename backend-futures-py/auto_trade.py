@@ -192,13 +192,13 @@ def auto_trade(type):
         # 平倉後進新倉
         if type == 'bull':
             buyOne(api, contract, quantity=entry_qty)
-            entry_price = _get_latest_webhook_close() or 34000
+            entry_price = _get_latest_webhook_close()
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月多單進場 go bull')
 
         if type == 'bear':
             sellOne(api, contract, quantity=entry_qty)
-            entry_price = _get_latest_webhook_close() or 29500
+            entry_price = _get_latest_webhook_close()
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             send_discord_message(f'[{testNow:%H:%M:%S}] 近月空單進場 go bear')
 
@@ -236,7 +236,7 @@ def closePosition():
             if pos['direction'] == 'Buy':
                 sellOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
-                exit_price = _get_latest_webhook_close() or 29500
+                exit_price = _get_latest_webhook_close()
                 if last_entry:
                     _, entry_price = last_entry
                     pnl = (exit_price - entry_price) * 10
@@ -248,7 +248,7 @@ def closePosition():
             if pos['direction'] == 'Sell':
                 buyOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
-                exit_price = _get_latest_webhook_close() or 34000
+                exit_price = _get_latest_webhook_close()
                 if last_entry:
                     _, entry_price = last_entry
                     pnl = (entry_price - exit_price) * 10
@@ -264,7 +264,7 @@ def closePosition():
 
 def buyOne(api, contract, quantity=1):
     max_buy, _ = _get_future_max_values()
-    price = max_buy if max_buy is not None else 34000
+    price = max_buy
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
         price=price - 50,                        # price (價格)
@@ -282,7 +282,7 @@ def buyOne(api, contract, quantity=1):
 
 def sellOne(api, contract, quantity=1):
     _, max_sell = _get_future_max_values()
-    price = max_sell if max_sell is not None else 28500
+    price = max_sell
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
         price=price + 50,                        # price (價格)

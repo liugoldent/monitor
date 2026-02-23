@@ -46,16 +46,26 @@ type EtfCommonTechItem = {
     code: string
     name?: string
     close?: string | number
+    target_price?: string | number
     volumeCombo?: string | number
     sqzmom_stronger_1d?: string | number
     heikin_Ashi?: string | number
     ma5_1d?: string | number
     ma10_1d?: string | number
-    ma25_1d?: string | number
     ma50_1d?: string | number
     ma100_1d?: string | number
-    reducePosition?: string | number
-    upperAllFirstDay?: string | number
+    entry_signal?: string | number
+    add_position_signal?: string | number
+    buyback_signal?: string | number
+    reduce_1_signal?: string | number
+    reduce_2_signal?: string | number
+    clear_position_signal?: string | number
+    has_position_signal?: string | number
+    strong_buy_score?: string | number
+    buy_score?: string | number
+    hold_score?: string | number
+    sell_score?: string | number
+    strong_sell_score?: string | number
     no?: number
 }
 
@@ -225,16 +235,26 @@ const fetchEtfCommonHoldings = async () => {
             code: normalizeCode(item.code),
             name: item.name ?? '',
             close: item.close ?? '',
+            target_price: item.target_price ?? '',
             volumeCombo: item.volumeCombo ?? '',
             sqzmom_stronger_1d: item.sqzmom_stronger_1d ?? '',
             heikin_Ashi: item.heikin_Ashi ?? '',
             ma5_1d: item.ma5_1d,
             ma10_1d: item.ma10_1d,
-            ma25_1d: item.ma25_1d,
             ma50_1d: item.ma50_1d,
             ma100_1d: item.ma100_1d,
-            reducePosition: item.reducePosition,
-            upperAllFirstDay: item.upperAllFirstDay,
+            entry_signal: item.entry_signal,
+            add_position_signal: item.add_position_signal,
+            buyback_signal: item.buyback_signal,
+            reduce_1_signal: item.reduce_1_signal,
+            reduce_2_signal: item.reduce_2_signal,
+            clear_position_signal: item.clear_position_signal,
+            has_position_signal: item.has_position_signal,
+            strong_buy_score: item.strong_buy_score,
+            buy_score: item.buy_score,
+            hold_score: item.hold_score,
+            sell_score: item.sell_score,
+            strong_sell_score: item.strong_sell_score,
             no: item.no
         }))
         etfCommonHoldingsTime.value = payload?.time ?? ''
@@ -252,16 +272,26 @@ const fetchCommonIndexHoldings = async () => {
             code: normalizeCode(item.code),
             name: item.name ?? '',
             close: item.close ?? '',
+            target_price: item.target_price ?? '',
             volumeCombo: item.volumeCombo ?? '',
             sqzmom_stronger_1d: item.sqzmom_stronger_1d ?? '',
             heikin_Ashi: item.heikin_Ashi ?? '',
             ma5_1d: item.ma5_1d,
             ma10_1d: item.ma10_1d,
-            ma25_1d: item.ma25_1d,
             ma50_1d: item.ma50_1d,
             ma100_1d: item.ma100_1d,
-            reducePosition: item.reducePosition,
-            upperAllFirstDay: item.upperAllFirstDay,
+            entry_signal: item.entry_signal,
+            add_position_signal: item.add_position_signal,
+            buyback_signal: item.buyback_signal,
+            reduce_1_signal: item.reduce_1_signal,
+            reduce_2_signal: item.reduce_2_signal,
+            clear_position_signal: item.clear_position_signal,
+            has_position_signal: item.has_position_signal,
+            strong_buy_score: item.strong_buy_score,
+            buy_score: item.buy_score,
+            hold_score: item.hold_score,
+            sell_score: item.sell_score,
+            strong_sell_score: item.strong_sell_score,
             no: item.no
         }))
         commonIndexHoldingsTime.value = payload?.time ?? ''
@@ -424,22 +454,6 @@ const isTechSignal = (code?: string) => {
     )
 }
 
-const getEtfHoldingsCount = (code?: string) => {
-    const key = normalizeCode(code)
-    if (!key) return '-'
-    const info = etfHoldingsMap.value.get(key)
-    if (!info) return 0
-    return info.count
-}
-
-const getEtfHoldingsTitle = (code?: string) => {
-    const key = normalizeCode(code)
-    if (!key) return ''
-    const info = etfHoldingsMap.value.get(key)
-    if (!info || !info.etfs.length) return ''
-    return `ETFs: ${info.etfs.join(', ')}`
-}
-
 const turnoverRankMap = computed(() => {
     return new Map(
         turnoverToday.value.map((stock, index) => [normalizeCode(stock.code), index + 1]),
@@ -578,18 +592,6 @@ const askLLM = async () => {
 }
 
 // Helper methods for calculations
-const isWeeklyMaOk = (item: EtfCommonTechItem) => {
-    const close = parseNumber(item.close)
-    const ma25 = parseNumber(item.ma25_1d)
-    const ma50 = parseNumber(item.ma50_1d)
-    const ma100 = parseNumber(item.ma100_1d)
-
-    // Ensure all are valid numbers before comparison
-    if ([close, ma25, ma50, ma100].some(isNaN)) return false
-
-    return close > ma25 && close > ma50 && close > ma100
-}
-
 const getBias = (closeStr: string | number | undefined, maStr: string | number | undefined) => {
     const close = parseNumber(closeStr)
     const ma = parseNumber(maStr)
@@ -613,12 +615,34 @@ const isBiasLessThan = (
     return bias > 0 && bias < threshold
 }
 
+const signalLabel = (value?: string | number) => Number(value) === 1 ? '是' : '否'
+const signalClass = (value?: string | number) => Number(value) === 1 ? 'text-green-400' : 'text-red-400'
+
+const getAnalystRatingLabel = (item: EtfCommonTechItem) => {
+    const scores = [
+        { label: '強力買入', value: parseNumber(item.strong_buy_score) },
+        { label: '買入', value: parseNumber(item.buy_score) },
+        { label: '中立', value: parseNumber(item.hold_score) },
+        { label: '賣出', value: parseNumber(item.sell_score) },
+        { label: '強力賣出', value: parseNumber(item.strong_sell_score) },
+    ]
+    let bestLabel = '-'
+    let bestValue = Number.NEGATIVE_INFINITY
+    scores.forEach((score) => {
+        if (Number.isFinite(score.value) && score.value > bestValue) {
+            bestValue = score.value
+            bestLabel = score.label
+        }
+    })
+    return bestLabel
+}
+
 </script>
 
 <template>
     <div class="flex flex-col h-full bg-[#1a1a1a] text-gray-300 font-sans overflow-hidden">
         <!-- Section 2: Turnover Ranking (Table) -->
-        <div class="flex flex-col min-h-[33vh] flex-[0_0_33vh] border-b border-gray-700">
+        <div class="flex flex-col min-h-[28vh] flex-[0_0_28vh] border-b border-gray-700">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" viewBox="0 0 20 20"
@@ -685,7 +709,7 @@ const isBiasLessThan = (
         </div>
 
         <!-- Section 3: Turnover Tech (Table) -->
-        <div class="flex flex-col min-h-[33vh] flex-[0_0_33vh]">
+        <div class="flex flex-col min-h-[40vh] flex-[0_0_40vh]">
             <div class="p-2 bg-[#1f1f1f] flex items-center justify-between shrink-0">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" viewBox="0 0 20 20"
@@ -724,18 +748,24 @@ const isBiasLessThan = (
                         <div class="overflow-y-auto flex-1 bg-black">
                             <div v-if="activeTechTab === 'commonEtf' || activeTechTab === 'commonIndex'">
                                 <div
-                                    class="grid grid-cols-11 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0 sticky top-0 z-10">
+                                    class="grid grid-cols-17 text-center py-2 bg-[#242424] text-xs font-medium text-gray-400 shrink-0 sticky top-0 z-10">
                                     <div>成交值排行</div>
                                     <div>代號</div>
                                     <div>名稱</div>
                                     <div>成交價</div>
+                                    <div>目標價</div>
                                     <div>動能增強</div>
                                     <div>平均K棒</div>
-                                    <div>是否站在周線上</div>
-                                    <div>第一天站上所有均線</div>
                                     <div>5日乖離率</div>
                                     <div>10日乖離率</div>
-                                    <div>回檔</div>
+                                    <div>評級</div>
+                                    <div>持有部位</div>
+                                    <div>今日進場</div>
+                                    <div>加碼</div>
+                                    <div>認錯買回</div>
+                                    <div>減碼1</div>
+                                    <div>減碼2</div>
+                                    <div>清倉</div>
                                 </div>
                                 <div class="px-3 py-2 text-[10px] text-gray-400 border-b border-gray-900">
                                     {{ activeTechTab === 'commonEtf'
@@ -744,24 +774,19 @@ const isBiasLessThan = (
                                 </div>
                                 <div v-for="stock in activeTechTab === 'commonEtf' ? etfCommonHoldingsFiltered : commonIndexHoldings"
                                     :key="stock.code"
-                                    class="grid grid-cols-11 text-center py-3 border-b border-gray-900 text-sm">
+                                    class="grid grid-cols-17 text-center py-3 border-b border-gray-900 text-sm">
                                     <div class="text-gray-300">{{ getTurnoverRank(stock.code) }}
                                     </div>
                                     <div class="font-medium text-white">{{ stock.code }}</div>
                                     <div class="font-medium text-white">{{ stock.name }}</div>
                                     <div class="text-yellow-400">{{ stock.close || '-' }}</div>
+                                    <div class="text-cyan-300">{{ stock.target_price || '-' }}</div>
                                     <div
                                         :class="Number(stock.sqzmom_stronger_1d) === 1 ? 'text-green-400' : 'text-red-400'">
                                         {{ Number(stock.sqzmom_stronger_1d) === 1 ? 'v' : 'x' }}
                                     </div>
                                     <div :class="Number(stock.heikin_Ashi) === 1 ? 'text-green-400' : 'text-red-400'">
                                         {{ Number(stock.heikin_Ashi) === 1 ? 'v' : 'x' }}
-                                    </div>
-                                    <div :class="isWeeklyMaOk(stock) ? 'text-green-400' : 'text-red-400'">
-                                        {{ isWeeklyMaOk(stock) ? 'v' : 'x' }}
-                                    </div>
-                                    <div :class="Number(stock.upperAllFirstDay) === 1 ? 'text-green-400' : 'text-red-400'">
-                                        {{ Number(stock.upperAllFirstDay) === 1 ? 'v' : 'x' }}
                                     </div>
                                     <div class="text-gray-300">{{ getBias(stock.close, stock.ma5_1d) }}</div>
                                     <div
@@ -770,9 +795,14 @@ const isBiasLessThan = (
                                             : 'text-gray-300'">
                                         {{ getBias(stock.close, stock.ma10_1d) }}
                                     </div>
-                                    <div :class="Number(stock.reducePosition) === 1 ? 'text-green-400' : 'text-red-400'">
-                                        {{ Number(stock.reducePosition) === 1 ? 'v' : 'x' }}
-                                    </div>
+                                    <div class="text-gray-300">{{ getAnalystRatingLabel(stock) }}</div>
+                                    <div :class="signalClass(stock.has_position_signal)">{{ signalLabel(stock.has_position_signal) }}</div>
+                                    <div :class="signalClass(stock.entry_signal)">{{ signalLabel(stock.entry_signal) }}</div>
+                                    <div :class="signalClass(stock.add_position_signal)">{{ signalLabel(stock.add_position_signal) }}</div>
+                                    <div :class="signalClass(stock.buyback_signal)">{{ signalLabel(stock.buyback_signal) }}</div>
+                                    <div :class="signalClass(stock.reduce_1_signal)">{{ signalLabel(stock.reduce_1_signal) }}</div>
+                                    <div :class="signalClass(stock.reduce_2_signal)">{{ signalLabel(stock.reduce_2_signal) }}</div>
+                                    <div :class="signalClass(stock.clear_position_signal)">{{ signalLabel(stock.clear_position_signal) }}</div>
                                 </div>
                                 <div v-if="activeTechTab === 'commonEtf' && !etfCommonHoldingsFiltered.length"
                                     class="text-center text-xs text-gray-500 py-6">
@@ -790,7 +820,7 @@ const isBiasLessThan = (
         </div>
 
         <!-- Section 4: AI Analysis Panel -->
-        <div class="flex flex-col min-h-[33vh] flex-[0_0_33vh] bg-[#1f1f1f] border-t border-gray-700">
+        <div class="flex flex-col min-h-[28vh] flex-[0_0_28vh] bg-[#1f1f1f] border-t border-gray-700">
             <div class="p-2 border-b border-gray-800 flex items-center gap-4">
                 <h3 class="font-bold text-sm text-white flex items-center gap-2">
                     <span class="text-xl">🤖</span> AI 股票分析對話框

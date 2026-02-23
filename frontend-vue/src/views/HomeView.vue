@@ -70,7 +70,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4">
-    <div class="grid grid-cols-2 gap-4 h-full w-full">
+    <div class="grid grid-cols-[0.9fr_1.1fr] gap-4 h-full w-full">
       <div class="h-full rounded-xl overflow-hidden shadow-2xl border border-gray-800 flex flex-col">
         <div class="p-4 bg-[#242424] border-b border-gray-700 shrink-0">
           <div class="flex items-start justify-between">
