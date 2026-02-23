@@ -30,6 +30,9 @@ FUTURE_VALUE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "future_ma
 VWAP_OFFSET = 5
 VWAP_ORDER_STATE = {"side": None, "price": None, "trade": None}
 VWAP_LOCK = threading.Lock()
+MA960_ORDER_COOLDOWN_SECONDS = 30
+MA960_ORDER_STATE = {"buy": 0.0, "sell": 0.0}
+MA960_ORDER_LOCK = threading.Lock()
 DRY_RUN = os.getenv("DRY_RUN", "false").strip().lower() in {"1", "true", "yes"}
 CSV_HEADER = [
     'Record Time',
@@ -240,6 +243,23 @@ def _clear_ma960_state() -> None:
     _save_ma960_state(state)
 
 
+def _is_ma960_order_blocked(order_side: str, now_ts: str, cooldown_seconds: int = MA960_ORDER_COOLDOWN_SECONDS) -> bool:
+    side = str(order_side).strip().lower()
+    if side not in {"buy", "sell"}:
+        return False
+
+    now = time.time()
+    with MA960_ORDER_LOCK:
+        last_ts = float(MA960_ORDER_STATE.get(side, 0.0) or 0.0)
+        elapsed = now - last_ts
+        if elapsed < cooldown_seconds:
+            remain = int(cooldown_seconds - elapsed)
+            send_discord_message_short(f"[{now_ts}] MA960 阻擋重複下單：{side} {remain} 秒內不可重複")
+            return True
+        MA960_ORDER_STATE[side] = now
+    return False
+
+
 def _close_all_positions() -> None:
     if DRY_RUN:
         send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 模擬平倉全部')
@@ -340,6 +360,8 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
 
         if is_profit and add_signal:
             try:
+                if _is_ma960_order_blocked("buy", now_ts):
+                    return False
                 send_discord_message_short(
                     f"[{now_ts}] MA960 加碼多單：close({int(curr_close)}) > entry({int(entry_price)}) 且上穿 MA960"
                 )
@@ -355,6 +377,8 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
         if (not is_profit) and reverse_signal:
             reverse_qty = 2 if has_position else 1
             try:
+                if _is_ma960_order_blocked("sell", now_ts):
+                    return False
                 send_discord_message_short(
                     f"[{now_ts}] MA960 反向空單：close({int(curr_close)}) < entry({int(entry_price)}) 且下破 MA960"
                 )
@@ -379,6 +403,8 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
 
         if is_profit and add_signal:
             try:
+                if _is_ma960_order_blocked("sell", now_ts):
+                    return False
                 send_discord_message_short(
                     f"[{now_ts}] MA960 加碼空單：close({int(curr_close)}) < entry({int(entry_price)}) 且下破 MA960"
                 )
@@ -394,6 +420,8 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
         if (not is_profit) and reverse_signal:
             reverse_qty = 2 if has_position else 1
             try:
+                if _is_ma960_order_blocked("buy", now_ts):
+                    return False
                 send_discord_message_short(
                     f"[{now_ts}] MA960 反向多單：close({int(curr_close)}) > entry({int(entry_price)}) 且上穿 MA960"
                 )
