@@ -158,9 +158,10 @@ def _get_future_max_values() -> tuple[float | None, float | None]:
 
 # 純下單func
 def auto_trade(type):
+    api = sj.Shioaji(simulation=False)
+    api.login(os.getenv("API_KEY"), os.getenv("SECRET_KEY"))
+    api.activate_ca(ca_path=ca_path, ca_passwd=os.getenv("PERSON_ID"), person_id=os.getenv("PERSON_ID"))
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
-    API_KEY = os.getenv("API_KEY")
-    SECRET_KEY = os.getenv("SECRET_KEY")
 
     try:
         if not os.path.exists(ca_path):
@@ -168,27 +169,12 @@ def auto_trade(type):
             return
         else:
             print(f"✅ 憑證檔案路徑: {ca_path}")
-        
-        api = sj.Shioaji(simulation=False)
-        api.login(API_KEY, SECRET_KEY)
-        
-        api.activate_ca(
-            ca_path=ca_path,  # 填入憑證路徑
-            ca_passwd=os.getenv("PERSON_ID"),       # ca密碼
-            person_id=os.getenv("PERSON_ID"),     # 身份證字號
-        )
-        positions = api.list_positions(api.futopt_account)
-        
+
         contract = api.Contracts.Futures.TMF.TMFR1
-
-        api.quote.subscribe(contract, quote_type='tick')
-
-        api.update_status()
-
         # 先平倉
-        closePosition()
-
+        closePosition(api)
         entry_qty = _get_entry_quantity()
+        
         # 平倉後進新倉
         if type == 'bull':
             buyOne(api, contract, quantity=entry_qty)
@@ -209,20 +195,9 @@ def auto_trade(type):
         print('送單錯誤',e)
 
 
-def closePosition():
+def closePosition(api):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
     try:
-        api = sj.Shioaji()
-        API_KEY = os.getenv("API_KEY")
-        SECRET_KEY = os.getenv("SECRET_KEY")
-        api.login(API_KEY, SECRET_KEY)
-
-        api.activate_ca(
-            ca_path,  # 填入憑證路徑
-            ca_passwd=os.getenv("PERSON_ID"),       # ca密碼
-            person_id=os.getenv("PERSON_ID"),     # 身份證字號
-        )
-
         positions = api.list_positions(api.futopt_account)
         contract = api.Contracts.Futures.TMF.TMFR1
 
@@ -256,9 +231,8 @@ def closePosition():
                     pnl = None
                 _append_trade("exiting", "bear", exit_price, pnl, quantity=pos_qty)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 丟多單平倉')
-        api.logout()
     except Exception as e:
-        api.logout()
+        # api.logout()
         print('送單錯誤',e)
 
 
