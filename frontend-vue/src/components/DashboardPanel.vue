@@ -469,7 +469,7 @@ const getTurnoverRank = (code?: string) => {
 const etfCommonHoldingsFiltered = computed(() => {
     return etfCommonHoldings.value.filter((item) => {
         const rank = turnoverRankMap.value.get(normalizeCode(item.code))
-        return typeof rank === 'number' && rank <= 50
+        return typeof rank === 'number' && rank <= 75
     }).sort((a, b) => {
         const rankA = turnoverRankMap.value.get(normalizeCode(a.code)) ?? Infinity
         const rankB = turnoverRankMap.value.get(normalizeCode(b.code)) ?? Infinity

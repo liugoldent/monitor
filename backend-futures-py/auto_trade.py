@@ -9,6 +9,11 @@ from datetime import datetime
 from datetime import time
 from zoneinfo import ZoneInfo
 
+try:
+    from webhook_server import _close_all_positions as _close_all_positions_from_webhook
+except Exception:
+    _close_all_positions_from_webhook = None
+
 def load_env_file(path: str = ".env") -> None:
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
     if not os.path.exists(env_path):
@@ -171,6 +176,8 @@ def auto_trade(type):
             print(f"✅ 憑證檔案路徑: {ca_path}")
 
         contract = api.Contracts.Futures.TMF.TMFR1
+        if _close_all_positions_from_webhook is not None:
+            _close_all_positions_from_webhook()
         # 先平倉
         closePosition(api)
         entry_qty = _get_entry_quantity()

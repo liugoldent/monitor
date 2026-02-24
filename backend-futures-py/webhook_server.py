@@ -24,12 +24,10 @@ CLEAR_TIME = (14, 0)
 TZ = ZoneInfo("Asia/Taipei")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
 CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
-MXF_VALUE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "mxf_value.csv")
 FUTURE_VALUE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "future_max_values.json")
+MA960_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "ma960_state.json")
+API_CLIENT = None
 
-VWAP_OFFSET = 5
-VWAP_ORDER_STATE = {"side": None, "price": None, "trade": None}
-VWAP_LOCK = threading.Lock()
 MA960_ORDER_COOLDOWN_SECONDS = 30
 MA960_ORDER_STATE = {"buy": 0.0, "sell": 0.0}
 MA960_ORDER_LOCK = threading.Lock()
@@ -66,29 +64,6 @@ def _to_float(value: str | None) -> float | None:
         return float(cleaned)
     except ValueError:
         return None
-    
-def _parse_number(raw: str) -> float | None:
-    if raw is None:
-        return None
-    text = str(raw).replace(",", "").strip()
-    if text == "":
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-def _get_future_max_values() -> tuple[float | None, float | None]:
-    if not FUTURE_VALUE_PATH.exists():
-        return None, None
-    try:
-        payload = json.loads(FUTURE_VALUE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return None, None
-    max_buy = _parse_number(payload.get("maxBuyValue"))
-    max_sell = _parse_number(payload.get("maxSellValue"))
-    return max_buy, max_sell
-
 
 def _round_int(value) -> str:
     number = _to_float(value)
@@ -147,10 +122,6 @@ def _clear_csv_keep_header(path: str, header: list[str]) -> None:
         writer.writerow(header_to_write)
 
 
-MA960_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "ma960_state.json")
-API_CLIENT = None
-
-
 def _read_last_two_rows(path: str) -> list[dict]:
     if not os.path.isfile(path):
         return []
@@ -198,7 +169,14 @@ def _save_ma960_state(state):
 def _get_api_client():
     global API_CLIENT
     if API_CLIENT is not None:
-        return API_CLIENT
+        try:
+            # 隨便測試一個不耗資源的請求，確認連線還活著
+            API_CLIENT.list_positions(API_CLIENT.futopt_account)
+            return API_CLIENT
+        except:
+            print("⚠️ API 連線已失效，嘗試重新登入...")
+            API_CLIENT = None
+
     api = sj.Shioaji(simulation=False)
     api.login(os.getenv("API_KEY2"), os.getenv("SECRET_KEY2"))
     api.activate_ca(
@@ -206,13 +184,8 @@ def _get_api_client():
         ca_passwd=os.getenv("PERSON_ID"),
         person_id=os.getenv("PERSON_ID"),
     )
-    try:
-        api.update_status()
-    except Exception:
-        pass
-
-    return api
-
+    API_CLIENT = api
+    return API_CLIENT
 
 def _has_position() -> bool | None:
     try:
@@ -311,6 +284,7 @@ def run_h_trade_ma960_strategy(csv_path: str) -> bool:
     print(f"最新交易紀錄：side={trade_side}, entry_price={entry_price}")
 
     now_ts = datetime.now(TZ).strftime("%H:%M:%S")
+
     state = _load_ma960_state()
     ma960_side = str(state.get("ma960_side", "")).strip().lower()
     has_position = _has_position()
