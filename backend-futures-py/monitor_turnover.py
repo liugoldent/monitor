@@ -276,7 +276,7 @@ def main() -> None:
             if last_future_fetch_date != today:
                 future_fetch_done = set()
                 last_future_fetch_date = today
-            if (now.hour, now.minute) in {(8, 40), (14, 30)}:
+            if (now.hour, now.minute) in {(8, 40), (14, 55)}:
                 slot = (today, now.hour, now.minute)
                 if slot not in future_fetch_done:
                     fetch_future_max_values()
