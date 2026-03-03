@@ -100,17 +100,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-slate-100">
-    <div class="max-w-6xl mx-auto">
+  <main
+    class="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-slate-100">
+    <div class="w-full">
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-black tracking-wide">MXF 今日動向</h1>
           <p class="text-sm text-slate-400">每分鐘策略方向：做多 / 做空 / 混沌</p>
         </div>
-        <RouterLink
-          to="/"
-          class="text-xs text-slate-300 border border-slate-600 px-3 py-1 rounded-full hover:border-slate-300 hover:text-white transition"
-        >
+        <RouterLink to="/"
+          class="text-xs text-slate-300 border border-slate-600 px-3 py-1 rounded-full hover:border-slate-300 hover:text-white transition">
           返回首頁
         </RouterLink>
       </div>
@@ -133,7 +132,8 @@ onBeforeUnmount(() => {
       <div class="mt-6 rounded-2xl border border-slate-700 bg-slate-900/70 p-5">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-sm font-semibold text-slate-200">方向分布</h2>
-          <div class="text-xs text-slate-400">bull: {{ counts.bull }} / bear: {{ counts.bear }} / none: {{ counts.none }}</div>
+          <div class="text-xs text-slate-400">bull: {{ counts.bull }} / bear: {{ counts.bear }} / none: {{ counts.none
+            }}</div>
         </div>
         <div class="flex gap-3 text-xs">
           <span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>做多</span>
@@ -142,32 +142,21 @@ onBeforeUnmount(() => {
         </div>
 
         <div ref="chartScrollRef" class="mt-4 overflow-x-auto">
-          <svg
-            v-if="points.length > 0"
-            :viewBox="`0 0 ${chartWidth} ${chartHeight}`"
-            :width="chartWidth"
-            :height="chartHeight"
-            class="min-w-full"
-          >
+          <svg v-if="points.length > 0" :viewBox="`0 0 ${chartWidth} ${chartHeight}`" width="100%"
+            :height="chartHeight">
             <defs>
               <linearGradient id="grid" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0" stop-color="#1f2937" />
                 <stop offset="1" stop-color="#0f172a" />
               </linearGradient>
             </defs>
-            <rect x="0" y="0" :width="chartWidth" :height="chartHeight" fill="url(#grid)" />
+            <rect x="0" y="0" :height="chartHeight" fill="url(#grid)" />
             <line x1="0" y1="20" :x2="chartWidth" y2="20" stroke="#1f2937" stroke-dasharray="4 6" />
             <line x1="0" y1="70" :x2="chartWidth" y2="70" stroke="#1f2937" stroke-dasharray="4 6" />
             <line x1="0" y1="120" :x2="chartWidth" y2="120" stroke="#1f2937" stroke-dasharray="4 6" />
             <template v-for="(point, index) in points" :key="point.time + index">
-              <rect
-                :x="index * 10"
-                :y="yForSignal(point.signal) - 8"
-                width="8"
-                height="16"
-                :fill="point.signal === 'bull' ? '#34d399' : point.signal === 'bear' ? '#fb7185' : '#64748b'"
-                rx="2"
-              >
+              <rect :x="index * 10" :y="yForSignal(point.signal) - 8" width="8" height="16"
+                :fill="point.signal === 'bull' ? '#34d399' : point.signal === 'bear' ? '#fb7185' : '#64748b'" rx="2">
                 <title>{{ point.time }} - {{ signalLabel(point.signal) }}</title>
               </rect>
             </template>
@@ -181,11 +170,9 @@ onBeforeUnmount(() => {
       <div class="mt-6 rounded-2xl border border-slate-700 bg-slate-900/60 p-5">
         <div class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-slate-200">時間序列</h2>
-          <button
-            type="button"
+          <button type="button"
             class="text-xs text-slate-300 border border-slate-600 px-3 py-1 rounded-full hover:border-slate-300 hover:text-white transition"
-            @click="fetchSeries"
-          >
+            @click="fetchSeries">
             重新整理
           </button>
         </div>
@@ -195,13 +182,11 @@ onBeforeUnmount(() => {
           <div class="text-right">指標</div>
         </div>
         <div class="max-h-80 overflow-y-auto">
-          <div
-            v-for="point in points"
-            :key="point.time"
-            class="grid grid-cols-3 text-xs py-2 border-b border-slate-800"
-          >
+          <div v-for="point in points" :key="point.time"
+            class="grid grid-cols-3 text-xs py-2 border-b border-slate-800">
             <div class="text-slate-300">{{ point.time }}</div>
-            <div :class="point.signal === 'bull' ? 'text-emerald-400' : point.signal === 'bear' ? 'text-rose-400' : 'text-slate-400'">
+            <div
+              :class="point.signal === 'bull' ? 'text-emerald-400' : point.signal === 'bear' ? 'text-rose-400' : 'text-slate-400'">
               {{ signalLabel(point.signal) }}
             </div>
             <div class="text-right text-slate-400">

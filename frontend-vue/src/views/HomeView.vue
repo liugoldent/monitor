@@ -23,6 +23,7 @@ const highest20 = ref<MarketItem[]>([])
 const lowest20 = ref<MarketItem[]>([])
 const crossSuggestions = ref<CrossSuggestion[]>([])
 const turnoverTodayDate = ref<string>('')
+const isDev = import.meta.env.VITE_ENV === 'DEV'
 
 const marketSentiment = ref({
   foreign: 0,
@@ -89,7 +90,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="flex gap-4">
-            <div class="flex-1 grid grid-cols-3 gap-2">
+            <div v-if="isDev" class="flex-1 grid grid-cols-3 gap-2">
               <div
                 class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
                 <span class="text-xs text-gray-500">外資</span>
@@ -107,7 +108,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="w-32 flex flex-col items-center justify-center border rounded" :class="{
+            <div class="flex flex-col items-center justify-center border rounded" :class="{
+              'w-32': isDev,
+              'w-full': !isDev,
               'bg-gradient-to-br from-red-900/50 to-red-600/20 border-red-500/30': tradeSuggestion === '做多',
               'bg-gradient-to-br from-green-900/50 to-green-600/20 border-green-500/30': tradeSuggestion === '做空',
               'bg-gradient-to-br from-gray-800/60 to-gray-700/30 border-gray-500/30': tradeSuggestion === '混沌',

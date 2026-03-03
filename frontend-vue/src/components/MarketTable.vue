@@ -13,6 +13,7 @@ type MarketItem = {
 const marketData = ref<MarketItem[]>([])
 const previousMarketData = ref<MarketItem[]>([])
 const marketDataDate = ref<string>('')
+const isDev = import.meta.env.VITE_ENV === 'DEV'
 
 const MARKET_API_URL =
     resolveApiUrl('/api/stkfut_tradeinfo', import.meta.env.VITE_MARKET_API_URL)
@@ -169,19 +170,25 @@ onBeforeUnmount(() => {
                     多方 ({{ positiveCount }}家)
                 </div>
                 
-                <div class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0">
+                <div
+                    class="grid text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0"
+                    :class="isDev ? 'grid-cols-4' : 'grid-cols-2'">
                     <div class="col-span-1">商品名稱</div>
-                    <div class="col-span-1">近月</div>
+                    <div v-if="isDev" class="col-span-1">近月</div>
                     <div class="col-span-1">分數</div>
-                    <div class="col-span-1">遠月</div>
+                    <div v-if="isDev" class="col-span-1">遠月</div>
                 </div>
 
                 <div class="overflow-y-auto flex-1 min-h-0 bg-black">
                     <div v-for="item in highest20" :key="`high-${item.id}`"
-                        class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors">
+                        class="grid text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors"
+                        :class="isDev ? 'grid-cols-4' : 'grid-cols-2'">
                         <div class="col-span-1 font-medium">{{ item.name }}</div>
 
-                        <div class="col-span-1" :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                        <div
+                            v-if="isDev"
+                            class="col-span-1"
+                            :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
                             {{ item.nearMonth }}
                         </div>
 
@@ -194,7 +201,10 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
 
-                        <div class="col-span-1" :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                        <div
+                            v-if="isDev"
+                            class="col-span-1"
+                            :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
                             {{ item.farMonth }}
                         </div>
                     </div>
@@ -207,19 +217,25 @@ onBeforeUnmount(() => {
                     空方 ({{ negativeCount }}家)
                 </div>
 
-                <div class="grid grid-cols-4 text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0">
+                <div
+                    class="grid text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0"
+                    :class="isDev ? 'grid-cols-4' : 'grid-cols-2'">
                     <div class="col-span-1">商品名稱</div>
-                    <div class="col-span-1">近月</div>
+                    <div v-if="isDev" class="col-span-1">近月</div>
                     <div class="col-span-1">分數</div>
-                    <div class="col-span-1">遠月</div>
+                    <div v-if="isDev" class="col-span-1">遠月</div>
                 </div>
 
                 <div class="overflow-y-auto flex-1 min-h-0 bg-black">
                     <div v-for="item in lowest20" :key="`low-${item.id}`"
-                        class="grid grid-cols-4 text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors">
+                        class="grid text-center py-3 border-b border-gray-900 items-center text-sm hover:bg-gray-900 transition-colors"
+                        :class="isDev ? 'grid-cols-4' : 'grid-cols-2'">
                         <div class="col-span-1 font-medium">{{ item.name }}</div>
 
-                        <div class="col-span-1" :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                        <div
+                            v-if="isDev"
+                            class="col-span-1"
+                            :class="item.nearMonth < 0 ? 'text-red-500' : 'text-blue-400'">
                             {{ item.nearMonth }}
                         </div>
 
@@ -232,7 +248,10 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
 
-                        <div class="col-span-1" :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
+                        <div
+                            v-if="isDev"
+                            class="col-span-1"
+                            :class="item.farMonth < 0 ? 'text-red-500' : 'text-blue-400'">
                             {{ item.farMonth }}
                         </div>
                     </div>
