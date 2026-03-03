@@ -26,6 +26,7 @@ TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv"
 CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
 FUTURE_VALUE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "future_max_values.json")
 MA960_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "ma960_state.json")
+SQZMOM_SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "sqzmom_shortCycle.json")
 API_CLIENT = None
 
 MA960_ORDER_COOLDOWN_SECONDS = 30
@@ -43,14 +44,12 @@ CSV_HEADER = [
     'Close',
     'HA_Open',
     'HA_Close',
-    'VWAP',
-    'VWAP_Upper',
-    'VWAP_Lower',
     'MA_960',
     'MA_P80',
     'MA_P200',
     'MA_N110',
     'MA_N200',
+    'SQZ_POWER'
 ]
 
 
@@ -166,6 +165,24 @@ def _save_ma960_state(state):
         pass
 
 
+def _load_sqzmom_shortcycle_state():
+    if not os.path.exists(SQZMOM_SHORTCYCLE_STATE_FILE):
+        return {}
+    try:
+        with open(SQZMOM_SHORTCYCLE_STATE_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_sqzmom_shortcycle_state(state):
+    try:
+        with open(SQZMOM_SHORTCYCLE_STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception:
+        pass
+
+
 def _get_api_client():
     global API_CLIENT
     if API_CLIENT is not None:
@@ -216,6 +233,22 @@ def _clear_ma960_state() -> None:
     _save_ma960_state(state)
 
 
+def _set_sqzmom_shortcycle_state(entry_side: str, action: str) -> None:
+    state = _load_sqzmom_shortcycle_state()
+    state["entry_side"] = entry_side
+    state["last_action"] = action
+    state["updated_at"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    _save_sqzmom_shortcycle_state(state)
+
+
+def _clear_sqzmom_shortcycle_state() -> None:
+    state = _load_sqzmom_shortcycle_state()
+    state.pop("entry_side", None)
+    state.pop("last_action", None)
+    state["updated_at"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    _save_sqzmom_shortcycle_state(state)
+
+
 def _is_ma960_order_blocked(order_side: str, now_ts: str, cooldown_seconds: int = MA960_ORDER_COOLDOWN_SECONDS) -> bool:
     side = str(order_side).strip().lower()
     if side not in {"buy", "sell"}:
@@ -252,160 +285,126 @@ def _close_all_positions() -> None:
                 qty = 1
 
             if direction == "Buy":
-                sell_one_short(api, contract, quantity=qty)
+                print(f"平多單：qty={qty}")
+                # sell_one_short(api, contract, quantity=qty)
             elif direction == "Sell":
-                buy_one_short(api, contract, quantity=qty)
+                print(f"平空單：qty={qty}")
+                # buy_one_short(api, contract, quantity=qty)
     except Exception as exc:
         send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 平倉失敗：{exc}')
 
 
-def run_h_trade_ma960_strategy(csv_path: str) -> bool:
+def run_sqzmom_shortcycle_strategy(csv_path: str) -> bool:
     rows = _read_last_two_rows(csv_path)
-    if len(rows) < 2:
+    if len(rows) < 1:
         return False
 
-    prev_row, curr_row = rows[-2], rows[-1]
+    curr_row = rows[-1]
     timeframe = str(curr_row.get("Timeframe", "")).strip()
-    if timeframe != "1":
+    if timeframe != "5":
         return False
 
-    prev_close = _to_float(prev_row.get("Close"))
     curr_close = _to_float(curr_row.get("Close"))
-    prev_ma_960 = _to_float(prev_row.get("MA_960"))
-    curr_ma_960 = _to_float(curr_row.get("MA_960"))
-    print(f"檢查 MA960 策略：prev_close={prev_close}, curr_close={curr_close}, prev_ma_960={prev_ma_960}, curr_ma_960={curr_ma_960}")
-    if None in (prev_close, curr_close, prev_ma_960, curr_ma_960):
+    ha_open = _to_float(curr_row.get("HA_Open"))
+    ha_close = _to_float(curr_row.get("HA_Close"))
+    sqz_power = _to_float(curr_row.get("SQZ_POWER"))
+    if None in (curr_close, ha_open, ha_close, sqz_power):
         return False
 
     latest_entry = _get_latest_trade_entry()
     if latest_entry is None:
         return False
     trade_side, entry_price = latest_entry
-    print(f"最新交易紀錄：side={trade_side}, entry_price={entry_price}")
-
     now_ts = datetime.now(TZ).strftime("%H:%M:%S")
 
-    state = _load_ma960_state()
-    ma960_side = str(state.get("ma960_side", "")).strip().lower()
-    has_position = _has_position()
-    print(ma960_side, 'ma960_side')
-    print(has_position, 'has_position')
-    print(trade_side, 'trade_side')
+    state = _load_sqzmom_shortcycle_state()
+    entry_side = str(state.get("entry_side", "")).strip().lower()
 
-    # if ma960_side not in {"bull", "bear"} and trade_side in {"bull", "bear"}:
-    #     _set_ma960_state(trade_side, "sync")
-    #     ma960_side = trade_side
-
-    # 先檢查停損：多單跌破 MA960 / 空單站上 MA960
-    if ma960_side == "bull" and curr_close < curr_ma_960:
+    # 先處理出場條件
+    if entry_side == "bull" and ha_close < ha_open and int(round(sqz_power)) == -1:
         _close_all_positions()
-        _clear_ma960_state()
+        _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}] MA960 出場：多單跌破 MA960 ({int(curr_close)} < {int(curr_ma_960)})"
+            f"[{now_ts}]：{curr_close} / SQZMOM 多單出場：HA_Close({int(ha_close)}) < HA_Open({int(ha_open)}) 且 SQZ=-1"
         )
+        return True
 
-    if ma960_side == "bear" and curr_close > curr_ma_960:
+    if entry_side == "bear" and ha_close > ha_open and int(round(sqz_power)) == 1:
         _close_all_positions()
-        _clear_ma960_state()
+        _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}] MA960 出場：空單站上 MA960 ({int(curr_close)} > {int(curr_ma_960)})"
+            f"[{now_ts}]：{curr_close} / SQZMOM 空單出場：HA_Close({int(ha_close)}) > HA_Open({int(ha_open)}) 且 SQZ=1"
         )
+        return True
 
-    # 若已無倉位，清掉 ma960 狀態
-    # if has_position is False and ma960_side in {"bull", "bear"}:
-    #     print(33)
-    #     _clear_ma960_state()
+    # 已有 SQZMOM 持倉狀態就不再進場
+    if entry_side in {"bull", "bear"}:
+        return False
 
-    # 平倉後，再檢查一次，以免出現停損後立刻加碼的情況
-    ma960_side = str(state.get("ma960_side", "")).strip().lower()
-    has_position = _has_position()
-    print(ma960_side not in {"bull", "bear"}, 'ma960_side not in {"bull", "bear"}')
-    print(has_position, 'has_position')
-
-    if trade_side == "bull" and ma960_side not in {"bull", "bear"}:
+    if trade_side == "bull":
         is_profit = curr_close > entry_price
-        add_signal = prev_close < prev_ma_960 and curr_close > curr_ma_960 # 加碼單
-        reverse_signal = prev_close > prev_ma_960 and curr_close < curr_ma_960 # 反向單
+        long_signal = ha_close > ha_open and int(round(sqz_power)) == 1
+        short_signal = ha_close < ha_open and int(round(sqz_power)) == -1
 
-        print(f'現在H策略：{"bull"}')
-        print(f'賺錢嗎？{is_profit}')
-        print(f'加碼訊號？{add_signal}')
-        print(f'反向訊號？{reverse_signal}')
-
-        if is_profit and add_signal:
+        if is_profit and long_signal:
             try:
-                if _is_ma960_order_blocked("buy", now_ts):
-                    return False
                 send_discord_message_short(
-                    f"[{now_ts}] MA960 加碼多單：close({int(curr_close)}) > entry({int(entry_price)}) 且上穿 MA960"
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單：trade_side=bull 且 is_profit=True 且 HA_Close > HA_Open 且 SQZ=1"
                 )
                 api = _get_api_client()
                 contract = api.Contracts.Futures.TMF.TMFR1
-                buy_one_short(api, contract, quantity=1)
-                _set_ma960_state("bull", "add", quantity=1)
+                # buy_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bull", "enter")
                 return True
             except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] MA960 加碼多單失敗：{exc}")
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
                 return False
 
-        if (not is_profit) and reverse_signal:
-            reverse_qty = 2 if has_position else 1
+        if (not is_profit) and short_signal:
             try:
-                if _is_ma960_order_blocked("sell", now_ts):
-                    return False
                 send_discord_message_short(
-                    f"[{now_ts}] MA960 反向空單：close({int(curr_close)}) < entry({int(entry_price)}) 且下破 MA960"
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單：trade_side=bull 且 is_profit=False 且 HA_Close < HA_Open 且 SQZ=-1"
                 )
                 api = _get_api_client()
                 contract = api.Contracts.Futures.TMF.TMFR1
-                sell_one_short(api, contract, quantity=reverse_qty)
-                _set_ma960_state("bear", "reverse", quantity=reverse_qty)
+                # sell_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bear", "enter")
                 return True
             except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] MA960 反向空單失敗：{exc}")
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
                 return False
 
-    if trade_side == "bear" and ma960_side not in {"bull", "bear"}:
+    if trade_side == "bear":
         is_profit = curr_close < entry_price
-        add_signal = prev_close > prev_ma_960 and curr_close < curr_ma_960
-        reverse_signal = prev_close < prev_ma_960 and curr_close > curr_ma_960
+        short_signal = ha_close < ha_open and int(round(sqz_power)) == -1
+        long_signal = ha_close > ha_open and int(round(sqz_power)) == 1
 
-        print(f'現在H策略：{"bear"}')
-        print(f'賺錢嗎？{is_profit}')
-        print(f'加碼訊號？{add_signal}')
-        print(f'反向訊號？{reverse_signal}')
-
-        if is_profit and add_signal:
+        if is_profit and short_signal:
             try:
-                if _is_ma960_order_blocked("sell", now_ts):
-                    return False
                 send_discord_message_short(
-                    f"[{now_ts}] MA960 加碼空單：close({int(curr_close)}) < entry({int(entry_price)}) 且下破 MA960"
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單：trade_side=bear 且 is_profit=True 且 HA_Close < HA_Open 且 SQZ=-1"
                 )
                 api = _get_api_client()
                 contract = api.Contracts.Futures.TMF.TMFR1
-                sell_one_short(api, contract, quantity=1)
-                _set_ma960_state("bear", "add", quantity=1)
+                # sell_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bear", "enter")
                 return True
             except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] MA960 加碼空單失敗：{exc}")
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
                 return False
 
-        if (not is_profit) and reverse_signal:
-            reverse_qty = 2 if has_position else 1
+        if (not is_profit) and long_signal:
             try:
-                if _is_ma960_order_blocked("buy", now_ts):
-                    return False
                 send_discord_message_short(
-                    f"[{now_ts}] MA960 反向多單：close({int(curr_close)}) > entry({int(entry_price)}) 且上穿 MA960"
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單：trade_side=bear 且 is_profit=False 且 HA_Close > HA_Open 且 SQZ=1"
                 )
                 api = _get_api_client()
                 contract = api.Contracts.Futures.TMF.TMFR1
-                buy_one_short(api, contract, quantity=reverse_qty)
-                _set_ma960_state("bull", "reverse", quantity=reverse_qty)
+                # buy_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bull", "enter")
                 return True
             except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] MA960 反向多單失敗：{exc}")
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
                 return False
 
     return False
@@ -422,6 +421,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                 # Read body
                 body = self.rfile.read(content_length).decode('utf-8')
                 data = json.loads(body)
+                print(f"Received webhook: {data}")
 
                 if data:
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -432,16 +432,14 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     high_price = data.get('high', '')
                     low_price = data.get('low', '')
                     close_price = data.get('close', '')
+                    ha_open = data.get('ha_open', '')
+                    ha_close = data.get('ha_close', '')
                     ma_960 = data.get('ma_960', '')
                     ma_p80 = data.get('ma_p80', '')
                     ma_p200 = data.get('ma_p200', '')
                     ma_n110 = data.get('ma_n110', '')
                     ma_n200 = data.get('ma_n200', '')
-                    ha_open = data.get('ha_open', '')
-                    ha_close = data.get('ha_close', '')
-                    vwap = data.get('vwap', '')
-                    vwap_upper = data.get('vwap_upper', '')
-                    vwap_lower = data.get('vwap_lower', '')
+                    sqz_power = data.get('sqz_power', '')
 
                     tv_time = ""
                     try:
@@ -475,22 +473,20 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                             _round_int(close_price),
                             _round_int(ha_open),
                             _round_int(ha_close),
-                            _round_int(vwap),
-                            _round_int(vwap_upper),
-                            _round_int(vwap_lower),
                             _round_int(ma_960),
                             _round_int(ma_p80),
                             _round_int(ma_p200),
                             _round_int(ma_n110),
                             _round_int(ma_n200),
+                            _round_int(sqz_power),
                         ])
 
                     
                     sys.stdout.flush()  # Ensure output is printed immediately
                     if timeframe == "5":
-                        print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
+                        run_sqzmom_shortcycle_strategy(target_csv)
                     elif timeframe == "1":
-                        run_h_trade_ma960_strategy(target_csv)
+                        print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     
                     # Respond success
                     self.send_response(200)
