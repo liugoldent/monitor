@@ -430,7 +430,7 @@ class MarketApiHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     host = os.getenv("MARKET_API_HOST", "0.0.0.0")
-    port = int(os.getenv("MARKET_API_PORT", "5050"))
+    port = int(os.getenv("PORT", os.getenv("MARKET_API_PORT", "5050")))
     server = HTTPServer((host, port), MarketApiHandler)
     print(f"Market API listening on http://{host}:{port}")
     server.serve_forever()
