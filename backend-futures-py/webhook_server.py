@@ -410,6 +410,122 @@ def run_sqzmom_shortcycle_strategy(csv_path: str) -> bool:
     return False
 
 
+def run_sqzmom_shortcycle_strategy_onlyHeikin(csv_path: str) -> bool:
+    rows = _read_last_two_rows(csv_path)
+    if len(rows) < 1:
+        return False
+
+    curr_row = rows[-1]
+    timeframe = str(curr_row.get("Timeframe", "")).strip()
+    if timeframe != "5":
+        return False
+
+    curr_close = _to_float(curr_row.get("Close"))
+    curr_open = _to_float(curr_row.get("Open"))
+    ha_open = _to_float(curr_row.get("HA_Open"))
+    ha_close = _to_float(curr_row.get("HA_Close"))
+    if None in (curr_close, curr_open, ha_open, ha_close):
+        return False
+
+    latest_entry = _get_latest_trade_entry()
+    if latest_entry is None:
+        return False
+    trade_side, entry_price = latest_entry
+    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
+
+    state = _load_sqzmom_shortcycle_state()
+    entry_side = str(state.get("entry_side", "")).strip().lower()
+
+    # 先處理出場條件
+    if entry_side == "bull" and ha_close < ha_open:
+        _close_all_positions()
+        _clear_sqzmom_shortcycle_state()
+        send_discord_message_short(
+            f"[{now_ts}]：{curr_close} / SQZMOM 多單出場：HA_Close({int(ha_close)}) < HA_Open({int(ha_open)}) 且 SQZ=-1"
+        )
+        return True
+
+    if entry_side == "bear" and ha_close > ha_open:
+        _close_all_positions()
+        _clear_sqzmom_shortcycle_state()
+        send_discord_message_short(
+            f"[{now_ts}]：{curr_close} / SQZMOM 空單出場：HA_Close({int(ha_close)}) > HA_Open({int(ha_open)}) 且 SQZ=1"
+        )
+        return True
+
+    # 已有 SQZMOM 持倉狀態就不再進場
+    if entry_side in {"bull", "bear"}:
+        return False
+
+    if trade_side == "bull":
+        is_profit = curr_close > entry_price
+        long_signal = ha_close > ha_open and curr_close < curr_open # 長線多單，但是賺錢，所以要進場多單加碼（多單綠k進場）
+        short_signal = ha_close < ha_open and curr_close > curr_open # 長線多單，但是賠錢，所以要進場空單對沖（空單紅k進場）
+
+        if is_profit and long_signal:
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單：trade_side=bull 且 is_profit=True 且 HA_Close > HA_Open 且 SQZ=1"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                # buy_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bull", "enter")
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
+                return False
+
+        if (not is_profit) and short_signal:
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單：trade_side=bull 且 is_profit=False 且 HA_Close < HA_Open 且 SQZ=-1"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                # sell_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bear", "enter")
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
+                return False
+
+    if trade_side == "bear":
+        is_profit = curr_close < entry_price
+        short_signal = ha_close < ha_open and curr_close > curr_open # 長線空單，但是賺錢，所以要進場空單加碼（空單紅k進場）
+        long_signal = ha_close > ha_open and curr_close < curr_open # 長線空單，但是賠錢，所以要進場多單對沖（多單綠k進場）
+
+        if is_profit and short_signal:
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單：trade_side=bear 且 is_profit=True 且 HA_Close < HA_Open 且 SQZ=-1"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                # sell_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bear", "enter")
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
+                return False
+
+        if (not is_profit) and long_signal:
+            try:
+                send_discord_message_short(
+                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單：trade_side=bear 且 is_profit=False 且 HA_Close > HA_Open 且 SQZ=1"
+                )
+                api = _get_api_client()
+                contract = api.Contracts.Futures.TMF.TMFR1
+                # buy_one_short(api, contract, quantity=1)
+                _set_sqzmom_shortcycle_state("bull", "enter")
+                return True
+            except Exception as exc:
+                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
+                return False
+
+    return False
+
+
 # 獲取webhook並處理
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -484,7 +600,8 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     
                     sys.stdout.flush()  # Ensure output is printed immediately
                     if timeframe == "5":
-                        run_sqzmom_shortcycle_strategy(target_csv)
+                        # run_sqzmom_shortcycle_strategy(target_csv)
+                        run_sqzmom_shortcycle_strategy_onlyHeikin(target_csv)
                     elif timeframe == "1":
                         print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     
