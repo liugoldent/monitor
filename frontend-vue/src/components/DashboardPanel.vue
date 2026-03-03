@@ -104,6 +104,8 @@ const FUTURE_INDEX_TECH_API_URL =
     import.meta.env.VITE_FUTURE_INDEX_TECH_API_URL || 'http://localhost:5050/api/future_index_tech'
 const ODD_LOT_ORDER_API_URL =
     import.meta.env.VITE_ODD_LOT_ORDER_API_URL || 'http://localhost:5050/api/odd_lot_trade'
+const CHAT_LLM_API_URL =
+    import.meta.env.VITE_CHAT_LLM_API_URL || 'http://localhost:5050/api/chat_llm'
 
 const formatDateString = (date: Date) => {
     const year = date.getFullYear()
@@ -119,7 +121,7 @@ const getDateStringByOffset = (base: Date, offsetDays: number) => {
 }
 
 const parseDateString = (dateString: string) => {
-    const [year, month, day] = dateString.split('-').map(Number)
+    const [year = 1970, month = 1, day = 1] = dateString.split('-').map(Number)
     return new Date(year, month - 1, day)
 }
 
@@ -383,7 +385,8 @@ onBeforeUnmount(() => {
 })
 
 const normalizeName = (name: string) => {
-    return name?.split(' ')[0].replace(/小型|期/g, '').trim()
+    const firstPart = name.split(' ')[0] ?? ''
+    return firstPart.replace(/小型|期/g, '').trim()
 }
 
 // 4. Cross Analysis (交叉建議股票)
@@ -493,32 +496,6 @@ const getOddLotOrder = (code?: string, price?: string | number) => {
     return oddLotOrders.value[key]
 }
 
-const placeOddLotOrder = async (code?: string, action: 'buy' | 'sell' = 'buy') => {
-    return
-    const key = normalizeCode(code)
-    if (!key) return
-    const order = getOddLotOrder(key)
-    if (!order.price || !order.qty) return
-    const priceValue = parseNumber(order.price)
-    const quantityValue = Number(order.qty)
-    if (!Number.isFinite(priceValue) || !Number.isFinite(quantityValue)) return
-
-    try {
-        await fetch(ODD_LOT_ORDER_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                code: key,
-                action,
-                price: priceValue,
-                quantity: quantityValue,
-            }),
-        })
-    } catch (error) {
-        console.error('Failed to place odd lot order:', error)
-    }
-}
-
 // 5. LLM Integration
 const selectedStock = ref<{ name: string; code?: string; price: string | number } | null>(null)
 const selectedQuestion = ref('分析技術面趨勢')
@@ -571,7 +548,7 @@ const askLLM = async () => {
             } : 'Not available'
         }
 
-        const response = await fetch('http://localhost:5050/api/chat_llm', {
+        const response = await fetch(CHAT_LLM_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

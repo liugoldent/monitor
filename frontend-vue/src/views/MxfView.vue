@@ -38,8 +38,9 @@ const fetchSeries = async () => {
       mtx_tbta: Number(item.mtx_tbta ?? 0),
       signal: (item.signal || 'none') as 'bull' | 'bear' | 'none',
     })).reverse()
-    if (points.value.length > 0) {
-      lastUpdate.value = points.value[points.value.length - 1].time
+    const latestPoint = points.value[points.value.length - 1]
+    if (latestPoint !== undefined) {
+      lastUpdate.value = latestPoint.time
       lastDate.value = lastUpdate.value.slice(0, 10)
     } else {
       lastUpdate.value = ''
