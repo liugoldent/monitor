@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { resolveApiUrl } from '../utils/api'
 
-const MXF_API_URL = import.meta.env.VITE_MXF_API_URL || 'http://localhost:5050/api/mxf'
+const MXF_API_URL = resolveApiUrl('/api/mxf', import.meta.env.VITE_MXF_API_URL)
 
 type MxfPoint = {
   time: string

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import MarketTable from '../components/MarketTable.vue'
 import DashboardPanel from '../components/DashboardPanel.vue'
+import { resolveApiUrl } from '../utils/api'
 
 type MarketItem = {
   id: string | number
@@ -29,7 +30,7 @@ const marketSentiment = ref({
   guerilla: 0,
 })
 const marketSentimentDate = ref<string>('')
-const MXF_API_URL = import.meta.env.VITE_MXF_API_URL || 'http://localhost:5050/api/mxf'
+const MXF_API_URL = resolveApiUrl('/api/mxf', import.meta.env.VITE_MXF_API_URL)
 
 const fetchMarketSentiment = async () => {
   try {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { resolveApiUrl } from '../utils/api'
 
 type TurnoverItem = {
     id: number | string
@@ -93,19 +94,17 @@ const commonIndexHoldingsTime = ref<string>('')
 const turnoverTechDate = ref<string>('')
 const turnoverTechLastSlot = ref<string>('')
 const TURNOVER_API_URL =
-    import.meta.env.VITE_TURNOVER_API_URL || 'http://localhost:5050/api/turnover'
+    resolveApiUrl('/api/turnover', import.meta.env.VITE_TURNOVER_API_URL)
 const TURNOVER_TECH_API_URL =
-    import.meta.env.VITE_TURNOVER_TECH_API_URL || 'http://localhost:5050/api/turnover_tech'
+    resolveApiUrl('/api/turnover_tech', import.meta.env.VITE_TURNOVER_TECH_API_URL)
 const ETF_HOLDINGS_API_URL =
-    import.meta.env.VITE_ETF_HOLDINGS_API_URL || 'http://localhost:5050/api/etf_holdings_counts'
+    resolveApiUrl('/api/etf_holdings_counts', import.meta.env.VITE_ETF_HOLDINGS_API_URL)
 const ETF_COMMON_TECH_API_URL =
-    import.meta.env.VITE_ETF_COMMON_TECH_API_URL || 'http://localhost:5050/api/etf_common_holdings_tech'
+    resolveApiUrl('/api/etf_common_holdings_tech', import.meta.env.VITE_ETF_COMMON_TECH_API_URL)
 const FUTURE_INDEX_TECH_API_URL =
-    import.meta.env.VITE_FUTURE_INDEX_TECH_API_URL || 'http://localhost:5050/api/future_index_tech'
-const ODD_LOT_ORDER_API_URL =
-    import.meta.env.VITE_ODD_LOT_ORDER_API_URL || 'http://localhost:5050/api/odd_lot_trade'
+    resolveApiUrl('/api/future_index_tech', import.meta.env.VITE_FUTURE_INDEX_TECH_API_URL)
 const CHAT_LLM_API_URL =
-    import.meta.env.VITE_CHAT_LLM_API_URL || 'http://localhost:5050/api/chat_llm'
+    resolveApiUrl('/api/chat_llm', import.meta.env.VITE_CHAT_LLM_API_URL)
 
 const formatDateString = (date: Date) => {
     const year = date.getFullYear()

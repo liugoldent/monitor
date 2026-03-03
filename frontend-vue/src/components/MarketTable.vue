@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { resolveApiUrl } from '../utils/api'
 
 type MarketItem = {
     id: string | number
@@ -14,7 +15,7 @@ const previousMarketData = ref<MarketItem[]>([])
 const marketDataDate = ref<string>('')
 
 const MARKET_API_URL =
-    import.meta.env.VITE_MARKET_API_URL || 'http://localhost:5050/api/stkfut_tradeinfo'
+    resolveApiUrl('/api/stkfut_tradeinfo', import.meta.env.VITE_MARKET_API_URL)
 const NAME_URL = 'https://storage.googleapis.com/symbol-config/code_to_chinese.json'
 
 const toNumber = (value: unknown) => {
