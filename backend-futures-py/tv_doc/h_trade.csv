@@ -18,3 +18,6 @@ timestamp,action,side,price,pnl,quantity
 2026-03-02 09:04:06,enter,bull,35027.0,,1
 2026-03-03 10:01:03,exiting,bull,34796.0,-2310.0,1
 2026-03-03 10:01:04,enter,bear,34796.0,,1
+2026-03-05 03:41:05,enter,bull,,,1
+2026-03-05 09:51:07,exiting,bull,,,1
+2026-03-05 09:51:07,enter,bear,,,1

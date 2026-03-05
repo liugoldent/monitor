@@ -169,5 +169,18 @@ tell application "iTerm"
   end tell
   delay 1
 
+  -- ===== Tab 14 : Render Ping =====
+  -- 每 15 分鐘 GET 一次 monitor-9dtg.onrender.com
+  tell mainWindow
+    create tab with default profile
+  end tell
+
+  tell current session of mainWindow
+    write text "cd ~/Desktop/self/monitor/backend-futures-py"
+    write text "source .venv/bin/activate"
+    write text "python monitor_render_ping.py"
+  end tell
+  delay 1
+
 end tell
 EOF2
