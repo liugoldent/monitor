@@ -2,8 +2,10 @@ import shioaji as sj # 載入永豐金Python API
 import os
 import requests
 import json
+import threading
+import atexit
+import time as pytime
 from pathlib import Path
-from collections import deque
 from datetime import datetime
 from datetime import time
 from zoneinfo import ZoneInfo
@@ -44,6 +46,11 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
 FUTURE_VALUE_PATH = Path(__file__).resolve().parent / "tv_doc" / "future_max_values.json"
+SHORT_CYCLE_STATE_PATH = Path(__file__).resolve().parent / "tv_doc" / "shortCycle.json"
+API_LOCK = threading.RLock()
+API_CLIENT = None
+H_TRADE_FLATTEN_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade_flatten.json"
+
 
 def _parse_number(raw: str) -> float | None:
     if raw is None:
@@ -69,11 +76,77 @@ def _get_future_max_values() -> tuple[float | None, float | None]:
     return max_buy, max_sell
 
 
+def _build_api_client():
+    api_key = os.getenv("API_KEY2")
+    secret_key = os.getenv("SECRET_KEY2")
+    if not os.path.exists(ca_path):
+        raise FileNotFoundError(f"找不到憑證檔案: {ca_path}")
+
+    api = sj.Shioaji(simulation=False)
+    api.login(api_key, secret_key)
+    api.activate_ca(
+        ca_path=ca_path,
+        ca_passwd=os.getenv("PERSON_ID"),
+        person_id=os.getenv("PERSON_ID"),
+    )
+    return api
+
+
+def _get_api_client():
+    global API_CLIENT
+    with API_LOCK:
+        if API_CLIENT is not None:
+            try:
+                API_CLIENT.list_positions(API_CLIENT.futopt_account)
+                return API_CLIENT
+            except Exception:
+                try:
+                    API_CLIENT.logout()
+                except Exception:
+                    pass
+                API_CLIENT = None
+        API_CLIENT = _build_api_client()
+        return API_CLIENT
+
+
+def _shutdown_api_client():
+    global API_CLIENT
+    with API_LOCK:
+        if API_CLIENT is None:
+            return
+        try:
+            API_CLIENT.logout()
+        except Exception:
+            pass
+        API_CLIENT = None
+
+
+atexit.register(_shutdown_api_client)
+
+
+def _close_position_with_api(api, test_now: datetime):
+    positions = api.list_positions(api.futopt_account)
+    contract = api.Contracts.Futures.TMF.TMFR1
+
+    if len(positions) == 0:
+        _clear_h_trade_flatten_state()
+        return
+
+    if len(positions) > 0:
+        if positions[0]['direction'] == 'Buy':
+            sellOne(api, contract, len(positions))
+            send_discord_message(f'[{test_now:%H:%M:%S}]：短線。丟空單平倉')
+            _clear_h_trade_flatten_state()
+
+        if positions[0]['direction'] == 'Sell':
+            buyOne(api, contract, len(positions))
+            send_discord_message(f'[{test_now:%H:%M:%S}]：短線。丟多單平倉')
+            _clear_h_trade_flatten_state()
+
+
 # 純下單func
 def auto_trade(type):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
-    API_KEY = os.getenv("API_KEY2")
-    SECRET_KEY = os.getenv("SECRET_KEY2")
 
     # current_time = testNow.time()
     # night_start = time(15, 0)
@@ -84,75 +157,51 @@ def auto_trade(type):
     #     return
 
     try:
-        if not os.path.exists(ca_path):
-            print(f"❌ 找不到憑證檔案，目前嘗試路徑為: {ca_path}")
-            return
-        else:
-            print(f"✅ 憑證檔案路徑: {ca_path}")
-        
-        api = sj.Shioaji(simulation=False)
-        api.login(API_KEY, SECRET_KEY)
-        
-        api.activate_ca(
-            ca_path=ca_path,  # 填入憑證路徑
-            ca_passwd=os.getenv("PERSON_ID"),       # ca密碼
-            person_id=os.getenv("PERSON_ID"),     # 身份證字號
-        )
-        positions = api.list_positions(api.futopt_account)
-        
-        contract = api.Contracts.Futures.TMF.TMFR1
+        with API_LOCK:
+            api = _get_api_client()
+            contract = api.Contracts.Futures.TMF.TMFR1
+            api.update_status()
 
-        api.quote.subscribe(contract, quote_type='tick')
+            # 先平倉
+            _close_position_with_api(api, testNow)
 
-        api.update_status()
+            # 平倉後進新倉 (預設 1 口)
+            if type == 'bull':
+                buyOne(api, contract)
+                send_discord_message(f'[{testNow:%H:%M:%S}]：短線。近月多單進場 go bull')
 
-        # 先平倉
-        closePosition()
-
-        # 平倉後進新倉 (預設 1 口)
-        if type == 'bull':
-            buyOne(api, contract)
-            send_discord_message(f'[{testNow:%H:%M:%S}] 近月多單進場 go bull')
-
-        if type == 'bear':
-            sellOne(api, contract)
-            send_discord_message(f'[{testNow:%H:%M:%S}] 近月空單進場 go bear')
-
-        api.logout()
+            if type == 'bear':
+                sellOne(api, contract)
+                send_discord_message(f'[{testNow:%H:%M:%S}]：短線。近月空單進場 go bear')
         print('送單完成')
     except Exception as e:
-        api.logout()
         print('送單錯誤',e)
+
+
+def _clear_h_trade_flatten_state() -> None:
+    payload = {
+        "side": "",
+        "entry_price": 0,
+        "add_on_done": False,
+        "add_on_quantity": 0,
+        "loss_points": 0,
+        "trigger_close": 0,
+        "updated_at": datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    H_TRADE_FLATTEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    H_TRADE_FLATTEN_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def closePosition():
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
     try:
-        api = sj.Shioaji()
-        API_KEY = os.getenv("API_KEY2")
-        SECRET_KEY = os.getenv("SECRET_KEY2")
-        api.login(API_KEY, SECRET_KEY)
-
-        api.activate_ca(
-            ca_path,  # 填入憑證路徑
-            ca_passwd=os.getenv("PERSON_ID"),       # ca密碼
-            person_id=os.getenv("PERSON_ID"),     # 身份證字號
-        )
-
-        positions = api.list_positions(api.futopt_account)
-        contract = api.Contracts.Futures.TMF.TMFR1
-
-        if len(positions) > 0:
-            if positions[0]['direction'] == 'Buy':
-                sellOne(api, contract)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 丟空單平倉')
-
-            if positions[0]['direction'] == 'Sell':
-                buyOne(api, contract)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 丟多單平倉')
-        api.logout()
+        with API_LOCK:
+            api = _get_api_client()
+            _close_position_with_api(api, testNow)
     except Exception as e:
-        api.logout()
         print('送單錯誤',e)
 
 
@@ -161,12 +210,12 @@ def buyOne(api, contract, quantity=1):
     price = max_buy
     order = api.Order(
         action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=price - 50,                        # price (價格)
-        quantity=quantity,                        # quantity (委託數量)
-        price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
-        octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
-        account=api.futopt_account                 # account (下單帳號)
+        price=0,                                     # price (價格)
+        quantity=quantity,                           # quantity (委託數量)
+        price_type=sj.constant.FuturesPriceType.MKT, # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
+        order_type=sj.constant.OrderType.ROD,        # order_type (委託條件): IOC, ROD, FOK
+        octype=sj.constant.FuturesOCType.Auto,       # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
+        account=api.futopt_account                   # account (下單帳號)
     )
     print("委託內容", order)
     # 執行委託
@@ -179,12 +228,12 @@ def sellOne(api, contract, quantity=1):
     price = max_sell
     order = api.Order(
         action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=price + 50,                        # price (價格)
-        quantity=quantity,                        # quantity (委託數量)
-        price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
-        octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
-        account=api.futopt_account                 # account (下單帳號)
+        price=0,                                      # price (價格)
+        quantity=quantity,                            # quantity (委託數量)
+        price_type=sj.constant.FuturesPriceType.MKT,  # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
+        order_type=sj.constant.OrderType.ROD,         # order_type (委託條件): IOC, ROD, FOK
+        octype=sj.constant.FuturesOCType.Auto,        # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
+        account=api.futopt_account                    # account (下單帳號)
     )
     print("委託內容", order)
     # 執行委託

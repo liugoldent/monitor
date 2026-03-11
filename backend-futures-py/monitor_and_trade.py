@@ -2,11 +2,18 @@ import os
 from pathlib import Path
 import re
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from telethon import TelegramClient, events
 from auto_trade import auto_trade
+from auto_trade_shortCycle import auto_trade as auto_trade_shortcycle
+from auto_trade_shortCycle import _get_api_client as get_api_client_short
+from auto_trade_shortCycle import _close_position_with_api as close_position_with_api_short
 
 recent_signals = {}
 SIGNAL_TTL = 10 
+last_position = ""
+TZ = ZoneInfo("Asia/Taipei")
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -89,10 +96,13 @@ async def bot_message_handler(event):
             return
         recent_signals[position] = now
 
+        # h 長週期單API下單 / 短週期平倉
         if position == "多":
             auto_trade("bull")
+            closeShortTrade()
         elif position == "空":
             auto_trade("bear")
+            closeShortTrade()
 
         print(f"解析結果: 目前倉位 {position}{quantity} 口")
 
@@ -102,6 +112,10 @@ async def bot_message_handler(event):
         print("解析結果: 自動交易已停止")
 
     print("──────────────")
+
+def closeShortTrade():
+    api = get_api_client_short()
+    close_position_with_api_short(api, datetime.now(TZ))
 
 
 # ======================

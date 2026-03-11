@@ -11,8 +11,9 @@ import threading
 from zoneinfo import ZoneInfo
 
 from auto_trade_shortCycle import send_discord_message as send_discord_message_short
-from auto_trade_shortCycle import sellOne as sell_one_short
+from auto_trade_shortCycle import _close_position_with_api as close_position_with_api_short
 from auto_trade_shortCycle import buyOne as buy_one_short
+from auto_trade_shortCycle import sellOne as sell_one_short
 import shioaji as sj
 
 # Configuration
@@ -24,15 +25,13 @@ CLEAR_TIME = (14, 0)
 TZ = ZoneInfo("Asia/Taipei")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
 CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
-FUTURE_VALUE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "future_max_values.json")
-MA960_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "ma960_state.json")
 SQZMOM_SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "sqzmom_shortCycle.json")
+SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "shortCycle.json")
+H_TRADE_FLATTEN_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade_flatten.json")
 API_CLIENT = None
 
-MA960_ORDER_COOLDOWN_SECONDS = 30
-MA960_ORDER_STATE = {"buy": 0.0, "sell": 0.0}
-MA960_ORDER_LOCK = threading.Lock()
 DRY_RUN = os.getenv("DRY_RUN", "false").strip().lower() in {"1", "true", "yes"}
+H_TRADE_ADD_ON_LOSS_POINTS = 400.0
 CSV_HEADER = [
     'Record Time',
     'Symbol',
@@ -149,21 +148,128 @@ def _get_latest_trade_entry() -> tuple[str, float] | None:
     return None
 
 
-def _load_ma960_state():
-    if not os.path.exists(MA960_STATE_FILE):
+def _get_latest_1min_close(path: str = CSV_FILE_1MIN) -> float | None:
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+    except Exception:
+        return None
+    if not rows:
+        return None
+    return _to_float(rows[-1].get("Close"))
+
+
+def _load_h_trade_flatten_state(path: str = H_TRADE_FLATTEN_PATH) -> dict:
+    if not os.path.isfile(path):
         return {}
     try:
-        with open(MA960_STATE_FILE, "r") as f:
-            return json.load(f)
+        with open(path, "r", encoding="utf-8") as handle:
+            content = handle.read().strip()
+            if not content:
+                return {}
+            return json.loads(content)
     except Exception:
         return {}
 
-def _save_ma960_state(state):
+
+def _save_h_trade_flatten_state(state: dict, path: str = H_TRADE_FLATTEN_PATH) -> None:
     try:
-        with open(MA960_STATE_FILE, "w") as f:
-            json.dump(state, f)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+
+def _mark_h_trade_add_on(
+    side: str,
+    entry_price: float,
+    trigger_close: float,
+    loss_points: float,
+) -> None:
+    payload = {
+        "side": side,
+        "entry_price": float(entry_price),
+        "add_on_done": True,
+        "add_on_quantity": 1,
+        "loss_points": float(loss_points),
+        "trigger_close": float(trigger_close),
+        "updated_at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    _save_h_trade_flatten_state(payload)
+
+
+def _run_h_trade_loss_add_on() -> bool:
+    latest_close_1min = _get_latest_1min_close()
+    latest_trade_entry = _get_latest_trade_entry()
+    if latest_close_1min is None or latest_trade_entry is None:
+        return False
+
+    trade_side, trade_entry_price = latest_trade_entry
+    if trade_side == "bull":
+        loss_points = trade_entry_price - latest_close_1min
+    elif trade_side == "bear":
+        loss_points = latest_close_1min - trade_entry_price
+    else:
+        return False
+
+    if loss_points < H_TRADE_ADD_ON_LOSS_POINTS:
+        return False
+
+    flatten_state = _load_h_trade_flatten_state()
+    added_side = str(flatten_state.get("side", "")).strip().lower()
+    added_entry_price = _to_float(flatten_state.get("entry_price"))
+    add_on_done = bool(flatten_state.get("add_on_done", False))
+    if (
+        add_on_done
+        and added_side == trade_side
+        and added_entry_price is not None
+        and abs(added_entry_price - trade_entry_price) < 1e-9
+    ):
+        return False
+
+    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
+    try:
+        api = _get_api_client()
+        contract = api.Contracts.Futures.TMF.TMFR1
+        if trade_side == "bull":
+            buy_one_short(api, contract, quantity=1)
+            side_text = "多單"
+        else:
+            sell_one_short(api, contract, quantity=1)
+            side_text = "空單"
+
+        _mark_h_trade_add_on(
+            side=trade_side,
+            entry_price=trade_entry_price,
+            trigger_close=latest_close_1min,
+            loss_points=loss_points,
+        )
+        send_discord_message_short(
+            f"[{now_ts}]：{int(latest_close_1min)} / h_trade 浮虧 {int(loss_points)} 點，加碼同向{side_text} 1 口"
+        )
+        return True
+    except Exception as exc:
+        send_discord_message_short(
+            f"[{now_ts}] h_trade 浮虧加碼失敗：{exc}"
+        )
+        return False
+
+
+def _has_shortcycle_position(path: str = SHORTCYCLE_STATE_FILE) -> bool:
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return False
+
+    direction = str(payload.get("direction", "")).strip().lower()
+    quantity = _to_float(payload.get("quantity"))
+    return direction in {"bull", "bear", "buy", "sell"} and (quantity or 0) > 0
 
 
 def _load_sqzmom_shortcycle_state():
@@ -205,33 +311,16 @@ def _get_api_client():
     API_CLIENT = api
     return API_CLIENT
 
-def _has_position() -> bool | None:
+
+def _close_all_positions() -> None:
+    if DRY_RUN:
+        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 模擬平倉全部')
+        return
     try:
         api = _get_api_client()
-        positions = api.list_positions(api.futopt_account)
-        return bool(positions)
-    except Exception:
-        return None
-
-
-def _set_ma960_state(side: str, action: str, quantity: int | None = None) -> None:
-    state = _load_ma960_state()
-    state["ma960_side"] = side
-    state["ma960_last_action"] = action
-    if quantity is not None:
-        try:
-            state["ma960_order_quantity"] = int(quantity)
-        except Exception:
-            state["ma960_order_quantity"] = quantity
-    _save_ma960_state(state)
-
-
-def _clear_ma960_state() -> None:
-    state = _load_ma960_state()
-    state.pop("ma960_side", None)
-    state.pop("ma960_last_action", None)
-    state.pop("ma960_order_quantity", None)
-    _save_ma960_state(state)
+        close_position_with_api_short(api, datetime.now(TZ))
+    except Exception as exc:
+        send_discord_message_short(f"[{datetime.now(TZ):%H:%M:%S}] 平倉失敗：{exc}")
 
 
 def _set_sqzmom_shortcycle_state(entry_side: str, action: str) -> None:
@@ -250,284 +339,7 @@ def _clear_sqzmom_shortcycle_state() -> None:
     _save_sqzmom_shortcycle_state(state)
 
 
-def _is_ma960_order_blocked(order_side: str, now_ts: str, cooldown_seconds: int = MA960_ORDER_COOLDOWN_SECONDS) -> bool:
-    side = str(order_side).strip().lower()
-    if side not in {"buy", "sell"}:
-        return False
-
-    now = time.time()
-    with MA960_ORDER_LOCK:
-        last_ts = float(MA960_ORDER_STATE.get(side, 0.0) or 0.0)
-        elapsed = now - last_ts
-        if elapsed < cooldown_seconds:
-            remain = int(cooldown_seconds - elapsed)
-            send_discord_message_short(f"[{now_ts}] MA960 阻擋重複下單：{side} {remain} 秒內不可重複")
-            return True
-        MA960_ORDER_STATE[side] = now
-    return False
-
-
-def _close_all_positions() -> None:
-    if DRY_RUN:
-        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 模擬平倉全部')
-        return
-    try:
-        api = _get_api_client()
-        positions = api.list_positions(api.futopt_account)
-        if not positions:
-            return
-        contract = api.Contracts.Futures.TMF.TMFR1
-        for pos in positions:
-            direction = pos.get("direction")
-            qty = pos.get("quantity") or pos.get("qty") or pos.get("amount") or 1
-            try:
-                qty = int(qty)
-            except Exception:
-                qty = 1
-
-            if direction == "Buy":
-                print(f"平多單：qty={qty}")
-                # sell_one_short(api, contract, quantity=qty)
-            elif direction == "Sell":
-                print(f"平空單：qty={qty}")
-                # buy_one_short(api, contract, quantity=qty)
-    except Exception as exc:
-        send_discord_message_short(f'[{datetime.now(TZ):%H:%M:%S}] 平倉失敗：{exc}')
-
-
-def run_sqzmom_shortcycle_strategy(csv_path: str) -> bool:
-    rows = _read_last_two_rows(csv_path)
-    if len(rows) < 1:
-        return False
-
-    curr_row = rows[-1]
-    timeframe = str(curr_row.get("Timeframe", "")).strip()
-    if timeframe != "5":
-        return False
-
-    curr_close = _to_float(curr_row.get("Close"))
-    ha_open = _to_float(curr_row.get("HA_Open"))
-    ha_close = _to_float(curr_row.get("HA_Close"))
-    sqz_power = _to_float(curr_row.get("SQZ_POWER"))
-    if None in (curr_close, ha_open, ha_close, sqz_power):
-        return False
-
-    latest_entry = _get_latest_trade_entry()
-    if latest_entry is None:
-        return False
-    trade_side, entry_price = latest_entry
-    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
-
-    state = _load_sqzmom_shortcycle_state()
-    entry_side = str(state.get("entry_side", "")).strip().lower()
-
-    # 先處理出場條件
-    if entry_side == "bull" and ha_close < ha_open and int(round(sqz_power)) == -1:
-        _close_all_positions()
-        _clear_sqzmom_shortcycle_state()
-        send_discord_message_short(
-            f"[{now_ts}]：{curr_close} / SQZMOM 多單出場：HA_Close({int(ha_close)}) < HA_Open({int(ha_open)}) 且 SQZ=-1"
-        )
-        return True
-
-    if entry_side == "bear" and ha_close > ha_open and int(round(sqz_power)) == 1:
-        _close_all_positions()
-        _clear_sqzmom_shortcycle_state()
-        send_discord_message_short(
-            f"[{now_ts}]：{curr_close} / SQZMOM 空單出場：HA_Close({int(ha_close)}) > HA_Open({int(ha_open)}) 且 SQZ=1"
-        )
-        return True
-
-    # 已有 SQZMOM 持倉狀態就不再進場
-    if entry_side in {"bull", "bear"}:
-        return False
-
-    if trade_side == "bull":
-        is_profit = curr_close > entry_price
-        long_signal = ha_close > ha_open and int(round(sqz_power)) == 1
-        short_signal = ha_close < ha_open and int(round(sqz_power)) == -1
-
-        if is_profit and long_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單：trade_side=bull 且 is_profit=True 且 HA_Close > HA_Open 且 SQZ=1"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # buy_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bull", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
-                return False
-
-        if (not is_profit) and short_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單：trade_side=bull 且 is_profit=False 且 HA_Close < HA_Open 且 SQZ=-1"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # sell_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bear", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
-                return False
-
-    if trade_side == "bear":
-        is_profit = curr_close < entry_price
-        short_signal = ha_close < ha_open and int(round(sqz_power)) == -1
-        long_signal = ha_close > ha_open and int(round(sqz_power)) == 1
-
-        if is_profit and short_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單：trade_side=bear 且 is_profit=True 且 HA_Close < HA_Open 且 SQZ=-1"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # sell_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bear", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
-                return False
-
-        if (not is_profit) and long_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單：trade_side=bear 且 is_profit=False 且 HA_Close > HA_Open 且 SQZ=1"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # buy_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bull", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
-                return False
-
-    return False
-
-
-def run_sqzmom_shortcycle_strategy_onlyHeikin(csv_path: str) -> bool:
-    rows = _read_last_two_rows(csv_path)
-    if len(rows) < 1:
-        return False
-
-    curr_row = rows[-1]
-    timeframe = str(curr_row.get("Timeframe", "")).strip()
-    if timeframe != "5":
-        return False
-
-    curr_close = _to_float(curr_row.get("Close"))
-    curr_open = _to_float(curr_row.get("Open"))
-    ha_open = _to_float(curr_row.get("HA_Open"))
-    ha_close = _to_float(curr_row.get("HA_Close"))
-    if None in (curr_close, curr_open, ha_open, ha_close):
-        return False
-
-    latest_entry = _get_latest_trade_entry()
-    if latest_entry is None:
-        return False
-    trade_side, entry_price = latest_entry
-    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
-
-    state = _load_sqzmom_shortcycle_state()
-    entry_side = str(state.get("entry_side", "")).strip().lower()
-
-    # 先處理出場條件
-    if entry_side == "bull" and ha_close < ha_open:
-        _close_all_positions()
-        _clear_sqzmom_shortcycle_state()
-        send_discord_message_short(
-            f"[{now_ts}]：{curr_close} / SQZMOM 多單出場"
-        )
-        return True
-
-    if entry_side == "bear" and ha_close > ha_open:
-        _close_all_positions()
-        _clear_sqzmom_shortcycle_state()
-        send_discord_message_short(
-            f"[{now_ts}]：{curr_close} / SQZMOM 空單出場"
-        )
-        return True
-
-    # 已有 SQZMOM 持倉狀態就不再進場
-    if entry_side in {"bull", "bear"}:
-        return False
-
-    if trade_side == "bull":
-        is_profit = curr_close > entry_price
-        long_signal = ha_close > ha_open and curr_close < curr_open # 長線多單，但是賺錢，所以要進場多單加碼（多單綠k進場）
-        short_signal = ha_close < ha_open and curr_close > curr_open # 長線多單，但是賠錢，所以要進場空單對沖（空單紅k進場）
-
-        if is_profit and long_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # buy_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bull", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
-                return False
-
-        if (not is_profit) and short_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # sell_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bear", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
-                return False
-
-    if trade_side == "bear":
-        is_profit = curr_close < entry_price
-        short_signal = ha_close < ha_open and curr_close > curr_open # 長線空單，但是賺錢，所以要進場空單加碼（空單紅k進場）
-        long_signal = ha_close > ha_open and curr_close < curr_open # 長線空單，但是賠錢，所以要進場多單對沖（多單綠k進場）
-
-        if is_profit and short_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場空單"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # sell_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bear", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場空單失敗：{exc}")
-                return False
-
-        if (not is_profit) and long_signal:
-            try:
-                send_discord_message_short(
-                    f"[{now_ts}]：{curr_close} / SQZMOM 進場多單"
-                )
-                api = _get_api_client()
-                contract = api.Contracts.Futures.TMF.TMFR1
-                # buy_one_short(api, contract, quantity=1)
-                _set_sqzmom_shortcycle_state("bull", "enter")
-                return True
-            except Exception as exc:
-                send_discord_message_short(f"[{now_ts}] SQZMOM 進場多單失敗：{exc}")
-                return False
-
-    return False
-
-
-def run_ma230_heikin_strategy(csv_path: str) -> bool:
+def run_tx_mtx_heikin_strategy(csv_path: str) -> bool:
     rows = _read_last_two_rows(csv_path)
     if len(rows) < 1:
         return False
@@ -541,65 +353,68 @@ def run_ma230_heikin_strategy(csv_path: str) -> bool:
     curr_close = _to_float(curr_row.get("Close"))
     ha_open = _to_float(curr_row.get("HA_Open"))
     ha_close = _to_float(curr_row.get("HA_Close"))
-    ma_230 = _to_float(curr_row.get("MA_230"))
-    if None in (curr_open, curr_close, ha_open, ha_close, ma_230):
+    if None in (curr_open, curr_close, ha_open, ha_close):
         return False
 
     now_ts = datetime.now(TZ).strftime("%H:%M:%S")
     state = _load_sqzmom_shortcycle_state()
     entry_side = str(state.get("entry_side", "")).strip().lower()
 
-    # 先處理出場條件
+    # 出場條件：多單 HA 轉空、空單 HA 轉多
     if entry_side == "bull" and ha_close < ha_open:
-        _close_all_positions()
         _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / MA230 多單出場"
+            f"[{now_ts}]：{int(curr_close)} / 對沖 多單出場"
         )
+        _close_all_positions()
         return True
 
     if entry_side == "bear" and ha_close > ha_open:
-        _close_all_positions()
         _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / MA230 空單出場"
+            f"[{now_ts}]：{int(curr_close)} / 對沖 空單出場"
         )
+        _close_all_positions()
         return True
 
     # 已有持倉狀態就不再進場
     if entry_side in {"bull", "bear"}:
         return False
 
-    long_signal = curr_close > ma_230 and ha_close > ha_open and curr_close < curr_open
-    short_signal = curr_close < ma_230 and ha_close < ha_open and curr_close > curr_open
-    print(long_signal, short_signal)
-    if long_signal:
-        try:
-            send_discord_message_short(
-                f"[{now_ts}]：{int(curr_close)} / MA230 進場多單"
-            )
-            api = _get_api_client()
-            contract = api.Contracts.Futures.TMF.TMFR1
-            # buy_one_short(api, contract, quantity=1)
-            _set_sqzmom_shortcycle_state("bull", "enter")
-            return True
-        except Exception as exc:
-            send_discord_message_short(f"[{now_ts}] MA230 進場多單失敗：{exc}")
-            return False
+    # shortCycle.json 已有倉位就不進場
+    if _has_shortcycle_position():
+        return False
 
-    if short_signal:
-        try:
-            send_discord_message_short(
-                f"[{now_ts}]：{int(curr_close)} / MA230 進場空單"
-            )
-            api = _get_api_client()
-            contract = api.Contracts.Futures.TMF.TMFR1
-            # sell_one_short(api, contract, quantity=1)
-            _set_sqzmom_shortcycle_state("bear", "enter")
-            return True
-        except Exception as exc:
-            send_discord_message_short(f"[{now_ts}] MA230 進場空單失敗：{exc}")
-            return False
+    # h策略賠錢訊號：多單賠錢訊號是當前價 < 多單進場價；空單賠錢訊號是當前價 > 空單進場價
+    reverse_long_signal = False
+    reverse_short_signal = False
+
+    latest_close_1min = _get_latest_1min_close()
+    latest_trade_entry = _get_latest_trade_entry()
+    if latest_close_1min is not None and latest_trade_entry is not None:
+        trade_side, trade_entry_price = latest_trade_entry
+        if trade_side == "bull" and latest_close_1min < trade_entry_price:
+            reverse_short_signal = True
+        elif trade_side == "bear" and latest_close_1min > trade_entry_price:
+            reverse_long_signal = True
+
+    # 現在h多單賠錢，故進空單；
+    if reverse_long_signal:
+        reason = "h多單賠錢，故進空單"
+        _set_sqzmom_shortcycle_state("bear", "enter")
+        send_discord_message_short(
+            f"[{now_ts}]：{int(curr_close)} / {reason}"
+        )
+        return True
+
+    # 現在h空單賠錢，故進多單
+    if reverse_short_signal:
+        reason = "h空單賠錢，故進多單"
+        _set_sqzmom_shortcycle_state("bull", "enter")
+        send_discord_message_short(
+            f"[{now_ts}]：{int(curr_close)} / {reason}"
+        )
+        return True
 
     return False
 
@@ -680,9 +495,10 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     
                     sys.stdout.flush()  # Ensure output is printed immediately
                     if timeframe == "5":
-                        # run_sqzmom_shortcycle_strategy(target_csv)
-                        run_ma230_heikin_strategy(target_csv)
+                        print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
+                        # run_tx_mtx_heikin_strategy(target_csv)
                     elif timeframe == "1":
+                        _run_h_trade_loss_add_on()
                         print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     
                     # Respond success

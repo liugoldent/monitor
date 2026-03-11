@@ -3,16 +3,12 @@ import os
 import json
 import requests
 import csv
+import time as pytime
 from pathlib import Path
 from collections import deque
 from datetime import datetime
 from datetime import time
 from zoneinfo import ZoneInfo
-
-try:
-    from webhook_server import _close_all_positions as _close_all_positions_from_webhook
-except Exception:
-    _close_all_positions_from_webhook = None
 
 def load_env_file(path: str = ".env") -> None:
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
@@ -39,6 +35,7 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB
 TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 FUTURE_VALUE_PATH = Path(__file__).resolve().parent / "tv_doc" / "future_max_values.json"
+H_TRADE_FLATTEN_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade_flatten.json"
 
 
 def _ensure_trade_log() -> None:
@@ -106,13 +103,9 @@ def _get_recent_pnls(limit: int = 3) -> list[float]:
 
 
 def _get_entry_quantity() -> int:
-    pnls = _get_recent_pnls(3)
+    pnls = _get_recent_pnls(2)
     if not pnls:
         return 1
-    if pnls[0] > 0:
-        return 1
-    if len(pnls) >= 3 and pnls[0] < 0 and pnls[1] < 0 and pnls[2] < 0:
-        return 3
     if len(pnls) >= 2 and pnls[0] < 0 and pnls[1] < 0:
         return 2
     return 1
@@ -176,8 +169,7 @@ def auto_trade(type):
             print(f"✅ 憑證檔案路徑: {ca_path}")
 
         contract = api.Contracts.Futures.TMF.TMFR1
-        if _close_all_positions_from_webhook is not None:
-            _close_all_positions_from_webhook()
+
         # 先平倉
         closePosition(api)
         entry_qty = _get_entry_quantity()
@@ -187,13 +179,13 @@ def auto_trade(type):
             buyOne(api, contract, quantity=entry_qty)
             entry_price = _get_latest_webhook_close()
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
-            send_discord_message(f'[{testNow:%H:%M:%S}] 近月多單進場 go bull')
+            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
             sellOne(api, contract, quantity=entry_qty)
             entry_price = _get_latest_webhook_close()
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
-            send_discord_message(f'[{testNow:%H:%M:%S}] 近月空單進場 go bear')
+            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear')
 
         api.logout()
         print('送單完成')
@@ -225,7 +217,7 @@ def closePosition(api):
                 else:
                     pnl = None
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 丟空單平倉')
+                send_discord_message(f'[{testNow:%H:%M:%S}]：長線。丟空單平倉')
 
             if pos['direction'] == 'Sell':
                 buyOne(api, contract, quantity=pos_qty)
@@ -237,7 +229,7 @@ def closePosition(api):
                 else:
                     pnl = None
                 _append_trade("exiting", "bear", exit_price, pnl, quantity=pos_qty)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 丟多單平倉')
+                send_discord_message(f'[{testNow:%H:%M:%S}]：長線。丟多單平倉')
     except Exception as e:
         # api.logout()
         print('送單錯誤',e)

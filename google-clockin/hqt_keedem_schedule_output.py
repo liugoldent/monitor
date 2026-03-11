@@ -35,8 +35,10 @@ def main() -> None:
             timestamp = _format_timestamp(now)
             if _in_range(current_time, START_WORK, END_WORK):
                 print(f"HQT - Keedem {timestamp} 上班")
+                print(f"Keedem 上班")
             elif _in_range(current_time, START_OFF, END_OFF):
                 print(f"HQT - Keedem {timestamp} 下班")
+                print(f"Keedem 下班")
         _sleep_until_next_minute()
 
 
