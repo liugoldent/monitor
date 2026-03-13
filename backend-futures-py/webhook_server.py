@@ -49,7 +49,7 @@ CSV_HEADER = [
     'MA_N110',
     'MA_N200',
     'MA_230',
-    'SQZ_POWER'
+    'SQZ_VAL'
 ]
 
 
@@ -128,6 +128,15 @@ def _read_last_two_rows(path: str) -> list[dict]:
         reader = csv.DictReader(handle)
         rows = list(reader)
     return rows[-2:] if len(rows) >= 2 else rows
+
+
+def _read_last_n_rows(path: str, count: int) -> list[dict]:
+    if count <= 0 or not os.path.isfile(path):
+        return []
+    with open(path, "r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    return rows[-count:] if len(rows) >= count else rows
 
 
 def _get_latest_trade_entry() -> tuple[str, float] | None:
@@ -339,9 +348,9 @@ def _clear_sqzmom_shortcycle_state() -> None:
     _save_sqzmom_shortcycle_state(state)
 
 
-def run_tx_mtx_heikin_strategy(csv_path: str) -> bool:
-    rows = _read_last_two_rows(csv_path)
-    if len(rows) < 1:
+def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
+    rows = _read_last_n_rows(csv_path, 3)
+    if len(rows) < 3:
         return False
 
     curr_row = rows[-1]
@@ -349,74 +358,82 @@ def run_tx_mtx_heikin_strategy(csv_path: str) -> bool:
     if timeframe != "5":
         return False
 
-    curr_open = _to_float(curr_row.get("Open"))
+    sqz_values = [_to_float(row.get("SQZ_VAL")) for row in rows]
     curr_close = _to_float(curr_row.get("Close"))
-    ha_open = _to_float(curr_row.get("HA_Open"))
-    ha_close = _to_float(curr_row.get("HA_Close"))
-    if None in (curr_open, curr_close, ha_open, ha_close):
+    if curr_close is None or any(value is None for value in sqz_values):
         return False
+
+    prev2_sqz, prev1_sqz, curr_sqz = sqz_values
+    strengthening_twice = prev2_sqz < prev1_sqz < curr_sqz
+    weakening_twice = prev2_sqz > prev1_sqz > curr_sqz
 
     now_ts = datetime.now(TZ).strftime("%H:%M:%S")
     state = _load_sqzmom_shortcycle_state()
     entry_side = str(state.get("entry_side", "")).strip().lower()
+    latest_close_1min = _get_latest_1min_close()
+    latest_trade_entry = _get_latest_trade_entry()
 
-    # 出場條件：多單 HA 轉空、空單 HA 轉多
-    if entry_side == "bull" and ha_close < ha_open:
+    h_trade_bull_losing = False
+    # 空單入場條件
+    if latest_trade_entry is not None and latest_close_1min is not None:
+        trade_side, trade_entry_price = latest_trade_entry
+        h_trade_bull_losing = trade_side == "bull" and latest_close_1min < trade_entry_price
+
+    # 多單出場條件
+    if entry_side == "bull" and weakening_twice:
         _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / 對沖 多單出場"
+            f"[{now_ts}]：{int(curr_close)} / SQZ_VAL 連續兩根轉弱，多單出場"
         )
         _close_all_positions()
         return True
 
-    if entry_side == "bear" and ha_close > ha_open:
+    # 空單出場條件
+    if entry_side == "bear" and strengthening_twice:
         _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / 對沖 空單出場"
+            f"[{now_ts}]：{int(curr_close)} / SQZ_VAL 連續兩根轉強，空單出場"
         )
         _close_all_positions()
         return True
 
-    # 已有持倉狀態就不再進場
+    # 避免同時進場相衝
     if entry_side in {"bull", "bear"}:
         return False
 
-    # shortCycle.json 已有倉位就不進場
+    # 如果有倉位先return 
     if _has_shortcycle_position():
         return False
 
-    # h策略賠錢訊號：多單賠錢訊號是當前價 < 多單進場價；空單賠錢訊號是當前價 > 空單進場價
-    reverse_long_signal = False
-    reverse_short_signal = False
+    try:
+        # 進場條件：多單入場條件為連續兩根轉強；
+        if strengthening_twice:
+            api = _get_api_client()
+            contract = api.Contracts.Futures.TMF.TMFR1
+            buy_one_short(api, contract, quantity=1)
+            send_discord_message_short(
+                f"[{now_ts}]：{int(curr_close)} / SQZ_VAL 連續兩根轉強，多單進場"
+            )
+            _set_sqzmom_shortcycle_state("bull", "enter")
+            return True
 
-    latest_close_1min = _get_latest_1min_close()
-    latest_trade_entry = _get_latest_trade_entry()
-    if latest_close_1min is not None and latest_trade_entry is not None:
-        trade_side, trade_entry_price = latest_trade_entry
-        if trade_side == "bull" and latest_close_1min < trade_entry_price:
-            reverse_short_signal = True
-        elif trade_side == "bear" and latest_close_1min > trade_entry_price:
-            reverse_long_signal = True
+        # 空單入場條件為 h_trade 多單賠錢且連續兩根轉弱
+        if weakening_twice and h_trade_bull_losing:
+            api = _get_api_client()
+            contract = api.Contracts.Futures.TMF.TMFR1
+            sell_one_short(api, contract, quantity=1)
+            send_discord_message_short(
+                f"[{now_ts}]：{int(curr_close)} / h_trade 多單賠錢且 SQZ_VAL 連續兩根轉弱，空單進場"
+            )
+            _set_sqzmom_shortcycle_state("bear", "enter")
+            return True
 
-    # 現在h多單賠錢，故進空單；
-    if reverse_long_signal:
-        reason = "h多單賠錢，故進空單"
-        _set_sqzmom_shortcycle_state("bear", "enter")
+        return False
+    except Exception as exc:
         send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / {reason}"
+            f"[{now_ts}] SQZ_VAL 策略進場失敗：{exc}"
         )
-        return True
-
-    # 現在h空單賠錢，故進多單
-    if reverse_short_signal:
-        reason = "h空單賠錢，故進多單"
-        _set_sqzmom_shortcycle_state("bull", "enter")
-        send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / {reason}"
-        )
-        return True
-
-    return False
+        return False
 
 
 # 獲取webhook並處理
@@ -449,7 +466,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     ma_n110 = data.get('ma_n110', '')
                     ma_n200 = data.get('ma_n200', '')
                     ma_230 = data.get('ma_230', '')
-                    sqz_power = data.get('sqz_power', '')
+                    sqz_val = data.get('sqz_val', '')
 
                     tv_time = ""
                     try:
@@ -489,16 +506,16 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                             _round_int(ma_n110),
                             _round_int(ma_n200),
                             _round_int(ma_230),
-                            _round_int(sqz_power),
+                            _round_int(sqz_val),
                         ])
 
                     
                     sys.stdout.flush()  # Ensure output is printed immediately
                     if timeframe == "5":
                         print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
-                        # run_tx_mtx_heikin_strategy(target_csv)
+                        run_sqz_val_long_only_strategy(target_csv)
                     elif timeframe == "1":
-                        _run_h_trade_loss_add_on()
+                        # _run_h_trade_loss_add_on()
                         print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     
                     # Respond success

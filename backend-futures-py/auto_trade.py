@@ -36,6 +36,7 @@ TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 FUTURE_VALUE_PATH = Path(__file__).resolve().parent / "tv_doc" / "future_max_values.json"
 H_TRADE_FLATTEN_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade_flatten.json"
+TAKE_PROFIT_POINTS = 1000
 
 
 def _ensure_trade_log() -> None:
@@ -154,6 +155,60 @@ def _get_future_max_values() -> tuple[float | None, float | None]:
     return max_buy, max_sell
 
 
+def _get_current_position_side(api) -> str | None:
+    try:
+        positions = api.list_positions(api.futopt_account)
+    except Exception:
+        return None
+
+    if not positions:
+        return None
+
+    direction = str(positions[0].get("direction", "")).strip().lower()
+    if direction == "buy":
+        return "bull"
+    if direction == "sell":
+        return "bear"
+    return None
+
+
+def _cancel_all_open_orders(api) -> int:
+    cancelled = 0
+    try:
+        api.update_status(api.futopt_account)
+        trades = api.list_trades()
+    except Exception as exc:
+        print(f"⚠️ 查詢掛單失敗: {exc}")
+        return 0
+
+    for trade in trades:
+        try:
+            status = str(getattr(trade.status, "status", "")).strip().lower()
+            if status in {"filled", "cancelled", "failed"}:
+                continue
+            api.cancel_order(trade)
+            cancelled += 1
+        except Exception as exc:
+            print(f"⚠️ 刪單失敗: {exc}")
+    return cancelled
+
+
+def _place_take_profit_order(api, contract, side: str, base_close: float, quantity: int) -> None:
+    target_price = int(round(base_close + TAKE_PROFIT_POINTS)) if side == "bull" else int(round(base_close - TAKE_PROFIT_POINTS))
+    action = sj.constant.Action.Sell if side == "bull" else sj.constant.Action.Buy
+    order = api.Order(
+        action=action,
+        price=target_price,
+        quantity=quantity,
+        price_type=sj.constant.FuturesPriceType.LMT,
+        order_type=sj.constant.OrderType.ROD,
+        octype=sj.constant.FuturesOCType.Auto,
+        account=api.futopt_account
+    )
+    trade = api.place_order(contract, order, timeout=0)
+    print("停利委託回傳內容", trade)
+
+
 # 純下單func
 def auto_trade(type):
     api = sj.Shioaji(simulation=False)
@@ -169,22 +224,44 @@ def auto_trade(type):
             print(f"✅ 憑證檔案路徑: {ca_path}")
 
         contract = api.Contracts.Futures.TMF.TMFR1
+        current_side = _get_current_position_side(api)
+
+        if current_side == type:
+            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。忽略重複訊號，當前已是 {type}')
+            api.logout()
+            print(f'略過重複訊號: 已持有同方向倉位 {type}')
+            return
+
+        cancelled_orders = _cancel_all_open_orders(api)
+        if cancelled_orders > 0:
+            print(f"已刪除舊掛單 {cancelled_orders} 筆")
 
         # 先平倉
         closePosition(api)
         entry_qty = _get_entry_quantity()
+        latest_close = _get_latest_webhook_close()
         
         # 平倉後進新倉
         if type == 'bull':
             buyOne(api, contract, quantity=entry_qty)
-            entry_price = _get_latest_webhook_close()
+            entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
+            if latest_close is not None:
+                _place_take_profit_order(api, contract, "bull", latest_close, entry_qty)
+                send_discord_message(
+                    f'[{testNow:%H:%M:%S}]：長線。多單停利單已掛出，價格 {int(round(latest_close + TAKE_PROFIT_POINTS))}'
+                )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
             sellOne(api, contract, quantity=entry_qty)
-            entry_price = _get_latest_webhook_close()
+            entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
+            if latest_close is not None:
+                _place_take_profit_order(api, contract, "bear", latest_close, entry_qty)
+                send_discord_message(
+                    f'[{testNow:%H:%M:%S}]：長線。空單停利單已掛出，價格 {int(round(latest_close - TAKE_PROFIT_POINTS))}'
+                )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear')
 
         api.logout()
