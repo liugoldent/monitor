@@ -22,6 +22,7 @@ CSV_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_5min.
 CSV_FILE_1MIN = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_1min.csv")
 CSV_FILE_5MIN = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_5min.csv")
 CLEAR_TIME = (14, 0)
+CLEAR_KEEP_ROWS = 5
 TZ = ZoneInfo("Asia/Taipei")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
 CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
@@ -105,6 +106,7 @@ def _ensure_csv_header(path: str, header: list[str]) -> None:
 
 def _clear_csv_keep_header(path: str, header: list[str]) -> None:
     header_to_write = header
+    rows_to_keep: list[list[str]] = []
     if os.path.isfile(path):
         try:
             with open(path, "r", newline="", encoding="utf-8") as handle:
@@ -112,13 +114,16 @@ def _clear_csv_keep_header(path: str, header: list[str]) -> None:
                 rows = list(reader)
             if rows and rows[0]:
                 header_to_write = rows[0]
+                rows_to_keep = rows[1:][-CLEAR_KEEP_ROWS:] if CLEAR_KEEP_ROWS > 0 else []
         except Exception:
             header_to_write = header
+            rows_to_keep = []
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(header_to_write)
+        writer.writerows(rows_to_keep)
 
 
 def _read_last_two_rows(path: str) -> list[dict]:
@@ -374,10 +379,12 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
     latest_trade_entry = _get_latest_trade_entry()
 
     h_trade_bull_losing = False
+    h_trade_bear_gaining = False
     # 空單入場條件
     if latest_trade_entry is not None and latest_close_1min is not None:
         trade_side, trade_entry_price = latest_trade_entry
         h_trade_bull_losing = trade_side == "bull" and latest_close_1min < trade_entry_price
+        h_trade_bear_gaining = trade_side == "bear" and latest_close_1min < trade_entry_price
 
     # 多單出場條件
     if entry_side == "bull" and weakening_twice:
@@ -418,7 +425,7 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
             return True
 
         # 空單入場條件為 h_trade 多單賠錢且連續兩根轉弱
-        if weakening_twice and h_trade_bull_losing:
+        if weakening_twice and (h_trade_bull_losing or h_trade_bear_gaining):
             api = _get_api_client()
             contract = api.Contracts.Futures.TMF.TMFR1
             sell_one_short(api, contract, quantity=1)
@@ -560,7 +567,10 @@ def run_server():
                 try:
                     _clear_csv_keep_header(CSV_FILE_1MIN, CSV_HEADER)
                     _clear_csv_keep_header(CSV_FILE_5MIN, CSV_HEADER)
-                    print(f"🧹 Cleared CSV at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(
+                        f"🧹 Trimmed CSV to last {CLEAR_KEEP_ROWS} rows at "
+                        f"{now.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
                     sys.stdout.flush()
                 except Exception as exc:
                     print(f"❌ Failed to clear CSV: {exc}")

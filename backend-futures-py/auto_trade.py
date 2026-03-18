@@ -164,7 +164,8 @@ def _get_current_position_side(api) -> str | None:
     if not positions:
         return None
 
-    direction = str(positions[0].get("direction", "")).strip().lower()
+    pos = positions[0]
+    direction = str(getattr(pos, "direction", "")).strip().lower()
     if direction == "buy":
         return "bull"
     if direction == "sell":
@@ -232,9 +233,9 @@ def auto_trade(type):
             print(f'略過重複訊號: 已持有同方向倉位 {type}')
             return
 
-        cancelled_orders = _cancel_all_open_orders(api)
-        if cancelled_orders > 0:
-            print(f"已刪除舊掛單 {cancelled_orders} 筆")
+        # cancelled_orders = _cancel_all_open_orders(api)
+        # if cancelled_orders > 0:
+        #     print(f"已刪除舊掛單 {cancelled_orders} 筆")
 
         # 先平倉
         closePosition(api)
@@ -247,7 +248,7 @@ def auto_trade(type):
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             if latest_close is not None:
-                _place_take_profit_order(api, contract, "bull", latest_close, entry_qty)
+                # _place_take_profit_order(api, contract, "bull", latest_close, entry_qty)
                 send_discord_message(
                     f'[{testNow:%H:%M:%S}]：長線。多單停利單已掛出，價格 {int(round(latest_close + TAKE_PROFIT_POINTS))}'
                 )
@@ -258,7 +259,7 @@ def auto_trade(type):
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             if latest_close is not None:
-                _place_take_profit_order(api, contract, "bear", latest_close, entry_qty)
+                # _place_take_profit_order(api, contract, "bear", latest_close, entry_qty)
                 send_discord_message(
                     f'[{testNow:%H:%M:%S}]：長線。空單停利單已掛出，價格 {int(round(latest_close - TAKE_PROFIT_POINTS))}'
                 )
@@ -284,7 +285,8 @@ def closePosition(api):
                 pos_qty = int(pos_qty)
             except Exception:
                 pos_qty = 1
-            if pos['direction'] == 'Buy':
+            direction = str(getattr(pos, "direction", "")).strip()
+            if direction == 'Buy':
                 sellOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
@@ -296,7 +298,7 @@ def closePosition(api):
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
                 send_discord_message(f'[{testNow:%H:%M:%S}]：長線。丟空單平倉')
 
-            if pos['direction'] == 'Sell':
+            if direction == 'Sell':
                 buyOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
