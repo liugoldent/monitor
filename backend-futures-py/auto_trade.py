@@ -173,19 +173,26 @@ def _get_current_position_side(api) -> str | None:
     return None
 
 
+# 刪單
 def _cancel_all_open_orders(api) -> int:
-    cancelled = 0
     try:
-        api.update_status(api.futopt_account)
+        try:
+            api.update_status(api.futopt_account)
+        except TypeError:
+            api.update_status()
         trades = api.list_trades()
     except Exception as exc:
         print(f"⚠️ 查詢掛單失敗: {exc}")
         return 0
 
+    cancelled = 0
     for trade in trades:
         try:
             status = str(getattr(trade.status, "status", "")).strip().lower()
-            if status in {"filled", "cancelled", "failed"}:
+            if "." in status:
+                status = status.split(".")[-1]
+            status = status.replace("_", "").replace("-", "")
+            if status in {"filled", "cancelled", "failed", "inactive"}:
                 continue
             api.cancel_order(trade)
             cancelled += 1

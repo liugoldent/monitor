@@ -64,16 +64,162 @@ def _parse_number(raw: str) -> float | None:
         return None
 
 
-def _get_future_max_values() -> tuple[float | None, float | None]:
-    if not FUTURE_VALUE_PATH.exists():
-        return None, None
+def _get_contract(api):
+    return api.Contracts.Futures.TMF.TMFR1
+
+
+def _get_position_quantity(position) -> int:
+    raw_qty = getattr(position, "quantity", 0)
     try:
-        payload = json.loads(FUTURE_VALUE_PATH.read_text(encoding="utf-8"))
+        qty = int(abs(float(raw_qty)))
     except Exception:
-        return None, None
-    max_buy = _parse_number(payload.get("maxBuyValue"))
-    max_sell = _parse_number(payload.get("maxSellValue"))
-    return max_buy, max_sell
+        qty = 0
+    return qty or 1
+
+
+def _get_position_direction(position) -> str:
+    return str(getattr(position, "direction", "")).strip()
+
+
+def _normalize_trade_status(value) -> str:
+    text = str(value).strip().lower().replace("_", "").replace("-", "")
+    if "." in text:
+        text = text.split(".")[-1]
+    return text
+
+
+def _normalize_trade_action(value) -> str:
+    text = str(value).strip().lower()
+    if "." in text:
+        text = text.split(".")[-1]
+    return text
+
+
+def _build_order(api, side: str, quantity: int = 1, price: float | None = None, price_type=None, octype=None):
+    action = sj.constant.Action.Buy if side == "buy" else sj.constant.Action.Sell
+    resolved_price_type = price_type
+    resolved_price = 0 if price is None else price
+
+    if resolved_price_type is None:
+        resolved_price_type = (
+            sj.constant.FuturesPriceType.MKT
+            if price is None
+            else sj.constant.FuturesPriceType.LMT
+        )
+
+    if resolved_price_type == sj.constant.FuturesPriceType.MKT:
+        resolved_price = 0
+    else:
+        if resolved_price is None:
+            raise ValueError("限價單需要提供 price")
+        resolved_price = int(round(float(resolved_price)))
+
+    return api.Order(
+        action=action,
+        price=resolved_price,
+        quantity=int(quantity),
+        price_type=resolved_price_type,
+        order_type=sj.constant.OrderType.ROD,
+        octype=octype or sj.constant.FuturesOCType.Auto,
+        account=api.futopt_account,
+    )
+
+
+def _place_order(api, contract, side: str, quantity: int = 1, price: float | None = None, price_type=None, octype=None):
+    order = _build_order(
+        api,
+        side=side,
+        quantity=quantity,
+        price=price,
+        price_type=price_type,
+        octype=octype,
+    )
+    print("委託內容", order)
+    trade = api.place_order(contract, order, timeout=0)
+    print("委託回傳內容", trade)
+    return trade
+
+
+def list_open_trades(api) -> list:
+    try:
+        api.update_status(api.futopt_account)
+    except TypeError:
+        api.update_status()
+    trades = api.list_trades()
+    active_trades = []
+    for trade in trades:
+        print(trade)
+        status = _normalize_trade_status(getattr(getattr(trade, "status", None), "status", ""))
+        if status in {"filled", "cancelled", "failed", "inactive"}:
+            continue
+        active_trades.append(trade)
+    return active_trades
+
+
+def get_latest_open_trade(api, side: str | None = None):
+    trades = list_open_trades(api)
+    if side is None:
+        return trades[-1] if trades else None
+
+    expected = _normalize_trade_action(side)
+    for trade in reversed(trades):
+        action = _normalize_trade_action(getattr(getattr(trade, "order", None), "action", ""))
+        if action == expected:
+            return trade
+    return None
+
+
+def describe_trade(trade) -> dict:
+    order = getattr(trade, "order", None)
+    status = getattr(trade, "status", None)
+    return {
+        "action": _normalize_trade_action(getattr(order, "action", "")),
+        "price": getattr(order, "price", None),
+        "quantity": getattr(order, "quantity", None),
+        "status": _normalize_trade_status(getattr(status, "status", "")),
+        "order_id": getattr(status, "id", None),
+        "seqno": getattr(status, "seqno", None),
+    }
+
+
+def amend_trade_price(api, trade=None, price: float | None = None, quantity: int | None = None, side: str | None = None):
+    target_trade = trade or get_latest_open_trade(api, side=side)
+    if target_trade is None:
+        raise ValueError("找不到可改價的未成交委託")
+    if price is None and quantity is None:
+        raise ValueError("至少要提供 price 或 quantity 其中一個")
+
+    kwargs = {}
+    if price is not None:
+        kwargs["price"] = int(round(float(price)))
+    if quantity is not None:
+        kwargs["qty"] = int(quantity)
+
+    try:
+        api.update_order(target_trade, **kwargs)
+    except TypeError:
+        api.update_order(trade=target_trade, **kwargs)
+    return target_trade
+
+
+def cancel_trade(api, trade=None, side: str | None = None):
+    target_trade = trade or get_latest_open_trade(api, side=side)
+    if target_trade is None:
+        raise ValueError("找不到可刪除的未成交委託")
+    api.cancel_order(target_trade)
+    return target_trade
+
+
+def cancel_all_open_trades(api) -> list:
+    trades = list_open_trades(api)
+    cancelled = []
+    for trade in trades:
+        try:
+            api.cancel_order(trade)
+            cancelled.append(trade)
+        except Exception as exc:
+            print("刪單失敗", describe_trade(trade), exc)
+    return cancelled
 
 
 def _build_api_client():
@@ -126,20 +272,23 @@ atexit.register(_shutdown_api_client)
 
 def _close_position_with_api(api, test_now: datetime):
     positions = api.list_positions(api.futopt_account)
-    contract = api.Contracts.Futures.TMF.TMFR1
+    contract = _get_contract(api)
 
     if len(positions) == 0:
         _clear_h_trade_flatten_state()
         return
 
     if len(positions) > 0:
-        if positions[0]['direction'] == 'Buy':
-            sellOne(api, contract, len(positions))
+        pos = positions[0]
+        pos_qty = _get_position_quantity(pos)
+        direction = _get_position_direction(pos)
+        if direction == 'Buy':
+            sellOne(api, contract, pos_qty)
             send_discord_message(f'[{test_now:%H:%M:%S}]：短線。丟空單平倉')
             _clear_h_trade_flatten_state()
 
-        if positions[0]['direction'] == 'Sell':
-            buyOne(api, contract, len(positions))
+        if direction == 'Sell':
+            buyOne(api, contract, pos_qty)
             send_discord_message(f'[{test_now:%H:%M:%S}]：短線。丟多單平倉')
             _clear_h_trade_flatten_state()
 
@@ -148,18 +297,10 @@ def _close_position_with_api(api, test_now: datetime):
 def auto_trade(type):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
 
-    # current_time = testNow.time()
-    # night_start = time(15, 0)
-    # night_end = time(5, 0)
-    # if current_time >= night_start or current_time < night_end:
-    #     closePosition()
-    #     send_discord_message(f'[{testNow:%H:%M:%S}] 夜盤時段只做平倉')
-    #     return
-
     try:
         with API_LOCK:
             api = _get_api_client()
-            contract = api.Contracts.Futures.TMF.TMFR1
+            contract = _get_contract(api)
             api.update_status()
 
             # 先平倉
@@ -206,39 +347,33 @@ def closePosition():
 
 
 def buyOne(api, contract, quantity=1):
-    max_buy, _ = _get_future_max_values()
-    price = max_buy
-    order = api.Order(
-        action=sj.constant.Action.Buy,               # action (買賣別): Buy, Sell
-        price=0,                                     # price (價格)
-        quantity=quantity,                           # quantity (委託數量)
-        price_type=sj.constant.FuturesPriceType.MKT, # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,        # order_type (委託條件): IOC, ROD, FOK
-        octype=sj.constant.FuturesOCType.Auto,       # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
-        account=api.futopt_account                   # account (下單帳號)
-    )
-    print("委託內容", order)
-    # 執行委託
-    trade = api.place_order(contract, order, timeout=0)
-    print("委託回傳內容", trade)
+    return _place_order(api, contract, side="buy", quantity=quantity)
 
 
 def sellOne(api, contract, quantity=1):
-    _, max_sell = _get_future_max_values()
-    price = max_sell
-    order = api.Order(
-        action=sj.constant.Action.Sell,               # action (買賣別): Buy, Sell
-        price=0,                                      # price (價格)
-        quantity=quantity,                            # quantity (委託數量)
-        price_type=sj.constant.FuturesPriceType.MKT,  # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,         # order_type (委託條件): IOC, ROD, FOK
-        octype=sj.constant.FuturesOCType.Auto,        # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
-        account=api.futopt_account                    # account (下單帳號)
+    return _place_order(api, contract, side="sell", quantity=quantity)
+
+
+def buyOneLimit(api, contract, price: float, quantity=1):
+    return _place_order(
+        api,
+        contract,
+        side="buy",
+        quantity=quantity,
+        price=price,
+        price_type=sj.constant.FuturesPriceType.LMT,
     )
-    print("委託內容", order)
-    # 執行委託
-    trade = api.place_order(contract, order, timeout=0)
-    print("委託回傳內容", trade)
+
+
+def sellOneLimit(api, contract, price: float, quantity=1):
+    return _place_order(
+        api,
+        contract,
+        side="sell",
+        quantity=quantity,
+        price=price,
+        price_type=sj.constant.FuturesPriceType.LMT,
+    )
 
 
 def send_discord_message(content: str):

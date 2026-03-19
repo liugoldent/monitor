@@ -1,9 +1,9 @@
 {
-  "side": "bull",
-  "entry_price": 33320.0,
-  "add_on_done": true,
-  "add_on_quantity": 1,
-  "loss_points": 426.0,
-  "trigger_close": 32894.0,
-  "updated_at": "2026-03-13 15:18:03"
+  "side": "",
+  "entry_price": 0,
+  "add_on_done": false,
+  "add_on_quantity": 0,
+  "loss_points": 0,
+  "trigger_close": 0,
+  "updated_at": "2026-03-19 22:05:09"
 }

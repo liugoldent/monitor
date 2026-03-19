@@ -380,11 +380,15 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
 
     h_trade_bull_losing = False
     h_trade_bear_gaining = False
+    h_trade_bear_losing = False
+    h_trade_bull_gaining = False
     # 空單入場條件
     if latest_trade_entry is not None and latest_close_1min is not None:
         trade_side, trade_entry_price = latest_trade_entry
         h_trade_bull_losing = trade_side == "bull" and latest_close_1min < trade_entry_price
         h_trade_bear_gaining = trade_side == "bear" and latest_close_1min < trade_entry_price
+        h_trade_bear_losing = trade_side == "bear" and latest_close_1min > trade_entry_price
+        h_trade_bull_gaining = trade_side == "bull" and latest_close_1min > trade_entry_price
 
     # 多單出場條件
     if entry_side == "bull" and weakening_twice:
@@ -414,7 +418,7 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
 
     try:
         # 進場條件：多單入場條件為連續兩根轉強；
-        if strengthening_twice:
+        if strengthening_twice and (h_trade_bear_losing or h_trade_bull_gaining):
             api = _get_api_client()
             contract = api.Contracts.Futures.TMF.TMFR1
             buy_one_short(api, contract, quantity=1)
