@@ -292,8 +292,7 @@ def closePosition(api):
                 pos_qty = int(pos_qty)
             except Exception:
                 pos_qty = 1
-            direction = str(getattr(pos, "direction", "")).strip()
-            if direction == 'Buy':
+            if pos['direction'] == 'Buy':
                 sellOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
@@ -303,9 +302,8 @@ def closePosition(api):
                 else:
                     pnl = None
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
-                send_discord_message(f'[{testNow:%H:%M:%S}]：長線。丟空單平倉')
-
-            if direction == 'Sell':
+                send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟空單平倉')
+            if pos['direction'] == 'Sell':
                 buyOne(api, contract, quantity=pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
@@ -315,7 +313,7 @@ def closePosition(api):
                 else:
                     pnl = None
                 _append_trade("exiting", "bear", exit_price, pnl, quantity=pos_qty)
-                send_discord_message(f'[{testNow:%H:%M:%S}]：長線。丟多單平倉')
+                send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟多單平倉')
     except Exception as e:
         # api.logout()
         print('送單錯誤',e)
