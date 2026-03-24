@@ -18,7 +18,6 @@ import shioaji as sj
 
 # Configuration
 PORT = 8080
-CSV_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_5min.csv")
 CSV_FILE_1MIN = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_1min.csv")
 CSV_FILE_5MIN = os.path.join(os.path.dirname(__file__), "tv_doc", "webhook_data_5min.csv")
 CLEAR_TIME = (14, 0)
@@ -26,9 +25,9 @@ CLEAR_KEEP_ROWS = 5
 TZ = ZoneInfo("Asia/Taipei")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
 CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
-SQZMOM_SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "sqzmom_shortCycle.json")
-SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "shortCycle.json")
-H_TRADE_FLATTEN_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade_flatten.json")
+SQZMOM_SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "sqzmom_shortCycle.json")  # 紀錄 SQZMOM 短線策略的狀態，避免重複進場
+SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "shortCycle.json") # 紀錄短線是否有倉位的狀態，避免重複進場
+H_TRADE_FLATTEN_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade_flatten.json") # 紀錄 h_trade 浮虧加碼的狀態，避免重複加碼
 API_CLIENT = None
 
 DRY_RUN = os.getenv("DRY_RUN", "false").strip().lower() in {"1", "true", "yes"}
@@ -360,17 +359,20 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
 
     curr_row = rows[-1]
     timeframe = str(curr_row.get("Timeframe", "")).strip()
-    if timeframe != "5":
+    if timeframe != "1":
         return False
 
     sqz_values = [_to_float(row.get("SQZ_VAL")) for row in rows]
     curr_close = _to_float(curr_row.get("Close"))
-    if curr_close is None or any(value is None for value in sqz_values):
+    curr_open = _to_float(curr_row.get("Open"))
+    if curr_close is None or curr_open is None or any(value is None for value in sqz_values):
         return False
 
     prev2_sqz, prev1_sqz, curr_sqz = sqz_values
     strengthening_twice = prev2_sqz < prev1_sqz < curr_sqz
     weakening_twice = prev2_sqz > prev1_sqz > curr_sqz
+    strengthening_once = prev1_sqz < curr_sqz and prev2_sqz > prev1_sqz
+    weakening_once = prev1_sqz > curr_sqz and prev2_sqz < prev1_sqz
 
     now_ts = datetime.now(TZ).strftime("%H:%M:%S")
     state = _load_sqzmom_shortcycle_state()
@@ -391,19 +393,19 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
         h_trade_bull_gaining = trade_side == "bull" and latest_close_1min > trade_entry_price
 
     # 多單出場條件
-    if entry_side == "bull" and weakening_twice:
+    if entry_side == "bull" and weakening_once:
         _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / SQZ_VAL 連續兩根轉弱，多單出場"
+            f"[{now_ts}]：{int(curr_close)} / 短線，多單出場"
         )
         _close_all_positions()
         return True
 
     # 空單出場條件
-    if entry_side == "bear" and strengthening_twice:
+    if entry_side == "bear" and strengthening_once:
         _clear_sqzmom_shortcycle_state()
         send_discord_message_short(
-            f"[{now_ts}]：{int(curr_close)} / SQZ_VAL 連續兩根轉強，空單出場"
+            f"[{now_ts}]：{int(curr_close)} / 短線，空單出場"
         )
         _close_all_positions()
         return True
@@ -418,23 +420,23 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
 
     try:
         # 進場條件：多單入場條件為連續兩根轉強；
-        if strengthening_twice and (h_trade_bear_losing or h_trade_bull_gaining):
+        if strengthening_once and (h_trade_bear_losing or h_trade_bull_gaining) and curr_close < curr_open:
             api = _get_api_client()
             contract = api.Contracts.Futures.TMF.TMFR1
             buy_one_short(api, contract, quantity=1)
             send_discord_message_short(
-                f"[{now_ts}]：{int(curr_close)} / SQZ_VAL 連續兩根轉強，多單進場"
+                f"[{now_ts}]：{int(curr_close)} / 短線，多單進場"
             )
             _set_sqzmom_shortcycle_state("bull", "enter")
             return True
 
-        # 空單入場條件為 h_trade 多單賠錢且連續兩根轉弱
-        if weakening_twice and (h_trade_bull_losing or h_trade_bear_gaining):
+        # 空單入場條件為 h_trade 多單賠錢或是空單賺錢，且收紅
+        if weakening_once and (h_trade_bull_losing or h_trade_bear_gaining) and curr_close > curr_open:
             api = _get_api_client()
             contract = api.Contracts.Futures.TMF.TMFR1
             sell_one_short(api, contract, quantity=1)
             send_discord_message_short(
-                f"[{now_ts}]：{int(curr_close)} / h_trade 多單賠錢且 SQZ_VAL 連續兩根轉弱，空單進場"
+                f"[{now_ts}]：{int(curr_close)} / 短線，空單進場"
             )
             _set_sqzmom_shortcycle_state("bear", "enter")
             return True
@@ -442,7 +444,7 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
         return False
     except Exception as exc:
         send_discord_message_short(
-            f"[{now_ts}] SQZ_VAL 策略進場失敗：{exc}"
+            f"[{now_ts}] 短線策略進場失敗：{exc}"
         )
         return False
 
@@ -490,8 +492,6 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                         target_csv = CSV_FILE_5MIN
                     elif timeframe == "1":
                         target_csv = CSV_FILE_1MIN
-                    else:
-                        target_csv = CSV_FILE
 
                     _ensure_csv_header(target_csv, CSV_HEADER)
 
@@ -524,9 +524,9 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     sys.stdout.flush()  # Ensure output is printed immediately
                     if timeframe == "5":
                         print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
-                        run_sqz_val_long_only_strategy(target_csv)
+                        # run_sqz_val_long_only_strategy(target_csv)
                     elif timeframe == "1":
-                        # _run_h_trade_loss_add_on()
+                        run_sqz_val_long_only_strategy(target_csv)
                         print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     
                     # Respond success
