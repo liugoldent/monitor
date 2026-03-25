@@ -7,7 +7,6 @@ from datetime import datetime
 from threading import Thread
 import socketserver
 import time
-import threading
 from zoneinfo import ZoneInfo
 
 from auto_trade_shortCycle import send_discord_message as send_discord_message_short
@@ -25,13 +24,11 @@ CLEAR_KEEP_ROWS = 5
 TZ = ZoneInfo("Asia/Taipei")
 TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
 CA_PATH = os.getenv("CA_PATH") or os.path.join(os.path.dirname(__file__), "Sinopac.pfx")
-SQZMOM_SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "sqzmom_shortCycle.json")  # 紀錄 SQZMOM 短線策略的狀態，避免重複進場
-SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "shortCycle.json") # 紀錄短線是否有倉位的狀態，避免重複進場
+SHORTCYCLE_STATE_FILE = os.path.join(os.path.dirname(__file__), "tv_doc", "shortCycle.json")  # 單一 shortCycle state，統一記錄倉位與策略狀態
 H_TRADE_FLATTEN_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade_flatten.json") # 紀錄 h_trade 浮虧加碼的狀態，避免重複加碼
 API_CLIENT = None
 
 DRY_RUN = os.getenv("DRY_RUN", "false").strip().lower() in {"1", "true", "yes"}
-H_TRADE_ADD_ON_LOSS_POINTS = 400.0
 CSV_HEADER = [
     'Record Time',
     'Symbol',
@@ -214,93 +211,49 @@ def _mark_h_trade_add_on(
     _save_h_trade_flatten_state(payload)
 
 
-def _run_h_trade_loss_add_on() -> bool:
-    latest_close_1min = _get_latest_1min_close()
-    latest_trade_entry = _get_latest_trade_entry()
-    if latest_close_1min is None or latest_trade_entry is None:
-        return False
+def _default_shortcycle_state() -> dict:
+    return {
+        "direction": "",
+        "entry_time": "",
+        "quantity": 0,
+        "entry_side": "",
+        "last_action": "",
+        "updated_at": "",
+    }
 
-    trade_side, trade_entry_price = latest_trade_entry
-    if trade_side == "bull":
-        loss_points = trade_entry_price - latest_close_1min
-    elif trade_side == "bear":
-        loss_points = latest_close_1min - trade_entry_price
-    else:
-        return False
 
-    if loss_points < H_TRADE_ADD_ON_LOSS_POINTS:
-        return False
+def _load_shortcycle_state(path: str = SHORTCYCLE_STATE_FILE) -> dict:
+    state = _default_shortcycle_state()
 
-    flatten_state = _load_h_trade_flatten_state()
-    added_side = str(flatten_state.get("side", "")).strip().lower()
-    added_entry_price = _to_float(flatten_state.get("entry_price"))
-    add_on_done = bool(flatten_state.get("add_on_done", False))
-    if (
-        add_on_done
-        and added_side == trade_side
-        and added_entry_price is not None
-        and abs(added_entry_price - trade_entry_price) < 1e-9
-    ):
-        return False
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            if isinstance(payload, dict):
+                state.update(payload)
+        except Exception:
+            pass
 
-    now_ts = datetime.now(TZ).strftime("%H:%M:%S")
+    return state
+
+
+def _save_shortcycle_state(state: dict, path: str = SHORTCYCLE_STATE_FILE) -> None:
     try:
-        api = _get_api_client()
-        contract = api.Contracts.Futures.TMF.TMFR1
-        if trade_side == "bull":
-            buy_one_short(api, contract, quantity=1)
-            side_text = "多單"
-        else:
-            sell_one_short(api, contract, quantity=1)
-            side_text = "空單"
-
-        _mark_h_trade_add_on(
-            side=trade_side,
-            entry_price=trade_entry_price,
-            trigger_close=latest_close_1min,
-            loss_points=loss_points,
-        )
-        send_discord_message_short(
-            f"[{now_ts}]：{int(latest_close_1min)} / h_trade 浮虧 {int(loss_points)} 點，加碼同向{side_text} 1 口"
-        )
-        return True
-    except Exception as exc:
-        send_discord_message_short(
-            f"[{now_ts}] h_trade 浮虧加碼失敗：{exc}"
-        )
-        return False
-
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 def _has_shortcycle_position(path: str = SHORTCYCLE_STATE_FILE) -> bool:
-    if not os.path.isfile(path):
-        return False
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except Exception:
-        return False
-
+    payload = _load_shortcycle_state(path)
     direction = str(payload.get("direction", "")).strip().lower()
     quantity = _to_float(payload.get("quantity"))
     return direction in {"bull", "bear", "buy", "sell"} and (quantity or 0) > 0
 
 
 def _load_sqzmom_shortcycle_state():
-    if not os.path.exists(SQZMOM_SHORTCYCLE_STATE_FILE):
-        return {}
-    try:
-        with open(SQZMOM_SHORTCYCLE_STATE_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def _save_sqzmom_shortcycle_state(state):
-    try:
-        with open(SQZMOM_SHORTCYCLE_STATE_FILE, "w") as f:
-            json.dump(state, f)
-    except Exception:
-        pass
+    return _load_shortcycle_state()
 
 
 def _get_api_client():
@@ -337,19 +290,30 @@ def _close_all_positions() -> None:
 
 
 def _set_sqzmom_shortcycle_state(entry_side: str, action: str) -> None:
-    state = _load_sqzmom_shortcycle_state()
+    direction_map = {
+        "bull": "buy",
+        "bear": "sell",
+    }
+    state = _load_shortcycle_state()
     state["entry_side"] = entry_side
     state["last_action"] = action
+    state["direction"] = direction_map.get(entry_side, "")
+    state["quantity"] = 1 if action == "enter" and entry_side in direction_map else 0
+    if action == "enter":
+        state["entry_time"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
     state["updated_at"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-    _save_sqzmom_shortcycle_state(state)
+    _save_shortcycle_state(state)
 
 
 def _clear_sqzmom_shortcycle_state() -> None:
-    state = _load_sqzmom_shortcycle_state()
-    state.pop("entry_side", None)
-    state.pop("last_action", None)
+    state = _load_shortcycle_state()
+    state["entry_side"] = ""
+    state["last_action"] = ""
+    state["direction"] = ""
+    state["quantity"] = 0
+    state["entry_time"] = ""
     state["updated_at"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-    _save_sqzmom_shortcycle_state(state)
+    _save_shortcycle_state(state)
 
 
 def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
@@ -371,8 +335,8 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
     prev2_sqz, prev1_sqz, curr_sqz = sqz_values
     strengthening_twice = prev2_sqz < prev1_sqz < curr_sqz
     weakening_twice = prev2_sqz > prev1_sqz > curr_sqz
-    strengthening_once = prev1_sqz < curr_sqz and prev2_sqz > prev1_sqz
-    weakening_once = prev1_sqz > curr_sqz and prev2_sqz < prev1_sqz
+    strengthening_once = (curr_sqz > prev1_sqz and prev2_sqz > prev1_sqz) or strengthening_twice
+    weakening_once = (curr_sqz < prev1_sqz and prev2_sqz < prev1_sqz) or weakening_twice
 
     now_ts = datetime.now(TZ).strftime("%H:%M:%S")
     state = _load_sqzmom_shortcycle_state()
@@ -391,7 +355,8 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
         h_trade_bear_gaining = trade_side == "bear" and latest_close_1min < trade_entry_price
         h_trade_bear_losing = trade_side == "bear" and latest_close_1min > trade_entry_price
         h_trade_bull_gaining = trade_side == "bull" and latest_close_1min > trade_entry_price
-
+    print(entry_side, weakening_once)
+    
     # 多單出場條件
     if entry_side == "bull" and weakening_once:
         _clear_sqzmom_shortcycle_state()
@@ -400,7 +365,7 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
         )
         _close_all_positions()
         return True
-
+    print(entry_side, strengthening_once)
     # 空單出場條件
     if entry_side == "bear" and strengthening_once:
         _clear_sqzmom_shortcycle_state()
@@ -409,16 +374,18 @@ def run_sqz_val_long_only_strategy(csv_path: str) -> bool:
         )
         _close_all_positions()
         return True
-
+    print(entry_side, "check entry conditions")
     # 避免同時進場相衝
     if entry_side in {"bull", "bear"}:
         return False
 
     # 如果有倉位先return 
     if _has_shortcycle_position():
+        print(12333333)
         return False
 
     try:
+        print(strengthening_once, weakening_once, h_trade_bull_losing, h_trade_bear_gaining, h_trade_bear_losing, h_trade_bull_gaining)
         # 進場條件：多單入場條件為連續兩根轉強；
         if strengthening_once and (h_trade_bear_losing or h_trade_bull_gaining) and curr_close < curr_open:
             api = _get_api_client()
