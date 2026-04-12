@@ -36,7 +36,8 @@ TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 FUTURE_VALUE_PATH = Path(__file__).resolve().parent / "tv_doc" / "future_max_values.json"
 H_TRADE_FLATTEN_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade_flatten.json"
-TAKE_PROFIT_POINTS = 1000
+BULL_TAKE_PROFIT_POINTS = 750
+BEAR_TAKE_PROFIT_POINTS = 500
 
 
 def _ensure_trade_log() -> None:
@@ -106,10 +107,10 @@ def _get_recent_pnls(limit: int = 3) -> list[float]:
 def _get_entry_quantity() -> int:
     pnls = _get_recent_pnls(2)
     if not pnls:
-        return 1
+        return 2
     if len(pnls) >= 2 and pnls[0] < 0 and pnls[1] < 0:
         return 2
-    return 1
+    return 2
 
 
 def _get_latest_webhook_close() -> float | None:
@@ -202,7 +203,7 @@ def _cancel_all_open_orders(api) -> int:
 
 
 def _place_take_profit_order(api, contract, side: str, base_close: float, quantity: int) -> None:
-    target_price = int(round(base_close + TAKE_PROFIT_POINTS)) if side == "bull" else int(round(base_close - TAKE_PROFIT_POINTS))
+    target_price = int(round(base_close + BULL_TAKE_PROFIT_POINTS)) if side == "bull" else int(round(base_close - BEAR_TAKE_PROFIT_POINTS))
     action = sj.constant.Action.Sell if side == "bull" else sj.constant.Action.Buy
     order = api.Order(
         action=action,
@@ -240,9 +241,9 @@ def auto_trade(type):
             print(f'略過重複訊號: 已持有同方向倉位 {type}')
             return
 
-        # cancelled_orders = _cancel_all_open_orders(api)
-        # if cancelled_orders > 0:
-        #     print(f"已刪除舊掛單 {cancelled_orders} 筆")
+        cancelled_orders = _cancel_all_open_orders(api)
+        if cancelled_orders > 0:
+            print(f"已刪除舊掛單 {cancelled_orders} 筆")
 
         # 先平倉
         closePosition(api)
@@ -251,25 +252,27 @@ def auto_trade(type):
         
         # 平倉後進新倉
         if type == 'bull':
-            buyOne(api, contract, quantity=entry_qty)
+            buyOne(api, contract, 2)
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             if latest_close is not None:
-                # _place_take_profit_order(api, contract, "bull", latest_close, entry_qty)
-                send_discord_message(
-                    f'[{testNow:%H:%M:%S}]：長線。多單停利單已掛出，價格 {int(round(latest_close + TAKE_PROFIT_POINTS))}'
-                )
+                if entry_qty > 1:
+                    _place_take_profit_order(api, contract, "bull", latest_close, entry_qty -1)
+                    send_discord_message(
+                        f'[{testNow:%H:%M:%S}]：長線。多單停利單已掛出，價格 {int(round(latest_close + BULL_TAKE_PROFIT_POINTS))}'
+                    )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
-            sellOne(api, contract, quantity=entry_qty)
+            sellOne(api, contract, 2)
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             if latest_close is not None:
-                # _place_take_profit_order(api, contract, "bear", latest_close, entry_qty)
-                send_discord_message(
-                    f'[{testNow:%H:%M:%S}]：長線。空單停利單已掛出，價格 {int(round(latest_close - TAKE_PROFIT_POINTS))}'
-                )
+                if entry_qty > 1:
+                    _place_take_profit_order(api, contract, "bear", latest_close, entry_qty -1)
+                    send_discord_message(
+                        f'[{testNow:%H:%M:%S}]：長線。空單停利單已掛出，價格 {int(round(latest_close - BEAR_TAKE_PROFIT_POINTS))}'
+                    )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear')
 
         api.logout()
@@ -283,17 +286,20 @@ def closePosition(api):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
     try:
         positions = api.list_positions(api.futopt_account)
+        print("目前倉位", positions)
         contract = api.Contracts.Futures.TMF.TMFR1
 
         if len(positions) > 0:
             pos = positions[0]
+            print(pos, '目前倉位資訊')
             pos_qty = len(positions)
+            print(pos_qty, '目前倉位數量')
             try:
                 pos_qty = int(pos_qty)
             except Exception:
                 pos_qty = 1
             if pos['direction'] == 'Buy':
-                sellOne(api, contract, quantity=pos_qty)
+                sellOne(api, contract, 2)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
                 if last_entry:
@@ -304,7 +310,7 @@ def closePosition(api):
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟空單平倉')
             if pos['direction'] == 'Sell':
-                buyOne(api, contract, quantity=pos_qty)
+                buyOne(api, contract, 2)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
                 if last_entry:
@@ -328,7 +334,7 @@ def buyOne(api, contract, quantity=1):
         price=0,                                    # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
+        order_type=sj.constant.OrderType.IOC,           # order_type (委託條件): IOC, ROD, FOK
         octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
         account=api.futopt_account                 # account (下單帳號)
     )
@@ -347,7 +353,7 @@ def sellOne(api, contract, quantity=1):
         price=0,                        # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
+        order_type=sj.constant.OrderType.IOC,           # order_type (委託條件): IOC, ROD, FOK
         octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
         account=api.futopt_account                 # account (下單帳號)
     )
