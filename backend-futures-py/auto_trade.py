@@ -252,7 +252,7 @@ def auto_trade(type):
         
         # 平倉後進新倉
         if type == 'bull':
-            buyOne(api, contract, 2)
+            buyOne(api, contract, 1)
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             if latest_close is not None:
@@ -264,7 +264,7 @@ def auto_trade(type):
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
-            sellOne(api, contract, 2)
+            sellOne(api, contract, 1)
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             if latest_close is not None:
@@ -299,7 +299,7 @@ def closePosition(api):
             except Exception:
                 pos_qty = 1
             if pos['direction'] == 'Buy':
-                sellOne(api, contract, 2)
+                sellOne(api, contract, 1)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
                 if last_entry:
@@ -310,7 +310,7 @@ def closePosition(api):
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟空單平倉')
             if pos['direction'] == 'Sell':
-                buyOne(api, contract, 2)
+                buyOne(api, contract, 1)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
                 if last_entry:

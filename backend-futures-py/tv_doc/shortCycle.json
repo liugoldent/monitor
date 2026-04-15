@@ -1,8 +1,8 @@
 {
-  "direction": "",
-  "entry_time": "",
-  "quantity": 0,
-  "entry_side": "",
-  "last_action": "",
-  "updated_at": "2026-04-11 04:38:02"
+  "direction": "buy",
+  "entry_time": "2026-04-13 20:13:00",
+  "quantity": 1,
+  "entry_side": "bull",
+  "last_action": "enter",
+  "updated_at": "2026-04-13 20:13:00"
 }

@@ -7,6 +7,12 @@ from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 
+WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
+ALERT_THRESHOLD = 2000
+ALERT_WINDOW_SIZE = 5
+LAST_ALERT_STATE: str | None = None
+LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
+H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -119,6 +125,91 @@ def append_tradeinfo_csv(payload: object, now: datetime) -> None:
         writer.writerow([timestamp, tx_bvav, mtx_bvav, mtx_tbta, signal])
 
 
+def send_discord_message(message: str) -> None:
+    response = requests.post(WEBHOOK_URL, json={"content": message}, timeout=20)
+    response.raise_for_status()
+
+
+def read_latest_mtx_bvav_values(limit: int = ALERT_WINDOW_SIZE) -> list[float]:
+    if not CSV_PATH.exists():
+        return []
+
+    values: list[float] = []
+    with CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            value = _to_float(row.get("mtx_bvav"))
+            if value is not None:
+                values.append(value)
+    return values[-limit:]
+
+
+def read_latest_trade_side() -> str | None:
+    if not H_TRADE_CSV_PATH.exists():
+        return None
+
+    latest_side: str | None = None
+    with H_TRADE_CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            side = (row.get("side") or "").strip().lower()
+            if side in {"bear", "bull"}:
+                latest_side = side
+    return latest_side
+
+
+def check_mtx_bvav_alert() -> None:
+    global LAST_ALERT_STATE
+
+    latest_values = read_latest_mtx_bvav_values()
+    latest_side = read_latest_trade_side()
+
+    if len(latest_values) < ALERT_WINDOW_SIZE:
+        LAST_ALERT_STATE = None
+        return
+
+    if latest_side == "bear" and all(value > ALERT_THRESHOLD for value in latest_values):
+        alert_state = "short"
+        message = f"mxf_value.csv 的 mtx_bvav 連續 {ALERT_WINDOW_SIZE} 筆都 > {ALERT_THRESHOLD}，空單加碼"
+    elif latest_side == "bull" and all(value < -ALERT_THRESHOLD for value in latest_values):
+        alert_state = "long"
+        message = f"mxf_value.csv 的 mtx_bvav 連續 {ALERT_WINDOW_SIZE} 筆都 < -{ALERT_THRESHOLD}，多單加碼"
+    else:
+        LAST_ALERT_STATE = None
+        return
+
+    if LAST_ALERT_STATE == alert_state:
+        return
+
+    try:
+        send_discord_message(message)
+        LAST_ALERT_STATE = alert_state
+        print(f"📣 已送出 Discord 通知: {message}")
+    except Exception as exc:
+        print(f"❌ 發送 Discord 通知失敗: {exc}")
+
+
+def check_service_alive_alert(now: datetime) -> None:
+    global LAST_ALIVE_SENT_SLOT
+
+    if now.minute not in {0, 30}:
+        return
+
+    half_hour = 0 if now.minute == 0 else 1
+    slot = (now.strftime("%Y-%m-%d"), now.hour, half_hour)
+    if LAST_ALIVE_SENT_SLOT == slot:
+        return
+
+    minute_label = "00" if half_hour == 0 else "30"
+    message = f"服務還啟動著 - {now.strftime('%Y-%m-%d %H')}:{minute_label}"
+    try:
+        send_discord_message(message)
+        LAST_ALIVE_SENT_SLOT = slot
+        print(f"📣 已送出服務存活通知: {message}")
+    except Exception as exc:
+        print(f"❌ 發送服務存活通知失敗: {exc}")
+
+
 def get_collection_name(now: datetime) -> str:
     return now.strftime("%Y-%m-%d")
 
@@ -149,12 +240,20 @@ def sleep_until_next_minute() -> None:
 def main() -> None:
     while True:
         now = datetime.now(TZ)
-        if now.second == 0 and is_market_open(now):
+        try:
+            check_mtx_bvav_alert()
+            check_service_alive_alert(now)
+        except Exception as exc:
+            print(f"❌ 檢查通知狀態失敗: {exc}")
+
+        if is_market_open(now):
             try:
                 payload = fetch_tradeinfo()
                 collection_name = get_collection_name(now)
                 insert_tradeinfo(payload, collection_name, now)
                 append_tradeinfo_csv(payload, now)
+                check_mtx_bvav_alert()
+                check_service_alive_alert(now)
             except Exception as exc:
                 print(f"❌ 打 API 或寫入失敗: {exc}")
         sleep_until_next_minute()
