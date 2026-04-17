@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -49,6 +50,13 @@ def _normalize_cell(text: str) -> str:
     return " ".join(text.replace("\xa0", " ").split())
 
 
+def _find_header_index(normalized_cells: list[str], aliases: list[str]) -> int | None:
+    for idx, cell in enumerate(normalized_cells):
+        if any(alias in cell for alias in aliases):
+            return idx
+    return None
+
+
 def fetch_holdings(url: str) -> list[dict]:
     driver = None
     try:
@@ -80,14 +88,19 @@ def fetch_holdings(url: str) -> list[dict]:
             header_index = None
             code_idx = None
             name_idx = None
+            holding_count_idx = None
+            weight_idx = None
             for idx, row in enumerate(rows):
                 cells = row.find_elements(By.CSS_SELECTOR, "th, td")
                 normalized = [_normalize_cell(cell.text) for cell in cells]
-                for col_idx, cell in enumerate(normalized):
-                    if code_idx is None and ("代號" in cell or "代碼" in cell):
-                        code_idx = col_idx
-                    if name_idx is None and "名稱" in cell:
-                        name_idx = col_idx
+                if code_idx is None:
+                    code_idx = _find_header_index(normalized, ["代號", "代碼"])
+                if name_idx is None:
+                    name_idx = _find_header_index(normalized, ["名稱"])
+                if holding_count_idx is None:
+                    holding_count_idx = _find_header_index(normalized, ["持有數", "持有股數", "持有張數", "持有量"])
+                if weight_idx is None:
+                    weight_idx = _find_header_index(normalized, ["權重", "比重"])
                 if code_idx is not None and name_idx is not None:
                     header_index = idx
                     break
@@ -95,9 +108,12 @@ def fetch_holdings(url: str) -> list[dict]:
             if header_index is None:
                 continue
 
+            required_idx = max(
+                idx for idx in [code_idx, name_idx, holding_count_idx, weight_idx] if idx is not None
+            )
             for row in rows[header_index + 1 :]:
                 cells = row.find_elements(By.CSS_SELECTOR, "td")
-                if len(cells) <= max(code_idx, name_idx):
+                if len(cells) <= required_idx:
                     continue
                 code = _normalize_cell(cells[code_idx].text)
                 name = _normalize_cell(cells[name_idx].text)
@@ -105,7 +121,14 @@ def fetch_holdings(url: str) -> list[dict]:
                     continue
                 if "代號" in code or "名稱" in name:
                     continue
-                holdings.append({"code": code, "name": name})
+                holding_count = _normalize_cell(cells[holding_count_idx].text) if holding_count_idx is not None and len(cells) > holding_count_idx else ""
+                weight = _normalize_cell(cells[weight_idx].text) if weight_idx is not None and len(cells) > weight_idx else ""
+                holdings.append({
+                    "code": code,
+                    "name": name,
+                    "holding_count": holding_count,
+                    "weight": weight,
+                })
 
             if holdings:
                 break
@@ -131,14 +154,29 @@ def upsert_holdings(collection_name: str, source_url: str, data: list[dict], now
     db = client[DB_NAME]
     collection = db[collection_name]
 
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     payload = {
-        "_id": "latest",
-        "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "time": timestamp,
         "source": source_url,
         "data": data,
     }
-    collection.replace_one({"_id": "latest"}, payload, upsert=True)
-    print(f"✅ 已更新 {collection_name} 持股明細，共 {len(data)} 筆")
+
+    # 保留最新資料給現有 API 使用
+    latest_payload = {
+        "_id": "latest",
+        "time": timestamp,
+        "source": source_url,
+        "data": data,
+    }
+    collection.replace_one({"_id": "latest"}, latest_payload, upsert=True)
+
+    # 每次執行都新增一筆歷史資料，不覆蓋舊紀錄
+    history_payload = {
+        "_id": f"{timestamp}-{uuid.uuid4().hex}",
+        **payload,
+    }
+    collection.insert_one(history_payload)
+    print(f"✅ 已新增 {collection_name} 持股明細快照，時間 {timestamp} 共 {len(data)} 筆")
 
 
 def run_once() -> None:

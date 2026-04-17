@@ -241,9 +241,9 @@ def auto_trade(type):
             print(f'略過重複訊號: 已持有同方向倉位 {type}')
             return
 
-        cancelled_orders = _cancel_all_open_orders(api)
-        if cancelled_orders > 0:
-            print(f"已刪除舊掛單 {cancelled_orders} 筆")
+        # cancelled_orders = _cancel_all_open_orders(api)
+        # if cancelled_orders > 0:
+        #     print(f"已刪除舊掛單 {cancelled_orders} 筆")
 
         # 先平倉
         closePosition(api)
@@ -255,24 +255,24 @@ def auto_trade(type):
             buyOne(api, contract, 1)
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
-            if latest_close is not None:
-                if entry_qty > 1:
-                    _place_take_profit_order(api, contract, "bull", latest_close, entry_qty -1)
-                    send_discord_message(
-                        f'[{testNow:%H:%M:%S}]：長線。多單停利單已掛出，價格 {int(round(latest_close + BULL_TAKE_PROFIT_POINTS))}'
-                    )
+            # if latest_close is not None:
+                # if entry_qty > 1:
+                #     _place_take_profit_order(api, contract, "bull", latest_close, entry_qty -1)
+                #     send_discord_message(
+                #         f'[{testNow:%H:%M:%S}]：長線。多單停利單已掛出，價格 {int(round(latest_close + BULL_TAKE_PROFIT_POINTS))}'
+                #     )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
             sellOne(api, contract, 1)
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
-            if latest_close is not None:
-                if entry_qty > 1:
-                    _place_take_profit_order(api, contract, "bear", latest_close, entry_qty -1)
-                    send_discord_message(
-                        f'[{testNow:%H:%M:%S}]：長線。空單停利單已掛出，價格 {int(round(latest_close - BEAR_TAKE_PROFIT_POINTS))}'
-                    )
+            # if latest_close is not None:
+            #     if entry_qty > 1:
+            #         _place_take_profit_order(api, contract, "bear", latest_close, entry_qty -1)
+            #         send_discord_message(
+            #             f'[{testNow:%H:%M:%S}]：長線。空單停利單已掛出，價格 {int(round(latest_close - BEAR_TAKE_PROFIT_POINTS))}'
+            #         )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear')
 
         api.logout()
@@ -294,12 +294,8 @@ def closePosition(api):
             print(pos, '目前倉位資訊')
             pos_qty = len(positions)
             print(pos_qty, '目前倉位數量')
-            try:
-                pos_qty = int(pos_qty)
-            except Exception:
-                pos_qty = 1
             if pos['direction'] == 'Buy':
-                sellOne(api, contract, 1)
+                sellOne(api, contract, pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
                 if last_entry:
@@ -310,7 +306,7 @@ def closePosition(api):
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
                 send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟空單平倉')
             if pos['direction'] == 'Sell':
-                buyOne(api, contract, 1)
+                buyOne(api, contract, pos_qty)
                 last_entry = _get_last_entry()
                 exit_price = _get_latest_webhook_close()
                 if last_entry:

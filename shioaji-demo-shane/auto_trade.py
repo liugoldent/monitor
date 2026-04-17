@@ -127,7 +127,7 @@ def buyOne(api, contract, quantity=1):
         price=0,                                    # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
+        order_type=sj.constant.OrderType.IOC,           # order_type (委託條件): IOC, ROD, FOK
         octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
         account=api.futopt_account                 # account (下單帳號)
     )
@@ -143,7 +143,7 @@ def sellOne(api, contract, quantity=1):
         price=0,                                    # price (價格)
         quantity=quantity,                        # quantity (委託數量)
         price_type=sj.constant.FuturesPriceType.MKT,        # price_type (委託價格類別): LMT(限價), MKT(市價), MKP(範圍市價)
-        order_type=sj.constant.OrderType.ROD,           # order_type (委託條件): IOC, ROD, FOK
+        order_type=sj.constant.OrderType.IOC,           # order_type (委託條件): IOC, ROD, FOK
         octype=sj.constant.FuturesOCType.Auto,           # octype (倉別 ): Auto(自動), New(新倉), Cover(平倉), DayTrade(當沖)
         account=api.futopt_account                 # account (下單帳號)
     )
