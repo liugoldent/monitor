@@ -51,6 +51,7 @@ client = TelegramClient("session_monitor", api_id, api_hash)
 # Match "多1口" or "空1口" with flexible spacing.
 POSITION_PATTERN = re.compile(r"(空|多)\s*(\d+)\s*口")
 POSITION_REQUIRED_MARKER = "訊號通知"
+TARGET_SIGNAL_MARKER = "小H1"
 AUTO_TRADE_START = "開始自動交易"
 AUTO_TRADE_STOP = "停止自動交易"
 
@@ -78,6 +79,12 @@ async def bot_message_handler(event):
 
     # Parse position from known message format.
     text = event.text or ""
+
+    if TARGET_SIGNAL_MARKER not in text:
+        print(f"略過：訊息不包含 {TARGET_SIGNAL_MARKER}")
+        print("──────────────")
+        return
+    
     match = POSITION_PATTERN.search(text)
 
     if match and POSITION_REQUIRED_MARKER in text:

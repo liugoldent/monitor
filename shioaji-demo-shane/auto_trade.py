@@ -53,10 +53,9 @@ def _get_current_position_side(api) -> str | None:
 
 # 純下單func
 def auto_trade(type):
-    api = sj.Shioaji(simulation=True)
+    api = sj.Shioaji(simulation=False)
     api.login(os.getenv("API_KEY"), os.getenv("SECRET_KEY"))
     api.activate_ca(ca_path=ca_path, ca_passwd=os.getenv("PERSON_ID"), person_id=os.getenv("PERSON_ID"))
-    testNow = datetime.now(ZoneInfo("Asia/Taipei"))
 
     try:
         if not os.path.exists(ca_path):
@@ -71,7 +70,6 @@ def auto_trade(type):
 
         # 確認是否已有同方向倉位，若有則略過下單
         if current_side == type:
-            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。忽略重複訊號，當前已是 {type}')
             api.logout()
             print(f'略過重複訊號: 已持有同方向倉位 {type}')
             return
@@ -83,11 +81,9 @@ def auto_trade(type):
         # 平倉後進新倉
         if type == 'bull':
             buyOne(api, contract, quantity=entry_qty)
-            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
             sellOne(api, contract, quantity=entry_qty)
-            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear')
 
         api.logout()
         print('送單完成')
@@ -97,7 +93,6 @@ def auto_trade(type):
 
 
 def closePosition(api):
-    testNow = datetime.now(ZoneInfo("Asia/Taipei"))
     try:
         positions = api.list_positions(api.futopt_account)
         contract = api.Contracts.Futures.TMF.TMFR1
@@ -111,10 +106,8 @@ def closePosition(api):
                 pos_qty = 1
             if pos['direction'] == 'Buy':
                 sellOne(api, contract, quantity=pos_qty)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟空單平倉')
             if pos['direction'] == 'Sell':
                 buyOne(api, contract, quantity=pos_qty)
-                send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟多單平倉')
     except Exception as e:
         # api.logout()
         print('送單錯誤',e)
@@ -151,15 +144,3 @@ def sellOne(api, contract, quantity=1):
     # 執行委託
     trade = api.place_order(contract, order, timeout=0)
     print("委託回傳內容", trade)
-
-
-def send_discord_message(content: str):
-    payload = {
-        "username": "NotifierBot",
-        "content": content,
-    }
-    try:
-        response = requests.post(WEBHOOK_URL, json=payload)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"❌ 發送 Discord 訊息失敗: {e}")
