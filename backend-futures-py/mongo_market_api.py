@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
+import requests
 from pymongo import MongoClient, DESCENDING
 
 
@@ -34,8 +35,6 @@ load_env_file()
 
 MONGO_URI = require_env("MONGO_URI")
 DB_NAME = "stock_futures"
-TURNOVER_DB_NAME = "yahoo_turnover"
-TURNOVER_TECH_DB_NAME = "yahoo_turnover_tech"
 MXF_DB_NAME = "mxf_futures"
 ETF_DB_NAME = "Investment"
 ETF_COLLECTIONS = [
@@ -48,6 +47,7 @@ ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
 FUTURE_INDEX_DB_NAME = "FutureIndex"
 FUTURE_INDEX_COLLECTION = "index"
 TZ = ZoneInfo("Asia/Taipei")
+DEFAULT_DISCORD_WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL") or "").strip()
 
 mongo_client = MongoClient(MONGO_URI)
 
@@ -75,19 +75,6 @@ def fetch_latest_payload(date_str: str | None) -> dict:
     return doc
 
 
-def fetch_latest_turnover(date_str: str | None) -> dict:
-    collection_name = get_collection_name(date_str)
-    collection = mongo_client[TURNOVER_DB_NAME][collection_name]
-    doc = collection.find_one({"_id": "latest"})
-    if not doc:
-        return {}
-
-    return {
-        "data": doc.get("data", []),
-        "time": doc.get("time"),
-    }
-
-
 def _get_latest_collection_name(db) -> str | None:
     candidates = [
         name
@@ -95,22 +82,6 @@ def _get_latest_collection_name(db) -> str | None:
         if len(name) == 10 and name[4] == "-" and name[7] == "-"
     ]
     return max(candidates) if candidates else None
-
-
-def fetch_latest_turnover_tech(date_str: str | None) -> dict:
-    db = mongo_client[TURNOVER_TECH_DB_NAME]
-    collection_name = get_collection_name(date_str) if date_str else None
-    collection = db[collection_name] if collection_name else None
-    docs = list(collection.find({}, {"_id": 0})) if collection_name else []
-
-    if not docs:
-        fallback_name = _get_latest_collection_name(db)
-        if not fallback_name:
-            return {}
-        docs = list(db[fallback_name].find({}, {"_id": 0}))
-        return {"data": docs, "collection_name": fallback_name}
-
-    return {"data": docs, "collection_name": collection_name}
 
 
 def fetch_latest_mxf(date_str: str | None) -> dict:
@@ -256,6 +227,229 @@ def fetch_future_index_tech() -> dict:
     }
 
 
+def _parse_holding_count(value: object) -> int:
+    try:
+        return int(float(str(value).replace(",", "").strip()))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _doc_date(value: object) -> str:
+    text = str(value or "").strip()
+    return text[:10] if len(text) >= 10 else ""
+
+
+def _find_latest_doc_for_date(collection, target_date: str) -> dict | None:
+    cursor = collection.find(
+        {"time": {"$lte": f"{target_date} 23:59:59"}},
+        {"_id": 0},
+    ).sort([("time", DESCENDING), ("_id", DESCENDING)]).limit(1)
+    return next(iter(cursor), None)
+
+
+def _find_previous_doc_before_date(collection, latest_date: str) -> dict | None:
+    cursor = collection.find(
+        {"time": {"$lt": f"{latest_date} 00:00:00"}},
+        {"_id": 0},
+    ).sort([("time", DESCENDING), ("_id", DESCENDING)]).limit(1)
+    return next(iter(cursor), None)
+
+
+def _format_count(value: int) -> str:
+    return f"{value:,}"
+
+
+def _normalize_etf_names(raw_values: list[str]) -> list[str]:
+    allowed = {name for name, _ in ETF_COLLECTIONS}
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        name = str(value).strip()
+        if name not in allowed or name in seen:
+            continue
+        seen.add(name)
+        normalized.append(name)
+    return normalized
+
+
+def fetch_etf_holding_changes(date_str: str | None, etf_names: list[str]) -> dict:
+    db = mongo_client[ETF_DB_NAME]
+    target_date = date_str or datetime.now(TZ).strftime("%Y-%m-%d")
+    selected_etfs = _normalize_etf_names(etf_names)
+    if not selected_etfs:
+        selected_etfs = ["etf_00981A"]
+
+    per_etf_payload: list[dict] = []
+    latest_date = ""
+    previous_date = ""
+
+    for etf_name in selected_etfs:
+        collection = db[etf_name]
+        latest_doc = _find_latest_doc_for_date(collection, target_date)
+        if not latest_doc:
+            continue
+
+        current_latest_date = _doc_date(latest_doc.get("time"))
+        previous_doc = _find_previous_doc_before_date(collection, current_latest_date) if current_latest_date else None
+        if not previous_doc:
+            continue
+
+        latest_rows = latest_doc.get("data", []) if isinstance(latest_doc.get("data", []), list) else []
+        previous_rows = previous_doc.get("data", []) if isinstance(previous_doc.get("data", []), list) else []
+
+        latest_map: dict[str, dict] = {}
+        previous_map: dict[str, dict] = {}
+
+        for row in latest_rows:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get("code", "")).strip()
+            if not code:
+                continue
+            latest_map[code] = row
+
+        for row in previous_rows:
+            if not isinstance(row, dict):
+                continue
+            code = str(row.get("code", "")).strip()
+            if not code:
+                continue
+            previous_map[code] = row
+
+        per_etf_payload.append({
+            "etf": etf_name,
+            "latest_date": current_latest_date,
+            "previous_date": _doc_date(previous_doc.get("time")),
+            "latest_map": latest_map,
+            "previous_map": previous_map,
+        })
+
+        if not latest_date:
+            latest_date = current_latest_date
+        if not previous_date:
+            previous_date = _doc_date(previous_doc.get("time"))
+
+    if not per_etf_payload:
+        return {
+            "data": [],
+            "latest_date": "",
+            "previous_date": "",
+        }
+
+    common_codes = None
+    for payload in per_etf_payload:
+        latest_codes = set(payload["latest_map"].keys())
+        common_codes = latest_codes if common_codes is None else common_codes & latest_codes
+
+    if not common_codes:
+        return {
+            "data": [],
+            "latest_date": latest_date,
+            "previous_date": previous_date,
+            "selected_etfs": selected_etfs,
+        }
+
+    changes: list[dict] = []
+    for code in sorted(common_codes):
+        etf_details: list[dict] = []
+        total_latest = 0
+        total_previous = 0
+        total_delta = 0
+        display_name = ""
+
+        for payload in per_etf_payload:
+            etf_name = payload["etf"]
+            latest_map = payload["latest_map"]
+            previous_map = payload["previous_map"]
+
+            latest_row = latest_map.get(code, {})
+            previous_row = previous_map.get(code, {})
+            latest_count = _parse_holding_count(latest_row.get("holding_count"))
+            previous_count = _parse_holding_count(previous_row.get("holding_count"))
+            delta = latest_count - previous_count
+            status = (
+                "新增" if previous_count == 0 and latest_count > 0
+                else "減少" if latest_count == 0 and previous_count > 0
+                else "增加" if delta > 0
+                else "減少"
+            )
+
+            if not display_name:
+                display_name = str(latest_row.get("name") or previous_row.get("name") or "").strip()
+
+            total_latest += latest_count
+            total_previous += previous_count
+            total_delta += delta
+
+            etf_details.append({
+                "etf": etf_name,
+                "latest_holding_count": latest_count,
+                "previous_holding_count": previous_count,
+                "delta": delta,
+                "weight": latest_row.get("weight", previous_row.get("weight", "")),
+                "status": "持平" if delta == 0 else status,
+            })
+
+        changes.append({
+            "code": code,
+            "name": display_name,
+            "latest_holding_count": total_latest,
+            "previous_holding_count": total_previous,
+            "delta": total_delta,
+            "status": "持平" if total_delta == 0 else ("增加" if total_delta > 0 else "減少"),
+            "etfs": etf_details,
+        })
+
+    changes.sort(key=lambda item: (abs(item["delta"]), item["delta"]), reverse=True)
+
+    return {
+        "data": changes,
+        "latest_date": latest_date,
+        "previous_date": previous_date,
+        "selected_etfs": selected_etfs,
+    }
+
+
+def _build_etf_discord_message(date_str: str | None, etf_names: list[str]) -> str:
+    payload = fetch_etf_holding_changes(date_str, etf_names)
+    selected_etfs = payload.get("selected_etfs", [])
+    latest_date = payload.get("latest_date") or (date_str or "")
+    items = payload.get("data", [])
+    increase_count = sum(1 for item in items if int(item.get("delta", 0)) > 0)
+    flat_count = sum(1 for item in items if int(item.get("delta", 0)) == 0)
+    decrease_count = sum(1 for item in items if int(item.get("delta", 0)) < 0)
+
+    lines = [
+        f"ETF掃描 {latest_date}",
+        f"ETF: {' + '.join([etf.replace('etf_', '') for etf in selected_etfs]) or '-'}",
+    ]
+
+    if not items:
+        lines.append("結果: 無交集")
+        return "\n".join(lines)
+
+    lines.append(f"交集 {len(items)} 筆｜增 {increase_count} / 持平 {flat_count} / 減 {decrease_count}")
+    lines.append("交集結果:")
+
+    for index, item in enumerate(items, start=1):
+        code = str(item.get("code", "")).strip()
+        name = str(item.get("name", "")).strip()
+        delta = int(item.get("delta", 0))
+        sign = "+" if delta > 0 else ""
+        lines.append(f"{index}. {code} {name} / {sign}{_format_count(delta)}")
+
+    return "\n".join(lines)
+
+
+def send_discord_message(message: str, webhook_url: str | None = None) -> None:
+    target_url = (webhook_url or DEFAULT_DISCORD_WEBHOOK_URL).strip()
+    if not target_url:
+        raise ValueError("Missing Discord webhook URL")
+
+    response = requests.post(target_url, json={"content": message}, timeout=20)
+    response.raise_for_status()
+
+
 def fetch_etf_common_holdings() -> dict:
     db = mongo_client[ETF_DB_NAME]
     common_codes = None
@@ -301,7 +495,7 @@ class MarketApiHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(body)
@@ -376,6 +570,29 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 print(f"Error in chat_llm: {e}")
                 self._send_json(500, {"error": str(e)})
             return
+
+        if self.path == "/api/etf_holding_changes/share":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                post_data = self.rfile.read(content_length) if content_length > 0 else b"{}"
+                payload = json.loads(post_data.decode("utf-8"))
+
+                date_str = str(payload.get("date", "")).strip() or None
+                raw_etfs = payload.get("etfs", [])
+                webhook_url = str(payload.get("webhook_url", "")).strip() or None
+                if isinstance(raw_etfs, str):
+                    etfs = [item.strip() for item in raw_etfs.split(",") if item.strip()]
+                elif isinstance(raw_etfs, list):
+                    etfs = [str(item).strip() for item in raw_etfs if str(item).strip()]
+                else:
+                    etfs = []
+
+                message = _build_etf_discord_message(date_str, etfs)
+                send_discord_message(message, webhook_url)
+                self._send_json(200, {"status": "ok", "message": message})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
         
         self._send_json(404, {"error": "Not found"})
 
@@ -386,14 +603,6 @@ class MarketApiHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/stkfut_tradeinfo":
                 payload = fetch_latest_payload(date_str)
-                self._send_json(200, payload)
-                return
-            if parsed.path == "/api/turnover":
-                payload = fetch_latest_turnover(date_str)
-                self._send_json(200, payload)
-                return
-            if parsed.path == "/api/turnover_tech":
-                payload = fetch_latest_turnover_tech(date_str)
                 self._send_json(200, payload)
                 return
             if parsed.path == "/api/mxf":
@@ -417,6 +626,11 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/future_index_tech":
                 payload = fetch_future_index_tech()
+                self._send_json(200, payload)
+                return
+            if parsed.path == "/api/etf_holding_changes":
+                etfs = query.get("etfs", [""])[0].split(",")
+                payload = fetch_etf_holding_changes(date_str, etfs)
                 self._send_json(200, payload)
                 return
             if parsed.path == "/api/etf_common_holdings":
