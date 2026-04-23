@@ -15,21 +15,21 @@ tell application "iTerm"
     write text "nvm use v22"
     write text "node index.js"
   end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 2 : Python =====
   -- 台指期程式下單
   tell mainWindow
     create tab with default profile
   end tell
-  delay 1
+  delay 5
 
   tell current session of mainWindow
     write text "cd ~/Desktop/self/monitor/backend-futures-py"
     write text "source .venv/bin/activate"
     write text "python monitor_and_trade.py"
   end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 3 : Python MXF =====
   -- get MXF 資料
@@ -42,10 +42,10 @@ tell application "iTerm"
     write text "source .venv/bin/activate"
     write text "python monitor_mxf.py"
   end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 4 : Python Stock Futures =====
-  -- get 期貨即時資料
+  -- get 股票期貨資料
   tell mainWindow
     create tab with default profile
   end tell
@@ -55,55 +55,7 @@ tell application "iTerm"
     write text "source .venv/bin/activate"
     write text "python monitor_stock_futures.py"
   end tell
-  delay 1
-
-  -- ===== Tab 5 : Python Turnover =====
-  -- get yahoo成交量資料
-  tell mainWindow
-    create tab with default profile
-  end tell
-
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/backend-futures-py"
-    write text "source .venv/bin/activate"
-    write text "python monitor_turnover.py"
-  end tell
-  delay 1
-
-  -- ===== Tab 6 : Python Market API =====
-  -- 啟動 Market API
-  tell mainWindow
-    create tab with default profile
-  end tell
-
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/backend-futures-py"
-    write text "source .venv/bin/activate"
-    write text "python mongo_market_api.py"
-  end tell
-  delay 1
-
-  -- ===== Tab 7 : Chrome Debugger =====
-  -- TradingView 需要的 Chrome remote debugging
-  tell mainWindow to set newTab to (create tab with default profile)
-  tell current session of mainWindow
-    -- 修正重點：使用單引號包裹整個指令字串，避免 $符號被 AppleScript 誤判
-    write text "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --remote-allow-origins='*' --user-data-dir=\"$HOME/chrome-debug\" &"
-  end tell
-  delay 1
-
-  -- ===== Tab 8 : TradingView Tech =====
-  -- TradingView 技術指標資料抓取
-  tell mainWindow
-    create tab with default profile
-  end tell
-
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/backend-futures-py"
-    write text "source .venv/bin/activate"
-    write text "python monitor_tv_data.py"
-  end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 9 : Pocket ETF =====
   -- 每天 21:00 自動排程（monitor_pocket_etf.py 內排程）
@@ -116,7 +68,7 @@ tell application "iTerm"
     write text "source .venv/bin/activate"
     write text "python monitor_pocket_etf.py"
   end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 10 : Cloudflared Tunnel =====
   -- Webhook tunnel
@@ -127,7 +79,7 @@ tell application "iTerm"
   tell current session of mainWindow
     write text "cloudflared tunnel run --token eyJhIjoiZDM2YTZkNDkzNGEzMjI5ZjI1ZWQwZjQwOWE0OTU1MzEiLCJ0IjoiNzhiM2VlZjctNGNiMy00N2ZhLWEwOGUtMWMzZTU0MWQ2YjgyIiwicyI6Ik1qVTNaV0psTjJNdE0yRTFaQzAwTWpCakxUa3daR0l0TUdZeE1XVmtOVGc0TXpOayJ9"
   end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 11 : Webhook Server =====
   -- 接收 webhook 並寫入 CSV
@@ -140,20 +92,24 @@ tell application "iTerm"
     write text "source .venv/bin/activate"
     write text "python webhook_server.py"
   end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 12 : HQT Keedem Schedule =====
-  -- 08:00-09:00 上班 / 18:00-20:00 下班 每分鐘輸出
-  tell mainWindow
-    create tab with default profile
-  end tell
+  # -- 08:00-09:00 上班 / 18:00-20:00 下班 每分鐘輸出
+  # tell mainWindow
+  #   create tab with default profile
+  # end tell
 
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/google-clockIn"
-    write text "source .venv/bin/activate"
-    write text "python hqt_keedem_schedule_output.py"
-  end tell
-  delay 1
+  # tell current session of mainWindow
+  #   try
+  #     set name to "HQT Keedem Schedule"
+  #   end try
+  #   write text "printf '\\033]0;HQT Keedem Schedule\\a'"
+  #   write text "cd ~/Desktop/self/monitor/google-clockIn"
+  #   write text "source .venv/bin/activate"
+  #   write text "python hqt_keedem_schedule_output.py"
+  # end tell
+  # delay 5
   
   -- ===== Tab 13 : Frontend =====
   -- 啟動 Frontend
@@ -167,7 +123,7 @@ tell application "iTerm"
     write text "nvm use v22"
     write text "pnpm dev"
   end tell
-  delay 1
+  delay 5
 
   -- ===== Tab 14 : Render Ping =====
   -- 每 15 分鐘 GET 一次 monitor-9dtg.onrender.com
@@ -180,7 +136,7 @@ tell application "iTerm"
     write text "source .venv/bin/activate"
     write text "python monitor_render_ping.py"
   end tell
-  delay 1
+  delay 5
 
 end tell
 EOF2

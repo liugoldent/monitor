@@ -13,6 +13,8 @@ ALERT_WINDOW_SIZE = 5
 LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
+MTX_BVAV_AVG_WINDOW = 23
+MXF_CSV_HEADER = ["time", "tx_bvav", "mtx_bvav", "mtx_bvav_avg", "mtx_tbta", "signal"]
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -94,6 +96,12 @@ def _to_float(value: object) -> float | None:
         return None
 
 
+def _format_int(value: float | None) -> str:
+    if value is None:
+        return ""
+    return str(int(round(value)))
+
+
 def _get_signal(tx_bvav: float | None, mtx_bvav: float | None, mtx_tbta: float | None) -> str:
     if tx_bvav is None or mtx_bvav is None or mtx_tbta is None:
         return "none"
@@ -102,6 +110,65 @@ def _get_signal(tx_bvav: float | None, mtx_bvav: float | None, mtx_tbta: float |
     if tx_bvav < 0 and mtx_bvav < 0 and mtx_tbta > 0:
         return "bear"
     return "none"
+
+
+def _read_mtx_bvav_history() -> list[float]:
+    if not CSV_PATH.exists():
+        return []
+
+    values: list[float] = []
+    with CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            value = _to_float(row.get("mtx_bvav"))
+            if value is not None:
+                values.append(value)
+    return values
+
+
+def _calculate_mtx_bvav_avg(current_value: float | None) -> float | None:
+    if current_value is None:
+        return None
+
+    history = _read_mtx_bvav_history()
+    window = history[-(MTX_BVAV_AVG_WINDOW - 1):]
+    window.append(current_value)
+    if not window:
+        return None
+    return sum(window) / len(window)
+
+
+def _ensure_mxf_csv_header() -> None:
+    if not CSV_PATH.exists():
+        return
+
+    try:
+        with CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
+            reader = csv.reader(handle)
+            rows = list(reader)
+    except Exception:
+        return
+
+    if not rows:
+        return
+
+    current_header = rows[0]
+    if current_header == MXF_CSV_HEADER:
+        return
+
+    data_rows = rows[1:]
+    normalized_rows: list[list[str]] = []
+    for row in data_rows:
+        if len(row) < len(MXF_CSV_HEADER):
+            row = row + [""] * (len(MXF_CSV_HEADER) - len(row))
+        elif len(row) > len(MXF_CSV_HEADER):
+            row = row[:len(MXF_CSV_HEADER)]
+        normalized_rows.append(row)
+
+    with CSV_PATH.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(MXF_CSV_HEADER)
+        writer.writerows(normalized_rows)
 
 
 def append_tradeinfo_csv(payload: object, now: datetime) -> None:
@@ -114,15 +181,24 @@ def append_tradeinfo_csv(payload: object, now: datetime) -> None:
     mtx_bvav = _to_float(doc.get("mtx_bvav"))
     mtx_tbta = _to_float(doc.get("mtx_tbta"))
     signal = _get_signal(tx_bvav, mtx_bvav, mtx_tbta)
+    mtx_bvav_avg = _calculate_mtx_bvav_avg(mtx_bvav)
 
     CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_mxf_csv_header()
     file_exists = CSV_PATH.exists()
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     with CSV_PATH.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         if not file_exists:
-            writer.writerow(["time", "tx_bvav", "mtx_bvav", "mtx_tbta", "signal"])
-        writer.writerow([timestamp, tx_bvav, mtx_bvav, mtx_tbta, signal])
+            writer.writerow(MXF_CSV_HEADER)
+        writer.writerow([
+            timestamp,
+            _format_int(tx_bvav),
+            _format_int(mtx_bvav),
+            _format_int(mtx_bvav_avg),
+            _format_int(mtx_tbta),
+            signal,
+        ])
 
 
 def send_discord_message(message: str) -> None:
