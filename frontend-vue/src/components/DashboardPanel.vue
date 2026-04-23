@@ -43,7 +43,7 @@ type EtfHoldingDetail = {
     previous_holding_count: number
     delta: number
     weight?: string
-    status: '新增' | '增加' | '減少'
+    status: '新增' | '增加' | '減少' | '持平'
 }
 
 const stockName = ref('')
