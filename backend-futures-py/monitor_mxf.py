@@ -8,11 +8,10 @@ from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
-ALERT_THRESHOLD = 2000
-ALERT_WINDOW_SIZE = 5
 LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
+WEBHOOK_DATA_1MIN_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 MTX_BVAV_AVG_WINDOW = 23
 MXF_CSV_HEADER = ["time", "tx_bvav", "mtx_bvav", "mtx_bvav_avg", "mtx_tbta", "signal"]
 
@@ -206,20 +205,6 @@ def send_discord_message(message: str) -> None:
     response.raise_for_status()
 
 
-def read_latest_mtx_bvav_values(limit: int = ALERT_WINDOW_SIZE) -> list[float]:
-    if not CSV_PATH.exists():
-        return []
-
-    values: list[float] = []
-    with CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            value = _to_float(row.get("mtx_bvav"))
-            if value is not None:
-                values.append(value)
-    return values[-limit:]
-
-
 def read_latest_trade_side() -> str | None:
     if not H_TRADE_CSV_PATH.exists():
         return None
@@ -234,22 +219,70 @@ def read_latest_trade_side() -> str | None:
     return latest_side
 
 
+def _read_latest_webhook_rows(limit: int = 2) -> list[dict]:
+    if not WEBHOOK_DATA_1MIN_PATH.exists():
+        return []
+
+    try:
+        with WEBHOOK_DATA_1MIN_PATH.open("r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+    except Exception:
+        return []
+
+    return rows[-limit:] if len(rows) >= limit else rows
+
+
 def check_mtx_bvav_alert() -> None:
     global LAST_ALERT_STATE
 
-    latest_values = read_latest_mtx_bvav_values()
     latest_side = read_latest_trade_side()
-
-    if len(latest_values) < ALERT_WINDOW_SIZE:
+    latest_rows = _read_latest_webhook_rows(2)
+    if len(latest_rows) < 2:
         LAST_ALERT_STATE = None
         return
 
-    if latest_side == "bear" and all(value > ALERT_THRESHOLD for value in latest_values):
-        alert_state = "short"
-        message = f"mxf_value.csv 的 mtx_bvav 連續 {ALERT_WINDOW_SIZE} 筆都 > {ALERT_THRESHOLD}，空單加碼"
-    elif latest_side == "bull" and all(value < -ALERT_THRESHOLD for value in latest_values):
-        alert_state = "long"
-        message = f"mxf_value.csv 的 mtx_bvav 連續 {ALERT_WINDOW_SIZE} 筆都 < -{ALERT_THRESHOLD}，多單加碼"
+    prev_row, curr_row = latest_rows[-2], latest_rows[-1]
+    prev_close = _to_float(prev_row.get("Close"))
+    curr_close = _to_float(curr_row.get("Close"))
+    prev_ma_p200 = _to_float(prev_row.get("MA_P200"))
+    curr_ma_p200 = _to_float(curr_row.get("MA_P200"))
+    prev_ma_n200 = _to_float(prev_row.get("MA_N200"))
+    curr_ma_n200 = _to_float(curr_row.get("MA_N200"))
+
+    if latest_side == "bear":
+        if (
+            prev_close is not None
+            and curr_close is not None
+            and prev_ma_p200 is not None
+            and curr_ma_p200 is not None
+            and prev_close > prev_ma_p200
+            and curr_close < curr_ma_p200
+        ):
+            alert_state = "short"
+            message = (
+                "shortCycle 空單加碼訊號："
+                f"close 由 {prev_close} 跌破 MA_P200 {curr_ma_p200}"
+            )
+        else:
+            LAST_ALERT_STATE = None
+            return
+    elif latest_side == "bull":
+        if (
+            prev_close is not None
+            and curr_close is not None
+            and prev_ma_n200 is not None
+            and curr_ma_n200 is not None
+            and prev_close < prev_ma_n200
+            and curr_close > curr_ma_n200
+        ):
+            alert_state = "long"
+            message = (
+                "shortCycle 多單加碼訊號："
+                f"close 由 {prev_close} 穿越 MA_N200 {curr_ma_n200}"
+            )
+        else:
+            LAST_ALERT_STATE = None
+            return
     else:
         LAST_ALERT_STATE = None
         return
