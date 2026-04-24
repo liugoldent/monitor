@@ -279,10 +279,8 @@ def closePosition(api):
 
         if len(positions) > 0:
             pos = positions[0]
-            print(pos, '目前倉位資訊')
-            print(pos['quntity'], '目前倉位數量')
-            pos_qty = len(positions)
-            print(pos_qty, '目前倉位數量')
+            print(pos['quantity'], '目前倉位數量') # 這個可以用
+            pos_qty = int(pos['quantity'])
             if pos['direction'] == 'Buy':
                 sellOne(api, contract, pos_qty)
                 last_entry = _get_last_entry()
