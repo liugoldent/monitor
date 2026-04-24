@@ -146,9 +146,22 @@ tell application "iTerm"
   delay 2
 
   tell current session of mainWindow
-    write text "/Users/kt/Desktop/self/monitor/shioaji-demo-shane"
+    write text "cd ~/Desktop/self/monitor/shioaji-demo-shane"
     write text "source .venv/bin/activate"
     write text "python monitor_and_trade.py"
+  end tell
+  delay 2
+
+  -- ===== Tab 16 : Webhook Server =====
+  -- 接收 webhook 並寫入 CSV
+  tell mainWindow
+    create tab with default profile
+  end tell
+
+  tell current session of mainWindow
+    write text "cd ~/Desktop/self/monitor/backend-futures-py"
+    write text "source .venv/bin/activate"
+    write text "python mongo_market_api.py"
   end tell
   delay 2
 

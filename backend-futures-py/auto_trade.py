@@ -107,10 +107,10 @@ def _get_recent_pnls(limit: int = 3) -> list[float]:
 def _get_entry_quantity() -> int:
     pnls = _get_recent_pnls(2)
     if not pnls:
-        return 2
+        return 1
     if len(pnls) >= 2 and pnls[0] < 0 and pnls[1] < 0:
         return 2
-    return 2
+    return 1
 
 
 def _get_latest_webhook_close() -> float | None:
@@ -252,27 +252,15 @@ def auto_trade(type):
         
         # 平倉後進新倉
         if type == 'bull':
-            buyOne(api, contract, 1)
+            buyOne(api, contract, entry_qty)
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
-            # if latest_close is not None:
-                # if entry_qty > 1:
-                #     _place_take_profit_order(api, contract, "bull", latest_close, entry_qty -1)
-                #     send_discord_message(
-                #         f'[{testNow:%H:%M:%S}]：長線。多單停利單已掛出，價格 {int(round(latest_close + BULL_TAKE_PROFIT_POINTS))}'
-                #     )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
-            sellOne(api, contract, 1)
+            sellOne(api, contract, entry_qty)
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
-            # if latest_close is not None:
-            #     if entry_qty > 1:
-            #         _place_take_profit_order(api, contract, "bear", latest_close, entry_qty -1)
-            #         send_discord_message(
-            #             f'[{testNow:%H:%M:%S}]：長線。空單停利單已掛出，價格 {int(round(latest_close - BEAR_TAKE_PROFIT_POINTS))}'
-            #         )
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear')
 
         api.logout()
@@ -292,6 +280,7 @@ def closePosition(api):
         if len(positions) > 0:
             pos = positions[0]
             print(pos, '目前倉位資訊')
+            print(pos['quntity'], '目前倉位數量')
             pos_qty = len(positions)
             print(pos_qty, '目前倉位數量')
             if pos['direction'] == 'Buy':

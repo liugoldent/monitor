@@ -60,7 +60,7 @@ const selectedStock = ref<{
 const etfChanges = ref<EtfHoldingChangeItem[]>([])
 const etfLatestDate = ref('')
 const etfPreviousDate = ref('')
-const selectedEtfs = ref<string[]>(['etf_00981A'])
+const selectedEtfs = ref<string[]>(ETF_OPTIONS.map((item) => item.value))
 const etfPickerOpen = ref(false)
 const showAiModal = ref(false)
 const showShareModal = ref(false)
@@ -163,12 +163,12 @@ const toggleEtf = (value: string) => {
 }
 
 const setEtfSelection = (values: string[]) => {
-    selectedEtfs.value = values.length ? values : ['etf_00981A']
+    selectedEtfs.value = values.length ? values : ETF_OPTIONS.map((item) => item.value)
     fetchEtfChanges()
 }
 
 const selectAllEtfs = () => setEtfSelection(ETF_OPTIONS.map((item) => item.value))
-const clearEtfs = () => setEtfSelection(['etf_00981A'])
+const clearEtfs = () => setEtfSelection(ETF_OPTIONS.map((item) => item.value))
 
 const toggleTheme = () => {
     isContrastMode.value = !isContrastMode.value
