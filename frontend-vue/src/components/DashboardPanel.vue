@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { resolveApiUrl } from '../utils/api'
 
 type MarketItem = {
@@ -46,6 +46,21 @@ type EtfHoldingDetail = {
     status: '新增' | '增加' | '減少' | '持平'
 }
 
+type EtfNewHoldingItem = {
+    code: string
+    name: string
+    latest_holding_count: number
+    previous_holding_count: number
+    delta: number
+    weight?: string
+}
+
+type EtfNewHoldingGroup = {
+    etf: string
+    label: string
+    items: EtfNewHoldingItem[]
+}
+
 const stockName = ref('')
 const stockCode = ref('')
 const stockPrice = ref('')
@@ -58,6 +73,7 @@ const selectedStock = ref<{
     price: string
 } | null>(null)
 const etfChanges = ref<EtfHoldingChangeItem[]>([])
+const allEtfChanges = ref<EtfHoldingChangeItem[]>([])
 const etfLatestDate = ref('')
 const etfPreviousDate = ref('')
 const selectedEtfs = ref<string[]>(ETF_OPTIONS.map((item) => item.value))
@@ -108,6 +124,8 @@ const formatDelta = (value: number) => {
     return `${sign}${new Intl.NumberFormat('en-US').format(value)}`
 }
 
+const formatEtfLabel = (value: string) => value.replace('etf_', '')
+
 const formatDateString = (date: Date) => {
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -149,6 +167,97 @@ const fetchEtfChanges = async () => {
         etfChanges.value = []
     }
 }
+
+const fetchAllEtfChanges = async () => {
+    try {
+        const today = formatDateString(new Date())
+        const responses = await Promise.all(
+            ETF_OPTIONS.map(async (option) => {
+                const params = new URLSearchParams({
+                    date: today,
+                    etfs: option.value,
+                })
+                const response = await fetch(`${ETF_HOLDING_CHANGES_API_URL}?${params.toString()}`)
+                const payload = await response.json()
+                return Array.isArray(payload?.data) ? payload.data : []
+            }),
+        )
+
+        const merged = responses.flatMap((rows) => rows)
+        const map = new Map<string, EtfHoldingChangeItem>()
+
+        for (const item of merged) {
+            const code = String(item?.code ?? '').trim()
+            if (!code) continue
+
+            const latestHoldingCount = Number(item?.latest_holding_count ?? 0)
+            const previousHoldingCount = Number(item?.previous_holding_count ?? 0)
+            const delta = Number(item?.delta ?? 0)
+            const etfs = Array.isArray(item?.etfs)
+                ? item.etfs.map((detail: any) => ({
+                    etf: String(detail.etf ?? '').trim(),
+                    latest_holding_count: Number(detail.latest_holding_count ?? 0),
+                    previous_holding_count: Number(detail.previous_holding_count ?? 0),
+                    delta: Number(detail.delta ?? 0),
+                    weight: detail.weight ?? '',
+                    status: detail.status ?? '增加',
+                }))
+                : []
+
+            const existing = map.get(code)
+            if (existing) {
+                existing.latest_holding_count += latestHoldingCount
+                existing.previous_holding_count += previousHoldingCount
+                existing.delta += delta
+                existing.etfs.push(...etfs)
+                if (!existing.name) existing.name = String(item?.name ?? '').trim()
+                continue
+            }
+
+            map.set(code, {
+                code,
+                name: String(item?.name ?? '').trim(),
+                latest_holding_count: latestHoldingCount,
+                previous_holding_count: previousHoldingCount,
+                delta,
+                etfs,
+            })
+        }
+
+        allEtfChanges.value = [...map.values()]
+    } catch (error) {
+        console.error('Failed to load all ETF changes:', error)
+        allEtfChanges.value = []
+    }
+}
+
+const etfNewHoldings = computed<EtfNewHoldingGroup[]>(() => {
+    return ETF_OPTIONS.map((option) => {
+        const items: EtfNewHoldingItem[] = []
+
+        for (const holding of allEtfChanges.value) {
+            const detail = holding.etfs.find((item) => item.etf === option.value)
+            if (!detail || detail.status !== '新增') continue
+
+            items.push({
+                code: holding.code,
+                name: holding.name,
+                latest_holding_count: detail.latest_holding_count,
+                previous_holding_count: detail.previous_holding_count,
+                delta: detail.delta,
+                weight: detail.weight,
+            })
+        }
+
+        return {
+            etf: option.value,
+            label: option.label,
+            items,
+        }
+    })
+})
+
+const hasEtfNewHoldings = computed(() => etfNewHoldings.value.some((group) => group.items.length > 0))
 
 const isSelectedEtf = (value: string) => selectedEtfs.value.includes(value)
 
@@ -285,7 +394,11 @@ onMounted(() => {
     loadTheme()
     loadDiscordWebhookUrl()
     fetchEtfChanges()
-    refreshTimer = setInterval(fetchEtfChanges, 60_000)
+    fetchAllEtfChanges()
+    refreshTimer = setInterval(() => {
+        fetchEtfChanges()
+        fetchAllEtfChanges()
+    }, 60_000)
 })
 
 onBeforeUnmount(() => {
@@ -373,7 +486,7 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
                 <div class="mt-2 text-[10px]" :class="isContrastMode ? 'text-slate-200/85' : 'text-gray-500'">
-                    目前交集：{{ selectedEtfs.map((etf) => etf.replace('etf_', '')).join(' + ') || '-' }}
+                    目前交集：{{ selectedEtfs.map((etf) => formatEtfLabel(etf)).join(' + ') || '-' }}
                 </div>
 
                 <div
@@ -447,7 +560,7 @@ onBeforeUnmount(() => {
                                 class="grid grid-cols-5 text-center py-2 border-b text-xs items-center"
                                 :class="isContrastMode ? 'border-slate-700/70 bg-[#090d13]' : 'border-gray-800 bg-black/20'"
                             >
-                                <div :class="isContrastMode ? 'text-slate-100' : 'text-gray-300'">{{ detail.etf.replace('etf_', '') }}</div>
+                                <div :class="isContrastMode ? 'text-slate-100' : 'text-gray-300'">{{ formatEtfLabel(detail.etf) }}</div>
                                 <div :class="isContrastMode ? 'text-slate-200' : 'text-gray-400'">{{ formatCount(detail.previous_holding_count) }}</div>
                                 <div class="text-amber-300">{{ formatCount(detail.latest_holding_count) }}</div>
                                 <div :class="detail.delta > 0 ? 'text-red-300' : 'text-emerald-300'">
@@ -470,6 +583,71 @@ onBeforeUnmount(() => {
 
                     <div v-if="!etfChanges.length" class="text-center text-xs text-gray-500 py-6">
                         尚無可比較的 ETF 持有變化資料
+                    </div>
+
+                    <div class="px-3 py-4 border-t" :class="isContrastMode ? 'border-slate-700/80 bg-[#05080e]' : 'border-gray-900 bg-black/30'">
+                        <div class="flex items-end justify-between gap-3 mb-3">
+                            <div>
+                                <h3 class="text-sm font-bold tracking-wide text-white">
+                                    各 ETF 新增股票
+                                </h3>
+                                <p class="mt-1 text-[10px]" :class="isContrastMode ? 'text-slate-200/80' : 'text-gray-500'">
+                                    只列出狀態為「新增」的持股，方便直接看每個 ETF 最近加了哪些股票
+                                </p>
+                            </div>
+                            <div class="text-[10px]" :class="isContrastMode ? 'text-slate-200/70' : 'text-gray-500'">
+                                依目前選取的 ETF 分組
+                            </div>
+                        </div>
+
+                        <div v-if="hasEtfNewHoldings" class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            <div
+                                v-for="group in etfNewHoldings"
+                                :key="group.etf"
+                                class="rounded-xl border overflow-hidden"
+                                :class="isContrastMode ? 'border-slate-700/80 bg-[#09111a]' : 'border-gray-800 bg-[#101010]'"
+                            >
+                                <div
+                                    class="flex items-center justify-between gap-3 px-3 py-2 border-b text-xs font-semibold"
+                                    :class="isContrastMode ? 'border-slate-700 text-slate-100' : 'border-gray-800 text-gray-300'"
+                                >
+                                    <span>{{ group.label }}</span>
+                                    <span class="rounded-full px-2 py-0.5 text-[10px]"
+                                        :class="isContrastMode ? 'bg-emerald-400/15 text-emerald-200' : 'bg-emerald-500/10 text-emerald-300'"
+                                    >
+                                        {{ group.items.length }} 檔
+                                    </span>
+                                </div>
+
+                                <div v-if="group.items.length" class="max-h-72 overflow-y-auto">
+                                    <div
+                                        v-for="stock in group.items"
+                                        :key="`${group.etf}-${stock.code}`"
+                                        class="flex items-center justify-between gap-3 border-b px-3 py-2 text-xs"
+                                        :class="isContrastMode ? 'border-slate-800/80 bg-[#070b10]' : 'border-gray-800 bg-black/20'"
+                                    >
+                                        <div class="min-w-0">
+                                            <div class="truncate font-medium text-white">
+                                                {{ stock.code }}
+                                                <span class="ml-2 text-gray-300">{{ stock.name }}</span>
+                                            </div>
+                                            <div class="mt-1 flex flex-wrap items-center gap-2 text-[10px]" :class="isContrastMode ? 'text-slate-200/70' : 'text-gray-500'">
+                                                <span>今日持有 {{ formatCount(stock.latest_holding_count) }}</span>
+                                                <span>昨日 {{ formatCount(stock.previous_holding_count) }}</span>
+                                                <span v-if="stock.weight">權重 {{ stock.weight }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold text-blue-200 bg-blue-500/15">
+                                            新增 {{ formatDelta(stock.delta) }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-else class="rounded-xl border border-dashed px-4 py-6 text-center text-xs" :class="isContrastMode ? 'border-slate-700 text-slate-200/70' : 'border-gray-800 text-gray-500'">
+                            目前沒有任何選取 ETF 的「新增」股票
+                        </div>
                     </div>
                 </div>
             </div>
