@@ -26,6 +26,7 @@ H_TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.cs
 BB_TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bb_trade.csv")
 BBR960_TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bbr960_trade.csv")
 BBR960_STATE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bbr960_state.json")
+BBR_WAVE_STATE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bbr_wave_state.json")
 CLEAR_TIME = (14, 0)
 CLEAR_KEEP_ROWS = 5
 TZ = ZoneInfo("Asia/Taipei")
@@ -52,9 +53,11 @@ CSV_HEADER = [
 STRATEGY_LOCK = RLock()
 BBR960_ADD_THRESHOLD = 250.0
 BBR960_PENDING_TIMEOUT_SECONDS = 10 * 60
+BBR_WAVE_PENDING_TIMEOUT_SECONDS = 10 * 60
 
 
 def _to_float(value: str | None) -> float | None:
+    """將 CSV / webhook 的字串欄位轉成 float，失敗時回傳 None。"""
     if value is None:
         return None
     try:
@@ -67,6 +70,7 @@ def _to_float(value: str | None) -> float | None:
 
 
 def _ensure_csv_header(path: str, header: list[str]) -> None:
+    """確認 CSV 檔案的表頭存在且欄位順序正確。"""
     if not os.path.isfile(path):
         return
     try:
@@ -99,6 +103,7 @@ def _ensure_csv_header(path: str, header: list[str]) -> None:
 
 
 def _clear_csv_keep_header(path: str, header: list[str]) -> None:
+    """清空 CSV 內容，但保留最後幾筆資料與表頭。"""
     header_to_write = header
     rows_to_keep: list[list[str]] = []
     if os.path.isfile(path):
@@ -121,6 +126,7 @@ def _clear_csv_keep_header(path: str, header: list[str]) -> None:
 
 
 def _read_last_n_rows(path: str, count: int) -> list[dict]:
+    """讀取 CSV 最後 n 筆資料列。"""
     if count <= 0 or not os.path.isfile(path):
         return []
     try:
@@ -132,6 +138,7 @@ def _read_last_n_rows(path: str, count: int) -> list[dict]:
 
 
 def _get_latest_h_trade_entry() -> tuple[str, float] | None:
+    """從 h_trade.csv 取出最近一筆進場單。"""
     if not os.path.isfile(H_TRADE_LOG_PATH):
         return None
     try:
@@ -150,6 +157,7 @@ def _get_latest_h_trade_entry() -> tuple[str, float] | None:
 
 
 def _get_latest_mtx_bvav() -> float | None:
+    """從 mxf_value.csv 讀取最新一筆 mtx_bvav。"""
     if not os.path.isfile(MXF_VALUE_CSV_PATH):
         return None
     try:
@@ -166,6 +174,7 @@ def _get_latest_mtx_bvav() -> float | None:
 
 
 def _ensure_trade_log_header(path: str) -> None:
+    """確認交易紀錄檔的表頭格式。"""
     header = ["timestamp", "action", "side", "price", "pnl", "quantity"]
     if not os.path.isfile(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -197,6 +206,7 @@ def _ensure_trade_log_header(path: str) -> None:
 
 
 def _append_bb_trade(action: str, side: str, price: float, pnl: str = "", quantity: int = 1) -> None:
+    """寫入 shortCycle / BB 策略交易紀錄。"""
     _ensure_trade_log_header(BB_TRADE_LOG_PATH)
     timestamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
     with open(BB_TRADE_LOG_PATH, "a", newline="", encoding="utf-8") as handle:
@@ -205,6 +215,7 @@ def _append_bb_trade(action: str, side: str, price: float, pnl: str = "", quanti
 
 
 def _append_bbr960_trade(action: str, side: str, price: float, pnl: str = "", quantity: int = 1) -> None:
+    """寫入 BBR960 策略交易紀錄。"""
     _ensure_trade_log_header(BBR960_TRADE_LOG_PATH)
     timestamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
     with open(BBR960_TRADE_LOG_PATH, "a", newline="", encoding="utf-8") as handle:
@@ -213,14 +224,21 @@ def _append_bbr960_trade(action: str, side: str, price: float, pnl: str = "", qu
 
 
 def _default_bbr960_state() -> dict:
+    """建立 BBR960 的預設狀態。"""
     return {
         "pending_side": "",
         "pending_entry_price": "",
         "pending_since": "",
+        "pending_quantity": 0,
+        "position_side": "",
+        "position_entry_price": "",
+        "position_quantity": 0,
+        "position_since": "",
     }
 
 
 def _load_bbr960_state() -> dict:
+    """讀取 BBR960 狀態檔。"""
     state = _default_bbr960_state()
     if not os.path.isfile(BBR960_STATE_PATH):
         return state
@@ -233,6 +251,11 @@ def _load_bbr960_state() -> dict:
                 "pending_side": str(raw_state.get("pending_side", "")).strip().lower(),
                 "pending_entry_price": raw_state.get("pending_entry_price", ""),
                 "pending_since": str(raw_state.get("pending_since", "")).strip(),
+                "pending_quantity": int(_to_float(raw_state.get("pending_quantity")) or 0),
+                "position_side": str(raw_state.get("position_side", "")).strip().lower(),
+                "position_entry_price": raw_state.get("position_entry_price", ""),
+                "position_quantity": int(_to_float(raw_state.get("position_quantity")) or 0),
+                "position_since": str(raw_state.get("position_since", "")).strip(),
             })
     except Exception:
         return state
@@ -241,25 +264,58 @@ def _load_bbr960_state() -> dict:
 
 
 def _save_bbr960_state(state: dict) -> None:
+    """儲存 BBR960 狀態檔。"""
     os.makedirs(os.path.dirname(BBR960_STATE_PATH), exist_ok=True)
     with open(BBR960_STATE_PATH, "w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=False, indent=2)
 
 
 def _clear_bbr960_pending_state() -> None:
+    """清除 BBR960 的 pending 狀態。"""
     _save_bbr960_state(_default_bbr960_state())
 
 
-def _mark_bbr960_pending(side: str, entry_price: float) -> None:
+def _mark_bbr960_pending(side: str, entry_price: float, quantity: int = 1) -> None:
+    """標記 BBR960 目前正在等待下一次加碼判斷。"""
     state = {
         "pending_side": side,
         "pending_entry_price": entry_price,
         "pending_since": datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        "pending_quantity": int(quantity),
+        "position_side": "",
+        "position_entry_price": "",
+        "position_quantity": 0,
+        "position_since": "",
     }
     _save_bbr960_state(state)
 
 
+def _mark_bbr960_position(side: str, entry_price: float, quantity: int) -> None:
+    """標記 BBR960 目前已持有的加碼部位。"""
+    state = _load_bbr960_state()
+    state["position_side"] = side
+    state["position_entry_price"] = entry_price
+    state["position_quantity"] = int(quantity)
+    state["position_since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    state["pending_side"] = ""
+    state["pending_entry_price"] = ""
+    state["pending_since"] = ""
+    state["pending_quantity"] = 0
+    _save_bbr960_state(state)
+
+
+def _clear_bbr960_position_state() -> None:
+    """清除 BBR960 已持有部位的狀態。"""
+    state = _load_bbr960_state()
+    state["position_side"] = ""
+    state["position_entry_price"] = ""
+    state["position_quantity"] = 0
+    state["position_since"] = ""
+    _save_bbr960_state(state)
+
+
 def _parse_bbr960_pending_since(raw_value: str) -> datetime | None:
+    """把 BBR960 pending 時間字串轉成 datetime。"""
     if not raw_value:
         return None
     try:
@@ -269,6 +325,7 @@ def _parse_bbr960_pending_since(raw_value: str) -> datetime | None:
 
 
 def _bbr960_pending_matches_latest(state: dict, latest_entry: tuple[str, float]) -> bool:
+    """檢查 BBR960 pending 是否仍對應最新進場單。"""
     pending_side = str(state.get("pending_side", "")).strip().lower()
     pending_price = _to_float(state.get("pending_entry_price"))
     if not pending_side or pending_price is None:
@@ -279,6 +336,7 @@ def _bbr960_pending_matches_latest(state: dict, latest_entry: tuple[str, float])
 
 
 def _is_bbr960_add_blocked(state: dict, latest_entry: tuple[str, float]) -> bool:
+    """判斷 BBR960 是否仍處於加碼冷卻中。"""
     if not _bbr960_pending_matches_latest(state, latest_entry):
         if state.get("pending_side") or state.get("pending_entry_price"):
             _clear_bbr960_pending_state()
@@ -296,6 +354,7 @@ def _is_bbr960_add_blocked(state: dict, latest_entry: tuple[str, float]) -> bool
 
 
 def _submit_bbr960_order(side: str, quantity: int = 1) -> None:
+    """用 auto_trade.py 的 buyOne / sellOne 送出 BBR960 加碼單。"""
     api = None
     try:
         if not os.path.exists(LONG_CA_PATH):
@@ -311,11 +370,13 @@ def _submit_bbr960_order(side: str, quantity: int = 1) -> None:
 
         contract = api.Contracts.Futures.TMF.TMFR1
         if side == "bull":
-            long_buy_one(api, contract, quantity)
+            print('bull')
+            # long_buy_one(api, contract, quantity)
         else:
-            long_sell_one(api, contract, quantity)
+            print('sell')
+            # long_sell_one(api, contract, quantity)
 
-        long_send_discord_message(f"webhook_server: BBR960 已送出 {side} 加碼 1 口")
+        long_send_discord_message(f"webhook_server: BBR960 已送出 {side} 加碼 {quantity} 口")
         print(f"🔔 BBR960 sent {side} order, quantity={quantity}")
     except Exception as exc:
         print(f"❌ BBR960 {side} order failed: {exc}")
@@ -331,7 +392,222 @@ def _submit_bbr960_order(side: str, quantity: int = 1) -> None:
         sys.stdout.flush()
 
 
+def _trigger_bbr960_stop(side: str, close_price: float, quantity: int, reason: str) -> None:
+    """觸發 BBR960 停損，使用相同口數反向沖銷。"""
+    def _runner() -> None:
+        success = False
+        try:
+            exit_side = "bear" if side == "bull" else "bull"
+            _append_bbr960_trade("exiting", side, close_price, quantity=quantity)
+            long_send_discord_message(
+                f"webhook_server: close={close_price}，即將觸發 BBR960 停損 {side}，口數={quantity}，原因：{reason}"
+            )
+            print(f"🔔 Trigger BBR960 stop loss({side}) because {reason}, quantity={quantity}")
+            _submit_bbr960_order(exit_side, quantity)
+            success = True
+        except Exception as exc:
+            print(f"❌ BBR960 stop loss({side}) failed: {exc}")
+        finally:
+            with STRATEGY_LOCK:
+                _clear_bbr960_pending_state()
+                if success:
+                    _clear_bbr960_position_state()
+            sys.stdout.flush()
+
+    Thread(target=_runner, daemon=True).start()
+
+
+def _default_bbr_wave_state() -> dict:
+    """建立 BBR wave 策略的預設狀態。"""
+    return {
+        "position_side": "",
+        "pending_action": "",
+        "pending_side": "",
+        "pending_since": "",
+        "short_armed": False,
+        "short_count": 0,
+        "short_ready": False,
+        "short_armed_since": "",
+        "long_armed": False,
+        "long_count": 0,
+        "long_ready": False,
+        "long_armed_since": "",
+    }
+
+
+def _load_bbr_wave_state() -> dict:
+    """讀取 BBR wave 狀態檔。"""
+    state = _default_bbr_wave_state()
+    if not os.path.isfile(BBR_WAVE_STATE_PATH):
+        return state
+
+    try:
+        with open(BBR_WAVE_STATE_PATH, "r", encoding="utf-8") as handle:
+            raw_state = json.load(handle)
+    except Exception:
+        return state
+
+    if not isinstance(raw_state, dict):
+        return state
+
+    state["position_side"] = str(raw_state.get("position_side", "")).strip().lower()
+    state["pending_action"] = str(raw_state.get("pending_action", "")).strip().lower()
+    state["pending_side"] = str(raw_state.get("pending_side", "")).strip().lower()
+    state["pending_since"] = str(raw_state.get("pending_since", "")).strip()
+    state["short_armed"] = bool(raw_state.get("short_armed", False))
+    state["short_count"] = int(_to_float(raw_state.get("short_count")) or 0)
+    state["short_ready"] = bool(raw_state.get("short_ready", False))
+    state["short_armed_since"] = str(raw_state.get("short_armed_since", "")).strip()
+    state["long_armed"] = bool(raw_state.get("long_armed", False))
+    state["long_count"] = int(_to_float(raw_state.get("long_count")) or 0)
+    state["long_ready"] = bool(raw_state.get("long_ready", False))
+    state["long_armed_since"] = str(raw_state.get("long_armed_since", "")).strip()
+    return state
+
+
+def _save_bbr_wave_state(state: dict) -> None:
+    """儲存 BBR wave 狀態檔。"""
+    os.makedirs(os.path.dirname(BBR_WAVE_STATE_PATH), exist_ok=True)
+    with open(BBR_WAVE_STATE_PATH, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, ensure_ascii=False, indent=2)
+
+
+def _reset_bbr_wave_setup(state: dict, side: str) -> None:
+    """重置 short / long 的三根 setup 計數。"""
+    if side == "bear":
+        state["short_armed"] = False
+        state["short_count"] = 0
+        state["short_ready"] = False
+        state["short_armed_since"] = ""
+    elif side == "bull":
+        state["long_armed"] = False
+        state["long_count"] = 0
+        state["long_ready"] = False
+        state["long_armed_since"] = ""
+
+
+def _reset_bbr_wave_state() -> None:
+    """重置 BBR wave 的整體狀態。"""
+    _save_bbr_wave_state(_default_bbr_wave_state())
+
+
+def _parse_bbr_wave_pending_since(raw_value: str) -> datetime | None:
+    """把 BBR wave pending 時間字串轉成 datetime。"""
+    if not raw_value:
+        return None
+    try:
+        return datetime.strptime(raw_value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=TZ)
+    except ValueError:
+        return None
+
+
+def _is_red_candle(row: dict) -> bool:
+    """判斷當根 K 棒是否為紅 K。"""
+    open_price = _to_float(row.get("Open"))
+    close_price = _to_float(row.get("Close"))
+    if open_price is None or close_price is None:
+        return False
+    return close_price > open_price
+
+
+def _is_black_candle(row: dict) -> bool:
+    """判斷當根 K 棒是否為黑 K。"""
+    open_price = _to_float(row.get("Open"))
+    close_price = _to_float(row.get("Close"))
+    if open_price is None or close_price is None:
+        return False
+    return close_price < open_price
+
+
+def _is_bbr_wave_blocked(state: dict) -> bool:
+    """判斷 BBR wave 是否仍在 pending 冷卻中。"""
+    pending_action = str(state.get("pending_action", "")).strip().lower()
+    if not pending_action:
+        return False
+
+    pending_since = _parse_bbr_wave_pending_since(str(state.get("pending_since", "")).strip())
+    if pending_since is None:
+        return True
+
+    elapsed_seconds = (datetime.now(TZ) - pending_since).total_seconds()
+    if elapsed_seconds > BBR_WAVE_PENDING_TIMEOUT_SECONDS:
+        state["pending_action"] = ""
+        state["pending_side"] = ""
+        state["pending_since"] = ""
+        _save_bbr_wave_state(state)
+        return False
+    return True
+
+
+def _mark_bbr_wave_pending(action: str, side: str) -> None:
+    """標記 BBR wave 目前有待執行的動作。"""
+    with STRATEGY_LOCK:
+        state = _load_bbr_wave_state()
+        state["pending_action"] = action
+        state["pending_side"] = side
+        state["pending_since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+        _save_bbr_wave_state(state)
+
+
+def _trigger_bbr_wave_entry(side: str, close_price: float, reason: str) -> None:
+    """送出 BBR wave 進場單並同步寫回狀態。"""
+    def _runner() -> None:
+        success = False
+        try:
+            shortcycle_send_discord_message(
+                f"webhook_server: close={close_price}，即將觸發 BBR 波段進場 {side}，原因：{reason}"
+            )
+            print(f"🔔 Trigger BBR wave auto_trade({side}) because {reason}")
+            shortcycle_auto_trade(side)
+            success = True
+        except Exception as exc:
+            print(f"❌ BBR wave auto_trade({side}) failed: {exc}")
+        finally:
+            with STRATEGY_LOCK:
+                state = _load_bbr_wave_state()
+                state["position_side"] = side if success else ""
+                state["pending_action"] = ""
+                state["pending_side"] = ""
+                state["pending_since"] = ""
+                _reset_bbr_wave_setup(state, "bear")
+                _reset_bbr_wave_setup(state, "bull")
+                _save_bbr_wave_state(state)
+            sys.stdout.flush()
+
+    Thread(target=_runner, daemon=True).start()
+
+
+def _trigger_bbr_wave_exit(side: str, close_price: float, reason: str) -> None:
+    """送出 BBR wave 平倉動作並同步寫回狀態。"""
+    def _runner() -> None:
+        success = False
+        try:
+            shortcycle_send_discord_message(
+                f"webhook_server: close={close_price}，即將觸發 BBR 波段平倉 {side}，原因：{reason}"
+            )
+            print(f"🔔 Trigger BBR wave closePosition({side}) because {reason}")
+            shortcycle_close_position()
+            success = True
+        except Exception as exc:
+            print(f"❌ BBR wave closePosition({side}) failed: {exc}")
+        finally:
+            with STRATEGY_LOCK:
+                state = _load_bbr_wave_state()
+                if success:
+                    state["position_side"] = ""
+                state["pending_action"] = ""
+                state["pending_side"] = ""
+                state["pending_since"] = ""
+                _reset_bbr_wave_setup(state, "bear")
+                _reset_bbr_wave_setup(state, "bull")
+                _save_bbr_wave_state(state)
+            sys.stdout.flush()
+
+    Thread(target=_runner, daemon=True).start()
+
+
 def _trigger_shortcycle_trade(side: str, close_price: float, reason: str) -> None:
+    """觸發 shortCycle 進場單。"""
     def _runner() -> None:
         try:
             _append_bb_trade("enter", side, close_price)
@@ -349,6 +625,7 @@ def _trigger_shortcycle_trade(side: str, close_price: float, reason: str) -> Non
 
 
 def _trigger_shortcycle_close(side: str, close_price: float, reason: str) -> None:
+    """觸發 shortCycle 平倉。"""
     def _runner() -> None:
         try:
             _append_bb_trade("exiting", side, close_price)
@@ -365,19 +642,23 @@ def _trigger_shortcycle_close(side: str, close_price: float, reason: str) -> Non
     Thread(target=_runner, daemon=True).start()
 
 
-def _trigger_bbr960_trade(side: str, close_price: float, reason: str) -> None:
+def _trigger_bbr960_trade(side: str, close_price: float, reason: str, quantity: int = 1) -> None:
+    """觸發 BBR960 加碼單。"""
     def _runner() -> None:
         try:
-            _append_bbr960_trade("enter", side, close_price)
+            _append_bbr960_trade("enter", side, close_price, quantity=quantity)
             long_send_discord_message(
-                f"webhook_server: close={close_price}，即將觸發 BBR960 auto_trade({side})，原因：{reason}"
+                f"webhook_server: close={close_price}，即將觸發 BBR960 auto_trade({side})，口數={quantity}，原因：{reason}"
             )
-            print(f"🔔 Trigger BBR960 auto_trade({side}) because {reason}")
-            _submit_bbr960_order(side, 1)
+            print(f"🔔 Trigger BBR960 auto_trade({side}) because {reason}, quantity={quantity}")
+            _submit_bbr960_order(side, quantity)
+            with STRATEGY_LOCK:
+                _mark_bbr960_position(side, close_price, quantity)
         except Exception as exc:
             print(f"❌ BBR960 auto_trade({side}) failed: {exc}")
             with STRATEGY_LOCK:
                 _clear_bbr960_pending_state()
+                _clear_bbr960_position_state()
         finally:
             sys.stdout.flush()
 
@@ -385,6 +666,7 @@ def _trigger_bbr960_trade(side: str, close_price: float, reason: str) -> None:
 
 
 def _apply_bbr_strategy() -> bool:
+    """原本的 BBR + h_trade 觸發策略。"""
     with STRATEGY_LOCK:
         rows = _read_last_n_rows(CSV_FILE_1MIN, 2)
         if len(rows) < 2:
@@ -432,6 +714,104 @@ def _apply_bbr_strategy() -> bool:
 
 
 def _apply_bbr960_strategy() -> bool:
+    """以已獲利部位為基礎的 BBR960 加碼策略。"""
+    with STRATEGY_LOCK:
+        rows = _read_last_n_rows(CSV_FILE_1MIN, 3)
+        if len(rows) < 3:
+            return False
+
+        prev_row, mid_row, curr_row = rows[-3], rows[-2], rows[-1]
+        prev_bbr = _to_float(prev_row.get("BBR"))
+        mid_bbr = _to_float(mid_row.get("BBR"))
+        curr_bbr = _to_float(curr_row.get("BBR"))
+        curr_close = _to_float(curr_row.get("Close"))
+        if prev_bbr is None or mid_bbr is None or curr_bbr is None or curr_close is None:
+            return False
+
+        state = _load_bbr960_state()
+        position_side = str(state.get("position_side", "")).strip().lower()
+        if position_side == "bull":
+            position_qty = int(_to_float(state.get("position_quantity")) or 1)
+            if curr_bbr < 0:
+                _trigger_bbr960_stop(
+                    "bull",
+                    curr_close,
+                    position_qty,
+                    f"BBR dropped back below 0 after bull add-on: {prev_bbr} -> {curr_bbr}",
+                )
+                return True
+            return False
+
+        if position_side == "bear":
+            position_qty = int(_to_float(state.get("position_quantity")) or 1)
+            if curr_bbr > 1:
+                _trigger_bbr960_stop(
+                    "bear",
+                    curr_close,
+                    position_qty,
+                    f"BBR rose back above 1 after bear add-on: {prev_bbr} -> {curr_bbr}",
+                )
+                return True
+            return False
+
+        latest_entry = _get_latest_h_trade_entry()
+        if latest_entry is None:
+            return False
+
+        if _is_bbr960_add_blocked(state, latest_entry):
+            return False
+
+        entry_side, entry_price = latest_entry
+        in_profit = (curr_close > entry_price) if entry_side == "bull" else (curr_close < entry_price)
+        profit_points = (curr_close - entry_price) if entry_side == "bull" else (entry_price - curr_close)
+        latest_mtx_bvav = _get_latest_mtx_bvav()
+        entry_quantity = 1
+
+        if entry_side == "bull":
+            if (
+                prev_bbr < 0
+                and mid_bbr > 0
+                and curr_bbr > 0
+                and in_profit
+                and profit_points >= BBR960_ADD_THRESHOLD
+                and latest_mtx_bvav is not None
+                and latest_mtx_bvav > -2000
+            ):
+                _mark_bbr960_pending(entry_side, entry_price, entry_quantity)
+                _trigger_bbr960_trade(
+                    "bull",
+                    curr_close,
+                    f"BBR confirmed above 0 for 2 bars: {prev_bbr} -> {mid_bbr} -> {curr_bbr}; bull profit is {profit_points:.2f}; mtx_bvav={latest_mtx_bvav}",
+                    quantity=entry_quantity,
+                )
+                return True
+            return False
+
+        if entry_side == "bear":
+            if (
+                prev_bbr > 1
+                and mid_bbr < 1
+                and curr_bbr < 1
+                and in_profit
+                and profit_points >= BBR960_ADD_THRESHOLD
+                and latest_mtx_bvav is not None
+                and latest_mtx_bvav < 2000
+            ):
+                _mark_bbr960_pending(entry_side, entry_price, entry_quantity)
+                _trigger_bbr960_trade(
+                    "bear",
+                    curr_close,
+                    f"BBR confirmed below 1 for 2 bars: {prev_bbr} -> {mid_bbr} -> {curr_bbr}; bear profit is {profit_points:.2f}; mtx_bvav={latest_mtx_bvav}",
+                    quantity=entry_quantity,
+                )
+                return True
+            return False
+
+        return False
+
+
+def _apply_bbr_wave_strategy() -> bool:
+    """只看 BBR 與 K 棒顏色的波段策略。"""
     with STRATEGY_LOCK:
         rows = _read_last_n_rows(CSV_FILE_1MIN, 2)
         if len(rows) < 2:
@@ -444,61 +824,117 @@ def _apply_bbr960_strategy() -> bool:
         if prev_bbr is None or curr_bbr is None or curr_close is None:
             return False
 
-        latest_entry = _get_latest_h_trade_entry()
-        if latest_entry is None:
+        state = _load_bbr_wave_state()
+        if _is_bbr_wave_blocked(state):
             return False
 
-        state = _load_bbr960_state()
-        if _is_bbr960_add_blocked(state, latest_entry):
-            return False
+        position_side = str(state.get("position_side", "")).strip().lower()
 
-        entry_side, entry_price = latest_entry
-        in_profit = (curr_close > entry_price) if entry_side == "bull" else (curr_close < entry_price)
-        profit_points = (curr_close - entry_price) if entry_side == "bull" else (entry_price - curr_close)
-        latest_mtx_bvav = _get_latest_mtx_bvav()
-
-        if entry_side == "bull":
-            if (
-                curr_bbr < 0
-                and curr_bbr > prev_bbr
-                and in_profit
-                and profit_points >= BBR960_ADD_THRESHOLD
-                and latest_mtx_bvav is not None
-                and latest_mtx_bvav > -2000
-            ):
-                _mark_bbr960_pending(entry_side, entry_price)
-                _trigger_bbr960_trade(
-                    "bull",
-                    curr_close,
-                    f"BBR is still below 0 and rebounding {prev_bbr} -> {curr_bbr}; bull profit is {profit_points:.2f}; mtx_bvav={latest_mtx_bvav}",
+        if position_side == "bear":
+            if curr_bbr > 1:
+                _mark_bbr_wave_pending("exit", "bear")
+                shortcycle_send_discord_message(
+                    f"webhook_server: BBR wave 空單停損訊號，BBR={prev_bbr} -> {curr_bbr}"
                 )
+                _trigger_bbr_wave_exit("bear", curr_close, f"BBR flipped back above 1: {prev_bbr} -> {curr_bbr}")
+                return True
+            if prev_bbr < 0 < curr_bbr:
+                _mark_bbr_wave_pending("exit", "bear")
+                shortcycle_send_discord_message(
+                    f"webhook_server: BBR wave 空單停利訊號，BBR={prev_bbr} -> {curr_bbr}"
+                )
+                _trigger_bbr_wave_exit("bear", curr_close, f"BBR profit target hit: {prev_bbr} -> {curr_bbr}")
                 return True
             return False
 
-        if entry_side == "bear":
-            if (
-                curr_bbr > 0
-                and curr_bbr < prev_bbr
-                and in_profit
-                and profit_points >= BBR960_ADD_THRESHOLD
-                and latest_mtx_bvav is not None
-                and latest_mtx_bvav < 2000
-            ):
-                _mark_bbr960_pending(entry_side, entry_price)
-                _trigger_bbr960_trade(
-                    "bear",
-                    curr_close,
-                    f"BBR is still above 0 and rolling over {prev_bbr} -> {curr_bbr}; bear profit is {profit_points:.2f}; mtx_bvav={latest_mtx_bvav}",
+        if position_side == "bull":
+            if curr_bbr < 0:
+                _mark_bbr_wave_pending("exit", "bull")
+                shortcycle_send_discord_message(
+                    f"webhook_server: BBR wave 多單停損訊號，BBR={prev_bbr} -> {curr_bbr}"
                 )
+                _trigger_bbr_wave_exit("bull", curr_close, f"BBR flipped back below 0: {prev_bbr} -> {curr_bbr}")
+                return True
+            if prev_bbr > 1 and curr_bbr < 1:
+                _mark_bbr_wave_pending("exit", "bull")
+                shortcycle_send_discord_message(
+                    f"webhook_server: BBR wave 多單停利訊號，BBR={prev_bbr} -> {curr_bbr}"
+                )
+                _trigger_bbr_wave_exit("bull", curr_close, f"BBR profit target hit: {prev_bbr} -> {curr_bbr}")
                 return True
             return False
 
+        # Flat: build short setup, then wait for a red candle to enter short.
+        if curr_bbr < 1:
+            if not bool(state.get("short_armed", False)):
+                if prev_bbr > 1:
+                    state["short_armed"] = True
+                    state["short_count"] = 1
+                    state["short_ready"] = False
+                    state["short_armed_since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+                    shortcycle_send_discord_message(
+                        f"webhook_server: BBR wave 空單 setup 已啟動，BBR={prev_bbr} -> {curr_bbr}"
+                    )
+            else:
+                state["short_count"] = int(state.get("short_count", 0)) + 1
+                if state["short_count"] >= 3:
+                    state["short_ready"] = True
+                    shortcycle_send_discord_message(
+                        f"webhook_server: BBR wave 空單 setup 已完成 3 根，等待紅K，BBR={prev_bbr} -> {curr_bbr}"
+                    )
+        else:
+            _reset_bbr_wave_setup(state, "bear")
+
+        # Flat: build long setup, then wait for a black candle to enter long.
+        if curr_bbr > 0:
+            if not bool(state.get("long_armed", False)):
+                if prev_bbr < 0:
+                    state["long_armed"] = True
+                    state["long_count"] = 1
+                    state["long_ready"] = False
+                    state["long_armed_since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+                    shortcycle_send_discord_message(
+                        f"webhook_server: BBR wave 多單 setup 已啟動，BBR={prev_bbr} -> {curr_bbr}"
+                    )
+            else:
+                state["long_count"] = int(state.get("long_count", 0)) + 1
+                if state["long_count"] >= 3:
+                    state["long_ready"] = True
+                    shortcycle_send_discord_message(
+                        f"webhook_server: BBR wave 多單 setup 已完成 3 根，等待黑K，BBR={prev_bbr} -> {curr_bbr}"
+                    )
+        else:
+            _reset_bbr_wave_setup(state, "bull")
+
+        red_candle = _is_red_candle(curr_row)
+        black_candle = _is_black_candle(curr_row)
+
+        if bool(state.get("short_ready", False)) and red_candle and curr_bbr < 1:
+            _save_bbr_wave_state(state)
+            _mark_bbr_wave_pending("enter", "bear")
+            shortcycle_send_discord_message(
+                f"webhook_server: BBR wave 空單進場條件成立，紅K確認，BBR={prev_bbr} -> {curr_bbr}"
+            )
+            _trigger_bbr_wave_entry("bear", curr_close, f"BBR setup ready with red candle; prev={prev_bbr}, curr={curr_bbr}")
+            return True
+
+        if bool(state.get("long_ready", False)) and black_candle and curr_bbr > 0:
+            _save_bbr_wave_state(state)
+            _mark_bbr_wave_pending("enter", "bull")
+            shortcycle_send_discord_message(
+                f"webhook_server: BBR wave 多單進場條件成立，黑K確認，BBR={prev_bbr} -> {curr_bbr}"
+            )
+            _trigger_bbr_wave_entry("bull", curr_close, f"BBR setup ready with black candle; prev={prev_bbr}, curr={curr_bbr}")
+            return True
+
+        _save_bbr_wave_state(state)
         return False
 
 
 # 獲取webhook並處理
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
+        """接收 webhook，寫入 1 分資料並依序執行策略。"""
         if self.path == '/webhook':
             try:
                 # Get content length
@@ -561,8 +997,9 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                             bbr,
                         ])
 
-                    _apply_bbr_strategy()
+                    # _apply_bbr_strategy()
                     _apply_bbr960_strategy()
+                    _apply_bbr_wave_strategy()
                     sys.stdout.flush()  # Ensure output is printed immediately
                     print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     
@@ -587,6 +1024,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404, "Not Found")
 
     def do_GET(self):
+        """提供簡單 health check。"""
         # Health check
         if self.path == '/':
             self.send_response(200)
@@ -597,10 +1035,12 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404, "Not Found")
 
 def run_server():
+    """啟動 webhook HTTP server 與每日清理背景執行緒。"""
     class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
 
     def _daily_clear_worker():
+        """每天固定時間裁切 1 分 K CSV 只保留最後幾筆。"""
         last_clear_date = None
         while True:
             now = datetime.now(TZ)

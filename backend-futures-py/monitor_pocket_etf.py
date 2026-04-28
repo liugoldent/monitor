@@ -188,7 +188,7 @@ def run_once() -> None:
 
 
 def next_run_time(now: datetime) -> datetime:
-    candidate = now.replace(hour=21, minute=0, second=0, microsecond=0)
+    candidate = now.replace(hour=21, minute=30, second=0, microsecond=0)
     if candidate <= now:
         candidate += timedelta(days=1)
     return candidate
