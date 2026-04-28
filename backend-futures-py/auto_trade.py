@@ -79,7 +79,20 @@ def _get_last_entry() -> tuple[str, float] | None:
     return None
 
 
-def _get_recent_pnls(limit: int = 3) -> list[float]:
+def _parse_pnl_value(raw_value: object) -> float | None:
+    raw = str(raw_value).strip()
+    if raw == "":
+        return None
+    # CSV 內可能會出現全形負號或千分位逗號，先正規化再轉數字
+    raw = raw.replace(",", "")
+    raw = raw.replace("－", "-").replace("−", "-").replace("﹣", "-")
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _get_recent_exiting_pnls(limit: int = 3) -> list[float]:
     if not TRADE_LOG_PATH.exists():
         return []
     pnls: list[float] = []
@@ -88,23 +101,39 @@ def _get_recent_pnls(limit: int = 3) -> list[float]:
     for row in reversed(rows[1:]):
         if len(row) < 5:
             continue
-        raw = str(row[4]).strip()
-        if raw == "":
+        action = str(row[1]).strip().lower()
+        if action != "exiting":
             continue
-        try:
-            pnls.append(float(raw))
-        except ValueError:
+        pnl = _parse_pnl_value(row[4])
+        if pnl is None:
             continue
+        pnls.append(pnl)
         if len(pnls) >= limit:
             break
     return pnls
 
 
-def _get_entry_quantity() -> int:
-    pnls = _get_recent_pnls(2)
+def _get_latest_loss_streak_pnl() -> float:
+    pnls = _get_recent_exiting_pnls(50)
     if not pnls:
+        return 0.0
+
+    streak_total = 0.0
+    for pnl in pnls:
+        if pnl >= 0:
+            break
+        streak_total += pnl
+    return streak_total
+
+
+def _get_entry_quantity() -> int:
+    loss_streak_pnl = _get_latest_loss_streak_pnl()
+    if loss_streak_pnl == 0:
         return 1
-    if len(pnls) >= 2 and pnls[0] < 0 and pnls[1] < 0:
+
+    if loss_streak_pnl <= -20000:
+        return 3
+    if loss_streak_pnl <= -10000:
         return 2
     return 1
 
@@ -196,10 +225,6 @@ def auto_trade(type):
             api.logout()
             print(f'略過重複訊號: 已持有同方向倉位 {type}')
             return
-
-        # cancelled_orders = _cancel_all_open_orders(api)
-        # if cancelled_orders > 0:
-        #     print(f"已刪除舊掛單 {cancelled_orders} 筆")
 
         # 先平倉
         closePosition(api)

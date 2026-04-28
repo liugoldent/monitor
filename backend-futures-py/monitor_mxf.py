@@ -350,7 +350,7 @@ def main() -> None:
     while True:
         now = datetime.now(TZ)
         try:
-            check_mtx_bvav_alert()
+            # check_mtx_bvav_alert()
             check_service_alive_alert(now)
         except Exception as exc:
             print(f"❌ 檢查通知狀態失敗: {exc}")
@@ -361,7 +361,7 @@ def main() -> None:
                 collection_name = get_collection_name(now)
                 insert_tradeinfo(payload, collection_name, now)
                 append_tradeinfo_csv(payload, now)
-                check_mtx_bvav_alert()
+                # check_mtx_bvav_alert()
                 check_service_alive_alert(now)
             except Exception as exc:
                 print(f"❌ 打 API 或寫入失敗: {exc}")

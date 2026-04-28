@@ -123,7 +123,7 @@ async def bot_message_handler(event):
 # ======================
 def main():
     client.start()
-    print("🚀 Telethon 開始監控 Telegram 訊息...")
+    print("🚀 Telethon 開始監控 Telegram 訊息（Keedem）...")
     client.run_until_disconnected()
 
 
