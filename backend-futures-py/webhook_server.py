@@ -25,8 +25,10 @@ MXF_VALUE_CSV_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "mxf_valu
 H_TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "h_trade.csv")
 BB_TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bb_trade.csv")
 BBR960_TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bbr960_trade.csv")
+TT_BBR_TRADE_LOG_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "tt_bbr_trade.csv")
 BBR960_STATE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bbr960_state.json")
 BBR_WAVE_STATE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "bbr_wave_state.json")
+TT_BBR_STATE_PATH = os.path.join(os.path.dirname(__file__), "tv_doc", "tt_bbr_state.json")
 CLEAR_TIME = (14, 0)
 CLEAR_KEEP_ROWS = 5
 TZ = ZoneInfo("Asia/Taipei")
@@ -46,7 +48,8 @@ CSV_HEADER = [
     'MA_P200',
     'MA_N110',
     'MA_N200',
-    'A1_State',
+    'tt_short',
+    'tt_long',
     'BBR',
 ]
 
@@ -54,6 +57,7 @@ STRATEGY_LOCK = RLock()
 BBR960_ADD_THRESHOLD = 250.0
 BBR960_PENDING_TIMEOUT_SECONDS = 10 * 60
 BBR_WAVE_PENDING_TIMEOUT_SECONDS = 10 * 60
+TT_BBR_PENDING_TIMEOUT_SECONDS = 60 * 60
 
 
 def _to_float(value: str | None) -> float | None:
@@ -67,6 +71,17 @@ def _to_float(value: str | None) -> float | None:
         return float(cleaned)
     except ValueError:
         return None
+
+
+def _split_tt_state(raw_value: str | None) -> tuple[str, str]:
+    """把舊的單欄狀態拆成 tt_short / tt_long。"""
+    text = str(raw_value or "").strip()
+    if not text:
+        return "", ""
+    if "|" in text:
+        left, right = text.split("|", 1)
+        return left.strip(), right.strip()
+    return text, ""
 
 
 def _ensure_csv_header(path: str, header: list[str]) -> None:
@@ -88,6 +103,48 @@ def _ensure_csv_header(path: str, header: list[str]) -> None:
         return
 
     data_rows = rows[1:]
+    if path == CSV_FILE_1MIN and current_header == [
+        'Record Time',
+        'Symbol',
+        'Timeframe',
+        'TradingView Time',
+        'Open',
+        'High',
+        'Low',
+        'Close',
+        'MA_960',
+        'MA_P80',
+        'MA_P200',
+        'MA_N110',
+        'MA_N200',
+        'A1_State',
+        'BBR',
+    ]:
+        migrated_rows: list[list[str]] = []
+        for row in data_rows:
+            if len(row) < 15:
+                row = row + [""] * (15 - len(row))
+            tt_short, tt_long = _split_tt_state(row[13])
+            migrated_rows.append([
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+                row[5],
+                row[6],
+                row[7],
+                row[8],
+                row[9],
+                row[10],
+                row[11],
+                row[12],
+                tt_short,
+                tt_long,
+                row[14] if len(row) > 14 else "",
+            ])
+        data_rows = migrated_rows
+
     normalized_rows: list[list[str]] = []
     for row in data_rows:
         if len(row) < len(header):
@@ -221,6 +278,47 @@ def _append_bbr960_trade(action: str, side: str, price: float, pnl: str = "", qu
     with open(BBR960_TRADE_LOG_PATH, "a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([timestamp, action, side, price, pnl, quantity])
+
+
+def _ensure_tt_bbr_trade_log_header() -> None:
+    """確認 TT/BBR 交易紀錄檔的表頭格式。"""
+    header = ["timestamp", "action", "side", "price", "note"]
+    if not os.path.isfile(TT_BBR_TRADE_LOG_PATH):
+        os.makedirs(os.path.dirname(TT_BBR_TRADE_LOG_PATH), exist_ok=True)
+        with open(TT_BBR_TRADE_LOG_PATH, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(header)
+        return
+
+    try:
+        with open(TT_BBR_TRADE_LOG_PATH, "r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+    except Exception:
+        return
+
+    if not rows:
+        with open(TT_BBR_TRADE_LOG_PATH, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(header)
+        return
+
+    if rows[0] == header:
+        return
+
+    data_rows = rows[1:]
+    with open(TT_BBR_TRADE_LOG_PATH, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        writer.writerows(data_rows)
+
+
+def _append_tt_bbr_trade(action: str, side: str, price: float, note: str = "") -> None:
+    """寫入 TT/BBR 策略進出場紀錄。"""
+    _ensure_tt_bbr_trade_log_header()
+    timestamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    with open(TT_BBR_TRADE_LOG_PATH, "a", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow([timestamp, action, side, price, note])
 
 
 def _default_bbr960_state() -> dict:
@@ -931,6 +1029,189 @@ def _apply_bbr_wave_strategy() -> bool:
         return False
 
 
+def _default_tt_bbr_state() -> dict:
+    """建立 TT/BBR 狀態策略的預設狀態。"""
+    return {
+        "position_side": "",
+        "position_entry_price": "",
+        "position_since": "",
+        "pending_side": "",
+        "pending_since": "",
+    }
+
+
+def _load_tt_bbr_state() -> dict:
+    """讀取 TT/BBR 狀態檔。"""
+    state = _default_tt_bbr_state()
+    if not os.path.isfile(TT_BBR_STATE_PATH):
+        return state
+
+    try:
+        with open(TT_BBR_STATE_PATH, "r", encoding="utf-8") as handle:
+            raw_state = json.load(handle)
+    except Exception:
+        return state
+
+    if not isinstance(raw_state, dict):
+        return state
+
+    state["position_side"] = str(raw_state.get("position_side", "")).strip().lower()
+    state["position_entry_price"] = raw_state.get("position_entry_price", "")
+    state["position_since"] = str(raw_state.get("position_since", "")).strip()
+    state["pending_side"] = str(raw_state.get("pending_side", "")).strip().lower()
+    state["pending_since"] = str(raw_state.get("pending_since", "")).strip()
+    return state
+
+
+def _save_tt_bbr_state(state: dict) -> None:
+    """儲存 TT/BBR 狀態檔。"""
+    os.makedirs(os.path.dirname(TT_BBR_STATE_PATH), exist_ok=True)
+    with open(TT_BBR_STATE_PATH, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, ensure_ascii=False, indent=2)
+
+
+def _clear_tt_bbr_pending(state: dict) -> None:
+    """清除 TT/BBR 的等待確認狀態。"""
+    state["pending_side"] = ""
+    state["pending_since"] = ""
+
+
+def _set_tt_bbr_pending(state: dict, side: str) -> None:
+    """設定 TT/BBR 等待多或空的確認狀態。"""
+    state["pending_side"] = side
+    state["pending_since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _set_tt_bbr_position(state: dict, side: str, entry_price: float) -> None:
+    """設定 TT/BBR 目前持有的方向。"""
+    state["position_side"] = side
+    state["position_entry_price"] = entry_price
+    state["position_since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    _clear_tt_bbr_pending(state)
+
+
+def _clear_tt_bbr_position(state: dict) -> None:
+    """清除 TT/BBR 目前持有的方向。"""
+    state["position_side"] = ""
+    state["position_entry_price"] = ""
+    state["position_since"] = ""
+
+
+def _parse_tt_bbr_pending_since(raw_value: str) -> datetime | None:
+    """把 TT/BBR pending 時間字串轉成 datetime。"""
+    if not raw_value:
+        return None
+    try:
+        return datetime.strptime(raw_value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=TZ)
+    except ValueError:
+        return None
+
+
+def _tt_bbr_pending_expired(state: dict) -> bool:
+    """判斷 TT/BBR 等待確認是否超時。"""
+    pending_since = _parse_tt_bbr_pending_since(str(state.get("pending_since", "")).strip())
+    if pending_since is None:
+        return False
+    return (datetime.now(TZ) - pending_since).total_seconds() > TT_BBR_PENDING_TIMEOUT_SECONDS
+
+
+def _apply_tt_bbr_strategy() -> bool:
+    """只看 close 與 TT 區間的趨勢策略，不接下單。"""
+    with STRATEGY_LOCK:
+        rows = _read_last_n_rows(CSV_FILE_1MIN, 2)
+        if len(rows) < 2:
+            return False
+
+        _, curr_row = rows[-2], rows[-1]
+        curr_close = _to_float(curr_row.get("Close"))
+        tt_short = _to_float(curr_row.get("tt_short"))
+        tt_long = _to_float(curr_row.get("tt_long"))
+        if curr_close is None or tt_short is None or tt_long is None:
+            return False
+
+        upper_tt = max(tt_short, tt_long)
+        lower_tt = min(tt_short, tt_long)
+        close_above_both = curr_close > upper_tt
+        close_below_both = curr_close < lower_tt
+        close_between_tt = not close_above_both and not close_below_both
+
+        state = _load_tt_bbr_state()
+        position_side = str(state.get("position_side", "")).strip().lower()
+        position_entry_price = _to_float(state.get("position_entry_price"))
+        position_since = str(state.get("position_since", "")).strip()
+
+        if position_side == "bull":
+            if close_between_tt:
+                note = f"exit bull at {curr_close}, entry={position_entry_price}, since={position_since}, tt_short={tt_short}, tt_long={tt_long}"
+                shortcycle_send_discord_message(
+                    f"webhook_server: TT/BBR 多單出場，close={curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+                )
+                _append_tt_bbr_trade("exit", "bull", curr_close, note)
+                _clear_tt_bbr_position(state)
+                _save_tt_bbr_state(state)
+                return True
+            if close_below_both:
+                exit_note = f"exit bull at {curr_close}, entry={position_entry_price}, since={position_since}, tt_short={tt_short}, tt_long={tt_long}"
+                enter_note = f"enter bear at {curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+                shortcycle_send_discord_message(
+                    f"webhook_server: TT/BBR 多單反手空單，close={curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+                )
+                _append_tt_bbr_trade("exit", "bull", curr_close, exit_note)
+                _append_tt_bbr_trade("enter", "bear", curr_close, enter_note)
+                _set_tt_bbr_position(state, "bear", curr_close)
+                _save_tt_bbr_state(state)
+                return True
+            _save_tt_bbr_state(state)
+            return False
+
+        if position_side == "bear":
+            if close_between_tt:
+                note = f"exit bear at {curr_close}, entry={position_entry_price}, since={position_since}, tt_short={tt_short}, tt_long={tt_long}"
+                shortcycle_send_discord_message(
+                    f"webhook_server: TT/BBR 空單出場，close={curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+                )
+                _append_tt_bbr_trade("exit", "bear", curr_close, note)
+                _clear_tt_bbr_position(state)
+                _save_tt_bbr_state(state)
+                return True
+            if close_above_both:
+                exit_note = f"exit bear at {curr_close}, entry={position_entry_price}, since={position_since}, tt_short={tt_short}, tt_long={tt_long}"
+                enter_note = f"enter bull at {curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+                shortcycle_send_discord_message(
+                    f"webhook_server: TT/BBR 空單反手多單，close={curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+                )
+                _append_tt_bbr_trade("exit", "bear", curr_close, exit_note)
+                _append_tt_bbr_trade("enter", "bull", curr_close, enter_note)
+                _set_tt_bbr_position(state, "bull", curr_close)
+                _save_tt_bbr_state(state)
+                return True
+            _save_tt_bbr_state(state)
+            return False
+
+        if close_above_both:
+            note = f"enter bull at {curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+            shortcycle_send_discord_message(
+                f"webhook_server: TT/BBR 多單進場，close={curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+            )
+            _append_tt_bbr_trade("enter", "bull", curr_close, note)
+            _set_tt_bbr_position(state, "bull", curr_close)
+            _save_tt_bbr_state(state)
+            return True
+
+        if close_below_both:
+            note = f"enter bear at {curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+            shortcycle_send_discord_message(
+                f"webhook_server: TT/BBR 空單進場，close={curr_close}, tt_short={tt_short}, tt_long={tt_long}"
+            )
+            _append_tt_bbr_trade("enter", "bear", curr_close, note)
+            _set_tt_bbr_position(state, "bear", curr_close)
+            _save_tt_bbr_state(state)
+            return True
+
+        _save_tt_bbr_state(state)
+        return False
+
+
 # 獲取webhook並處理
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -959,7 +1240,8 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                     ma_p200 = data.get('ma_p200', '')
                     ma_n110 = data.get('ma_n110', '')
                     ma_n200 = data.get('ma_n200', '')
-                    a1_state = data.get('a1_state', '')
+                    tt_short = str(data.get('tt_short', '')).strip()
+                    tt_long = str(data.get('tt_long', '')).strip()
                     bbr = data.get('bbr', '')
 
                     tv_time = ""
@@ -993,13 +1275,15 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                             ma_p200,
                             ma_n110,
                             ma_n200,
-                            a1_state,
+                            tt_short,
+                            tt_long,
                             bbr,
                         ])
 
                     # _apply_bbr_strategy()
                     _apply_bbr960_strategy()
                     _apply_bbr_wave_strategy()
+                    _apply_tt_bbr_strategy()
                     sys.stdout.flush()  # Ensure output is printed immediately
                     print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
                     

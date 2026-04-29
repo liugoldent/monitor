@@ -4,6 +4,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+import re
 from zoneinfo import ZoneInfo
 
 import requests
@@ -48,6 +49,7 @@ FUTURE_INDEX_DB_NAME = "FutureIndex"
 FUTURE_INDEX_COLLECTION = "index"
 TZ = ZoneInfo("Asia/Taipei")
 DEFAULT_DISCORD_WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL") or "").strip()
+PRICE_UP_JSON_PATH = Path(__file__).resolve().parent / "tv_doc" / "priceUp.json"
 
 mongo_client = MongoClient(MONGO_URI)
 
@@ -259,6 +261,94 @@ def _format_count(value: int) -> str:
     return f"{value:,}"
 
 
+def _normalize_price_up_codes(value: object) -> set[str]:
+    if isinstance(value, list):
+        return {str(code).strip() for code in value if str(code).strip()}
+    if isinstance(value, dict):
+        if "codes" in value and isinstance(value["codes"], list):
+            return {str(code).strip() for code in value["codes"] if str(code).strip()}
+        return {str(code).strip() for code in value.keys() if str(code).strip()}
+    return set()
+
+
+def _load_price_up_index() -> dict[str, set[str]]:
+    if not PRICE_UP_JSON_PATH.exists():
+        return {}
+
+    try:
+        raw_data = json.loads(PRICE_UP_JSON_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    index: dict[str, set[str]] = {}
+    if isinstance(raw_data, dict):
+        for date_key, value in raw_data.items():
+            date_text = str(date_key).strip()
+            if not date_text:
+                continue
+            codes = _normalize_price_up_codes(value)
+            if codes:
+                index[date_text] = codes
+    return index
+
+
+def _build_price_up_lookup() -> dict[str, str]:
+    index = _load_price_up_index()
+    lookup: dict[str, str] = {}
+    for date_key, codes in index.items():
+        for code in codes:
+            current = lookup.get(code)
+            if not current or date_key > current:
+                lookup[code] = date_key
+    return lookup
+
+
+def _find_price_up_date(code: str) -> str:
+    target_code = str(code).strip()
+    if not target_code:
+        return ""
+
+    return _build_price_up_lookup().get(target_code, "")
+
+
+def _format_price_up_suffix(code: str) -> str:
+    matched_date = _find_price_up_date(code)
+    if not matched_date:
+        return ""
+    return f" （報價：{matched_date}）"
+
+
+def _annotate_price_up_in_message(message: str) -> str:
+    if not message:
+        return message
+
+    price_up_lookup = _build_price_up_lookup()
+    if not price_up_lookup:
+        return message
+
+    annotated_lines: list[str] = []
+    line_pattern = re.compile(r"^(\s*(?:\d+\.\s*)?)([A-Za-z0-9_]+)(.*)$")
+
+    for line in message.splitlines():
+        if "（報價：" in line:
+            annotated_lines.append(line)
+            continue
+
+        match = line_pattern.match(line)
+        if not match:
+            annotated_lines.append(line)
+            continue
+
+        prefix, code, rest = match.groups()
+        matched_date = price_up_lookup.get(code.strip(), "")
+        if matched_date:
+            annotated_lines.append(f"{prefix}{code}{rest} （報價：{matched_date}）")
+        else:
+            annotated_lines.append(line)
+
+    return "\n".join(annotated_lines)
+
+
 def _normalize_etf_names(raw_values: list[str]) -> list[str]:
     allowed = {name for name, _ in ETF_COLLECTIONS}
     normalized: list[str] = []
@@ -278,6 +368,7 @@ def fetch_etf_holding_changes(date_str: str | None, etf_names: list[str]) -> dic
     selected_etfs = _normalize_etf_names(etf_names)
     if not selected_etfs:
         selected_etfs = ["etf_00981A"]
+    price_up_lookup = _build_price_up_lookup()
 
     per_etf_payload: list[dict] = []
     latest_date = ""
@@ -398,6 +489,7 @@ def fetch_etf_holding_changes(date_str: str | None, etf_names: list[str]) -> dic
             "delta": total_delta,
             "status": "持平" if total_delta == 0 else ("增加" if total_delta > 0 else "減少"),
             "etfs": etf_details,
+            "price_up_date": price_up_lookup.get(code, ""),
         })
 
     changes.sort(key=lambda item: (abs(item["delta"]), item["delta"]), reverse=True)
@@ -436,7 +528,7 @@ def _build_etf_discord_message(date_str: str | None, etf_names: list[str]) -> st
         name = str(item.get("name", "")).strip()
         delta = int(item.get("delta", 0))
         sign = "+" if delta > 0 else ""
-        lines.append(f"{index}. {code} {name} / {sign}{_format_count(delta)}")
+        lines.append(f"{index}. {code} {name} / {sign}{_format_count(delta)}{_format_price_up_suffix(code)}")
 
     return "\n".join(lines)
 
@@ -588,7 +680,7 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 else:
                     etfs = []
 
-                message = custom_message or _build_etf_discord_message(date_str, etfs)
+                message = _annotate_price_up_in_message(custom_message) if custom_message else _build_etf_discord_message(date_str, etfs)
                 send_discord_message(message, webhook_url)
                 self._send_json(200, {"status": "ok", "message": message})
             except Exception as exc:

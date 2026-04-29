@@ -35,6 +35,7 @@ type EtfHoldingChangeItem = {
     previous_holding_count: number
     delta: number
     etfs: EtfHoldingDetail[]
+    price_up_date?: string
 }
 
 type EtfHoldingDisplayItem = EtfHoldingChangeItem & {
@@ -129,6 +130,11 @@ const formatDelta = (value: number) => {
     return `${sign}${new Intl.NumberFormat('en-US').format(value)}`
 }
 
+const formatPriceUpSuffix = (value?: string) => {
+    const date = String(value ?? '').trim()
+    return date ? ` （報價：${date}）` : ''
+}
+
 const formatEtfLabel = (value: string) => value.replace('etf_', '')
 
 const formatDateString = (date: Date) => {
@@ -154,7 +160,7 @@ const formatShareMessage = () => {
 
     visibleEtfChanges.value.forEach((item, index) => {
         const delta = formatDelta(item.delta)
-        lines.push(`${index + 1}. ${item.code} ${item.name} 差異 ${delta}`)
+        lines.push(`${index + 1}. ${item.code} ${item.name} 差異 ${delta}${formatPriceUpSuffix(item.price_up_date)}`)
     })
 
     return lines.join('\n')
@@ -176,6 +182,7 @@ const fetchEtfChanges = async () => {
             latest_holding_count: Number(item.latest_holding_count ?? 0),
             previous_holding_count: Number(item.previous_holding_count ?? 0),
             delta: Number(item.delta ?? 0),
+            price_up_date: String(item.price_up_date ?? '').trim(),
             etfs: Array.isArray(item.etfs)
                 ? item.etfs.map((detail: any) => ({
                     etf: String(detail.etf ?? '').trim(),
@@ -238,6 +245,7 @@ const fetchAllEtfChanges = async () => {
                 existing.delta += delta
                 existing.etfs.push(...etfs)
                 if (!existing.name) existing.name = String(item?.name ?? '').trim()
+                if (!existing.price_up_date) existing.price_up_date = String(item?.price_up_date ?? '').trim()
                 continue
             }
 
@@ -247,6 +255,7 @@ const fetchAllEtfChanges = async () => {
                 latest_holding_count: latestHoldingCount,
                 previous_holding_count: previousHoldingCount,
                 delta,
+                price_up_date: String(item?.price_up_date ?? '').trim(),
                 etfs,
             })
         }
