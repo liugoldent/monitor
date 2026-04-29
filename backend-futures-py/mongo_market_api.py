@@ -580,6 +580,7 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 date_str = str(payload.get("date", "")).strip() or None
                 raw_etfs = payload.get("etfs", [])
                 webhook_url = str(payload.get("webhook_url", "")).strip() or None
+                custom_message = str(payload.get("custom_message", "")).strip()
                 if isinstance(raw_etfs, str):
                     etfs = [item.strip() for item in raw_etfs.split(",") if item.strip()]
                 elif isinstance(raw_etfs, list):
@@ -587,7 +588,7 @@ class MarketApiHandler(BaseHTTPRequestHandler):
                 else:
                     etfs = []
 
-                message = _build_etf_discord_message(date_str, etfs)
+                message = custom_message or _build_etf_discord_message(date_str, etfs)
                 send_discord_message(message, webhook_url)
                 self._send_json(200, {"status": "ok", "message": message})
             except Exception as exc:

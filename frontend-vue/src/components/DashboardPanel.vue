@@ -37,6 +37,10 @@ type EtfHoldingChangeItem = {
     etfs: EtfHoldingDetail[]
 }
 
+type EtfHoldingDisplayItem = EtfHoldingChangeItem & {
+    holding_etf_count: number
+}
+
 type EtfHoldingDetail = {
     etf: string
     latest_holding_count: number
@@ -78,6 +82,7 @@ const etfLatestDate = ref('')
 const etfPreviousDate = ref('')
 const selectedEtfs = ref<string[]>(ETF_OPTIONS.map((item) => item.value))
 const etfPickerOpen = ref(false)
+const showAtLeastThreeMode = ref(false)
 const showAiModal = ref(false)
 const showShareModal = ref(false)
 const shareLoading = ref(false)
@@ -131,6 +136,28 @@ const formatDateString = (date: Date) => {
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const day = String(date.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
+}
+
+const formatShareMessage = () => {
+    const lines: string[] = []
+    lines.push(`ETF掃描 ${etfLatestDate.value || formatDateString(new Date())}`)
+    lines.push(`模式: ${showAtLeastThreeMode.value ? '至少 3 檔' : '選取交集'}`)
+    lines.push(`ETF: ${currentIntersectionLabel.value}`)
+
+    if (!visibleEtfChanges.value.length) {
+        lines.push('結果: 無資料')
+        return lines.join('\n')
+    }
+
+    lines.push(`股票數: ${visibleEtfChanges.value.length}`)
+    lines.push('清單:')
+
+    visibleEtfChanges.value.forEach((item, index) => {
+        const delta = formatDelta(item.delta)
+        lines.push(`${index + 1}. ${item.code} ${item.name} 差異 ${delta}`)
+    })
+
+    return lines.join('\n')
 }
 
 const fetchEtfChanges = async () => {
@@ -259,6 +286,43 @@ const etfNewHoldings = computed<EtfNewHoldingGroup[]>(() => {
 
 const hasEtfNewHoldings = computed(() => etfNewHoldings.value.some((group) => group.items.length > 0))
 
+const visibleEtfChanges = computed<EtfHoldingDisplayItem[]>(() => {
+    const source = showAtLeastThreeMode.value
+        ? allEtfChanges.value.filter((item) => {
+            const holdingCount = item.etfs.filter((detail) => Number(detail.latest_holding_count) > 0).length
+            return holdingCount >= 3
+        })
+        : etfChanges.value
+
+    return source
+        .map((item) => ({
+            ...item,
+            holding_etf_count: item.etfs.filter((detail) => Number(detail.latest_holding_count) > 0).length,
+        }))
+        .sort((a, b) => {
+            if (showAtLeastThreeMode.value) {
+                if (b.holding_etf_count !== a.holding_etf_count) {
+                    return b.holding_etf_count - a.holding_etf_count
+                }
+            }
+            return Math.abs(b.delta) - Math.abs(a.delta)
+        })
+})
+
+const currentIntersectionLabel = computed(() => {
+    if (showAtLeastThreeMode.value) {
+        return '4 檔 ETF 中至少 3 檔'
+    }
+    return selectedEtfs.value.map((etf) => formatEtfLabel(etf)).join(' + ') || '-'
+})
+
+const currentIntersectionDescription = computed(() => {
+    if (showAtLeastThreeMode.value) {
+        return '只列出 4 檔 ETF 中，至少 3 檔共同持有的股票'
+    }
+    return '多選 ETF 後，只顯示共同持有的股票，再看各 ETF 今天做了什麼操作'
+})
+
 const isSelectedEtf = (value: string) => selectedEtfs.value.includes(value)
 
 const toggleEtf = (value: string) => {
@@ -312,14 +376,14 @@ const shareEtfToDiscord = async () => {
 
     shareLoading.value = true
     try {
-        const today = formatDateString(new Date())
         const response = await fetch(`${ETF_HOLDING_CHANGES_API_URL}/share`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                date: today,
+                date: etfLatestDate.value || formatDateString(new Date()),
                 etfs: selectedEtfs.value,
                 webhook_url: webhookUrl,
+                custom_message: formatShareMessage(),
             }),
         })
 
@@ -462,6 +526,17 @@ onBeforeUnmount(() => {
             >
                 <div class="flex flex-wrap items-center gap-2">
                     <span class="text-xs mr-2" :class="isContrastMode ? 'text-slate-100' : 'text-gray-400'">ETF 選擇</span>
+                    <label
+                        class="flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+                        :class="isContrastMode ? 'border-slate-400/70 text-slate-100' : 'border-gray-700 text-gray-300'"
+                    >
+                        <span>至少 3 檔</span>
+                        <input
+                            v-model="showAtLeastThreeMode"
+                            type="checkbox"
+                            class="toggle toggle-success toggle-sm"
+                        />
+                    </label>
                     <button
                         type="button"
                         class="px-3 py-1 rounded-full border text-xs bg-transparent transition-colors"
@@ -486,7 +561,10 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
                 <div class="mt-2 text-[10px]" :class="isContrastMode ? 'text-slate-200/85' : 'text-gray-500'">
-                    目前交集：{{ selectedEtfs.map((etf) => formatEtfLabel(etf)).join(' + ') || '-' }}
+                    目前交集：{{ currentIntersectionLabel }}
+                    <span class="ml-2" :class="isContrastMode ? 'text-slate-200/65' : 'text-gray-500'">
+                        {{ currentIntersectionDescription }}
+                    </span>
                 </div>
 
                 <div
@@ -533,7 +611,7 @@ onBeforeUnmount(() => {
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden bg-black">
                 <div class="flex-1 min-h-0 overflow-y-auto">
                     <div
-                        v-for="item in etfChanges"
+                        v-for="item in visibleEtfChanges"
                         :key="item.code"
                         class="border-b px-3 py-3 text-sm"
                         :class="isContrastMode ? 'border-slate-700/80 bg-[#060a10]' : 'border-gray-900'"
@@ -541,6 +619,12 @@ onBeforeUnmount(() => {
                         <div class="flex items-center justify-center gap-3 text-center">
                             <div class="font-semibold tracking-wide text-white">{{ item.code }}</div>
                             <div class="font-medium text-lg text-white">{{ item.name }}</div>
+                            <div
+                                class="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                                :class="isContrastMode ? 'bg-emerald-400/15 text-emerald-200' : 'bg-emerald-500/10 text-emerald-300'"
+                            >
+                                {{ item.holding_etf_count }} 檔有
+                            </div>
                         </div>
 
                         <div class="mt-3 ml-4 pl-4 border-l-2" :class="isContrastMode ? 'border-slate-600' : 'border-gray-800'">
@@ -581,8 +665,8 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
 
-                    <div v-if="!etfChanges.length" class="text-center text-xs text-gray-500 py-6">
-                        尚無可比較的 ETF 持有變化資料
+                    <div v-if="!visibleEtfChanges.length" class="text-center text-xs text-gray-500 py-6">
+                        尚無符合目前模式的 ETF 持有變化資料
                     </div>
 
                     <div class="px-3 py-4 border-t" :class="isContrastMode ? 'border-slate-700/80 bg-[#05080e]' : 'border-gray-900 bg-black/30'">
