@@ -140,10 +140,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="flex flex-col w-full h-full bg-[#1a1a1a] text-gray-300 font-sans shadow-xl overflow-hidden">
+    <div class="market-table-shell flex flex-col w-full h-full bg-[#1a1a1a] text-gray-300 font-sans shadow-xl overflow-hidden">
         <!-- Top Toolbar -->
-        <div class="p-2 grid grid-cols-1 gap-4 items-center bg-[#242424] shrink-0">
-            <div class="flex items-center justify-between px-4">
+        <div class="market-table-toolbar p-2 grid grid-cols-1 gap-4 items-center bg-[#242424] shrink-0">
+            <div class="market-table-toolbar__row flex items-center justify-between px-4">
                 <div class="flex flex-col">
                     <span class="font-bold text-white">Market Monitor</span>
                     <span class="text-[10px] text-gray-400">資料日期: {{ marketDataDate || '-' }}</span>
@@ -162,16 +162,16 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Main Content Grid -->
-        <div class="flex-1 flex flex-col min-[1000px]:flex-row gap-1 overflow-hidden">
+        <div class="market-table-panels flex-1 flex flex-col min-[1000px]:flex-row gap-1 overflow-hidden">
             
             <!-- Top Panel: Highest 10 -->
-            <div class="flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
+            <div class="market-table-panel flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
                 <div class="p-2 bg-[#d63031] text-white font-bold text-center shrink-0">
                     多方 ({{ positiveCount }}家)
                 </div>
                 
                 <div
-                    class="grid text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0"
+                    class="market-table-grid-header grid text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0"
                     :class="isDev ? 'grid-cols-4' : 'grid-cols-2'">
                     <div class="col-span-1">商品名稱</div>
                     <div v-if="isDev" class="col-span-1">近月</div>
@@ -212,13 +212,13 @@ onBeforeUnmount(() => {
             </div>
 
             <!-- Bottom Panel: Lowest 10 -->
-            <div class="flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
+            <div class="market-table-panel flex flex-col flex-1 h-full min-h-0 bg-[#1a1a1a]">
                 <div class="p-2 bg-[#55efc4] text-[#2d3436] font-bold text-center shrink-0">
                     空方 ({{ negativeCount }}家)
                 </div>
 
                 <div
-                    class="grid text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0"
+                    class="market-table-grid-header grid text-center py-2 bg-[#242424] text-xs border-b border-gray-700 shrink-0"
                     :class="isDev ? 'grid-cols-4' : 'grid-cols-2'">
                     <div class="col-span-1">商品名稱</div>
                     <div v-if="isDev" class="col-span-1">近月</div>
@@ -263,6 +263,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.market-table-shell {
+    min-width: 0;
+}
+
 /* 隱藏滾動條但保持功能 */
 .scrollbar-hide::-webkit-scrollbar {
     display: none;
@@ -271,5 +275,34 @@ onBeforeUnmount(() => {
 .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
+}
+
+@media (max-width: 1180px) {
+    .market-table-shell {
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+    }
+
+    .market-table-toolbar {
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+
+    .market-table-toolbar__row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .market-table-panels {
+        overflow: visible;
+    }
+
+    .market-table-panel {
+        min-height: 0;
+    }
 }
 </style>

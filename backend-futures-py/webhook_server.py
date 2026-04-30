@@ -13,10 +13,10 @@ import shioaji as sj
 
 from auto_trade import buyOne as long_buy_one
 from auto_trade import sellOne as long_sell_one
-from auto_trade import send_discord_message as long_send_discord_message
+from auto_trade import send_discord_message as _base_long_send_discord_message
 from auto_trade_shortCycle import auto_trade as shortcycle_auto_trade
 from auto_trade_shortCycle import closePosition as shortcycle_close_position
-from auto_trade_shortCycle import send_discord_message as shortcycle_send_discord_message
+from auto_trade_shortCycle import send_discord_message as _base_shortcycle_send_discord_message
 
 # Configuration
 PORT = 8080
@@ -230,6 +230,66 @@ def _get_latest_mtx_bvav() -> float | None:
     return None
 
 
+def _format_mxf_number(value: object) -> str:
+    """把 MXF 數值格式化成適合顯示的字串。"""
+    number = _to_float(value)
+    if number is None:
+        return ""
+    if float(number).is_integer():
+        return f"{int(number):,}"
+    return f"{number:,.3f}".rstrip("0").rstrip(".")
+
+
+def _get_latest_mxf_snapshot() -> dict[str, str]:
+    """讀取 mxf_value.csv 的最新一筆原始資料。"""
+    if not os.path.isfile(MXF_VALUE_CSV_PATH):
+        return {"tx_bvav": "", "mtx_bvav": "", "mtx_bvav_avg": ""}
+
+    try:
+        with open(MXF_VALUE_CSV_PATH, "r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+    except Exception:
+        return {"tx_bvav": "", "mtx_bvav": "", "mtx_bvav_avg": ""}
+
+    for row in reversed(rows):
+        snapshot = {
+            "tx_bvav": str(row.get("tx_bvav", "")).strip(),
+            "mtx_bvav": str(row.get("mtx_bvav", "")).strip(),
+            "mtx_bvav_avg": str(row.get("mtx_bvav_avg", "")).strip(),
+        }
+        if any(snapshot.values()):
+            return snapshot
+
+    return {"tx_bvav": "", "mtx_bvav": "", "mtx_bvav_avg": ""}
+
+
+def _append_mxf_context(message: str) -> str:
+    """把最新 MXF 資料附加到 Discord 訊息。"""
+    snapshot = _get_latest_mxf_snapshot()
+    if not any(snapshot.values()):
+        return message
+
+    context_lines = [
+        "MXF最新:",
+        f"坦克(tx_bvav): {_format_mxf_number(snapshot['tx_bvav']) or '-'}",
+        f"游擊隊(mtx_bvav): {_format_mxf_number(snapshot['mtx_bvav']) or '-'}",
+        f"游擊平均(mtx_bvav_avg): {_format_mxf_number(snapshot['mtx_bvav_avg']) or '-'}",
+    ]
+    if not message:
+        return "\n".join(context_lines)
+    return f"{message}\n" + "\n".join(context_lines)
+
+
+def long_send_discord_message(content: str) -> None:
+    """送出長線 Discord 訊息，並附上最新 MXF 資料。"""
+    _base_long_send_discord_message(_append_mxf_context(content))
+
+
+def shortcycle_send_discord_message(content: str) -> None:
+    """送出短線 Discord 訊息，並附上最新 MXF 資料。"""
+    _base_shortcycle_send_discord_message(_append_mxf_context(content))
+
+
 def _ensure_trade_log_header(path: str) -> None:
     """確認交易紀錄檔的表頭格式。"""
     header = ["timestamp", "action", "side", "price", "pnl", "quantity"]
@@ -282,7 +342,7 @@ def _append_bbr960_trade(action: str, side: str, price: float, pnl: str = "", qu
 
 def _ensure_tt_bbr_trade_log_header() -> None:
     """確認 TT/BBR 交易紀錄檔的表頭格式。"""
-    header = ["timestamp", "action", "side", "price", "note"]
+    header = ["timestamp", "action", "side", "price", "note", "tx_bvav", "mtx_bvav", "mtx_bvav_avg"]
     if not os.path.isfile(TT_BBR_TRADE_LOG_PATH):
         os.makedirs(os.path.dirname(TT_BBR_TRADE_LOG_PATH), exist_ok=True)
         with open(TT_BBR_TRADE_LOG_PATH, "w", newline="", encoding="utf-8") as handle:
@@ -316,9 +376,19 @@ def _append_tt_bbr_trade(action: str, side: str, price: float, note: str = "") -
     """寫入 TT/BBR 策略進出場紀錄。"""
     _ensure_tt_bbr_trade_log_header()
     timestamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
+    snapshot = _get_latest_mxf_snapshot()
     with open(TT_BBR_TRADE_LOG_PATH, "a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow([timestamp, action, side, price, note])
+        writer.writerow([
+            timestamp,
+            action,
+            side,
+            price,
+            note,
+            snapshot["tx_bvav"],
+            snapshot["mtx_bvav"],
+            snapshot["mtx_bvav_avg"],
+        ])
 
 
 def _default_bbr960_state() -> dict:

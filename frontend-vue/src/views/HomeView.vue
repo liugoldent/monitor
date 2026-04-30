@@ -62,9 +62,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4">
-    <div class="grid grid-cols-[0.9fr_1.1fr] gap-4 h-full w-full">
-      <div class="h-full rounded-xl overflow-hidden shadow-2xl border border-gray-800 flex flex-col">
+  <main class="home-shell h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4">
+    <div class="home-layout grid grid-cols-[0.9fr_1.1fr] gap-4 h-full w-full">
+      <div class="home-panel home-panel--market h-full rounded-xl overflow-hidden shadow-2xl border border-gray-800 flex flex-col">
         <div class="p-4 bg-[#242424] border-b border-gray-700 shrink-0">
           <div class="flex items-start justify-between">
             <h2 class="text-white font-bold mb-4 flex items-center gap-2">
@@ -80,8 +80,8 @@ onBeforeUnmount(() => {
             </RouterLink>
           </div>
 
-          <div class="flex gap-4">
-            <div v-if="isDev" class="flex-1 grid grid-cols-3 gap-2">
+          <div class="home-sentiment-row flex gap-4">
+            <div v-if="isDev" class="home-sentiment-stats flex-1 grid grid-cols-3 gap-2">
               <div
                 class="flex flex-col items-center justify-center bg-[#1a1a1a] p-2 rounded border border-gray-700">
                 <span class="text-xs text-gray-500">外資</span>
@@ -99,7 +99,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="flex flex-col items-center justify-center border rounded" :class="{
+            <div class="home-trade-box flex flex-col items-center justify-center border rounded" :class="{
               'w-32': isDev,
               'w-full': !isDev,
               'bg-gradient-to-br from-red-900/50 to-red-600/20 border-red-500/30': tradeSuggestion === '做多',
@@ -119,7 +119,7 @@ onBeforeUnmount(() => {
           />
         </div>
       </div>
-      <div class="h-full min-h-0 rounded-xl overflow-hidden shadow-2xl border border-gray-800">
+      <div class="home-panel home-panel--dashboard h-full min-h-0 rounded-xl overflow-hidden shadow-2xl border border-gray-800">
         <DashboardPanel
           :highest20="highest20"
           :lowest20="lowest20"
@@ -129,3 +129,62 @@ onBeforeUnmount(() => {
     </div>
   </main>
 </template>
+
+
+<style scoped>
+.home-shell {
+  min-height: 100vh;
+  width: 100vw;
+}
+
+.home-panel {
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .home-shell {
+    height: auto;
+    min-height: 100dvh;
+    width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px;
+  }
+
+  .home-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .home-panel {
+    height: auto;
+    min-height: 0;
+  }
+
+  .home-sentiment-row {
+    flex-direction: column;
+  }
+
+  .home-sentiment-row > * {
+    width: 100%;
+  }
+
+  .home-sentiment-stats {
+    width: 100%;
+  }
+
+  .home-trade-box {
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .home-shell {
+    padding: 8px;
+  }
+
+  .home-layout {
+    gap: 12px;
+  }
+}
+</style>

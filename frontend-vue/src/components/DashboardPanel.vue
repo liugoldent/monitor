@@ -488,12 +488,12 @@ onBeforeUnmount(() => {
 
 <template>
     <div
-        class="relative flex flex-col h-full min-h-0 font-sans overflow-hidden transition-colors duration-300"
+        class="dashboard-panel-shell relative flex flex-col h-full min-h-0 font-sans overflow-hidden transition-colors duration-300"
         :class="isContrastMode ? 'bg-[#0b1220] text-slate-100' : 'bg-[#171717] text-gray-300'"
     >
         <div class="flex flex-col flex-1 min-h-0 border-b border-gray-700">
             <div
-                class="p-3 border-b shrink-0 flex items-center justify-between gap-3 transition-colors duration-300"
+                class="dashboard-panel-header p-3 border-b shrink-0 flex items-center justify-between gap-3 transition-colors duration-300"
                 :class="isContrastMode ? 'bg-[#253149] border-slate-400/70' : 'bg-[#242424] border-gray-700'"
             >
                 <div>
@@ -530,7 +530,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div
-                class="relative px-3 py-2 border-b overflow-visible transition-colors duration-300"
+                class="dashboard-panel-toolbar relative px-3 py-2 border-b overflow-visible transition-colors duration-300"
                 :class="isContrastMode ? 'bg-[#0f1724] border-slate-500/70' : 'bg-black/30 border-gray-700'"
             >
                 <div class="flex flex-wrap items-center gap-2">
@@ -578,7 +578,7 @@ onBeforeUnmount(() => {
 
                 <div
                     v-if="etfPickerOpen"
-                    class="absolute left-3 top-full z-30 mt-2 w-[min(520px,calc(100vw-2rem))] rounded-xl border shadow-2xl"
+                    class="dashboard-panel-etf-picker absolute left-3 top-full z-30 mt-2 w-[min(520px,calc(100vw-2rem))] rounded-xl border shadow-2xl"
                     :class="isContrastMode ? 'border-slate-400/80 bg-[#0a1018]' : 'border-gray-700 bg-[#111111]'"
                 >
                     <div
@@ -745,7 +745,7 @@ onBeforeUnmount(() => {
                 </div>
             </div>
         </div>
-        <div class="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-3">
+        <div class="dashboard-panel-fab fixed bottom-4 right-4 z-40 flex flex-col items-end gap-3">
             <div
                 v-if="shareStatus"
                 class="rounded-full border px-3 py-1 text-[10px] shadow-lg backdrop-blur-sm"
@@ -918,7 +918,7 @@ onBeforeUnmount(() => {
 
                 </div>
 
-                <div class="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[0.35fr_0.65fr] flex-1 min-h-0 overflow-hidden">
+                <div class="dashboard-panel-workspace grid grid-cols-1 gap-4 p-4 lg:grid-cols-[0.35fr_0.65fr] flex-1 min-h-0 overflow-hidden">
                     <div class="flex flex-col gap-3">
                         <label class="text-xs text-gray-400">選擇問題</label>
                         <select
@@ -960,3 +960,68 @@ onBeforeUnmount(() => {
         </div>
     </div>
 </template>
+
+
+<style scoped>
+.dashboard-panel-shell {
+    min-width: 0;
+}
+
+/* 隱藏滾動條但保持功能 */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+@media (max-width: 1180px) {
+    .dashboard-panel-shell {
+        height: auto;
+        min-height: 0;
+        overflow: visible;
+    }
+
+    .dashboard-panel-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .dashboard-panel-header h2 {
+        font-size: 1.25rem;
+        line-height: 1.2;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .dashboard-panel-toolbar {
+        overflow: visible;
+    }
+
+    .dashboard-panel-workspace {
+        overflow: visible;
+    }
+
+    .dashboard-panel-fab {
+        position: static;
+        inset: auto;
+        margin-top: 12px;
+        margin-left: auto;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    .dashboard-panel-fab button {
+        position: static;
+    }
+
+    .dashboard-panel-etf-picker {
+        left: 0;
+        right: 0;
+        width: calc(100vw - 1.5rem);
+    }
+}
+</style>
