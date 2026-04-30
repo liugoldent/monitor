@@ -48,7 +48,6 @@ cd /Users/kt/Desktop/self/monitor/shioaji-demo
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install telethon shioaji requests
 ```
 
 如果你已經有現成的虛擬環境，也可以直接安裝到既有環境中。

@@ -13,7 +13,7 @@ LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_1MIN_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 MTX_BVAV_AVG_WINDOW = 23
-MXF_CSV_HEADER = ["time", "tx_bvav", "mtx_bvav", "mtx_bvav_avg", "mtx_tbta", "signal"]
+MXF_CSV_HEADER = ["time", "tx_bvav", "mtx_bvav", "mtx_bvav_avg", "signal", "trend"]
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -101,13 +101,23 @@ def _format_int(value: float | None) -> str:
     return str(int(round(value)))
 
 
-def _get_signal(tx_bvav: float | None, mtx_bvav: float | None, mtx_tbta: float | None) -> str:
-    if tx_bvav is None or mtx_bvav is None or mtx_tbta is None:
+def _get_signal(tx_bvav: float | None, mtx_bvav: float | None) -> str:
+    if tx_bvav is None or mtx_bvav is None:
         return "none"
-    if tx_bvav > 0 and mtx_bvav > 0 and mtx_tbta < 0:
+    if tx_bvav > 0 and mtx_bvav > 0:
         return "bull"
-    if tx_bvav < 0 and mtx_bvav < 0 and mtx_tbta > 0:
+    if tx_bvav < 0 and mtx_bvav < 0:
         return "bear"
+    return "none"
+
+
+def _get_trend(mtx_bvav: float | None, mtx_bvav_avg: float | None) -> str:
+    if mtx_bvav is None or mtx_bvav_avg is None:
+        return "none"
+    if mtx_bvav > mtx_bvav_avg:
+        return "gold"
+    if mtx_bvav < mtx_bvav_avg:
+        return "death"
     return "none"
 
 
@@ -158,6 +168,20 @@ def _ensure_mxf_csv_header() -> None:
     data_rows = rows[1:]
     normalized_rows: list[list[str]] = []
     for row in data_rows:
+        if len(row) >= 6:
+            # 舊格式：time, tx_bvav, mtx_bvav, mtx_bvav_avg, mtx_tbta, signal
+            time_value = row[0]
+            tx_bvav = row[1]
+            mtx_bvav = row[2]
+            mtx_bvav_avg = row[3]
+            tx_num = _to_float(tx_bvav)
+            mtx_num = _to_float(mtx_bvav)
+            avg_num = _to_float(mtx_bvav_avg)
+            signal = _get_signal(tx_num, mtx_num)
+            trend = _get_trend(mtx_num, avg_num)
+            normalized_rows.append([time_value, tx_bvav, mtx_bvav, mtx_bvav_avg, signal, trend])
+            continue
+
         if len(row) < len(MXF_CSV_HEADER):
             row = row + [""] * (len(MXF_CSV_HEADER) - len(row))
         elif len(row) > len(MXF_CSV_HEADER):
@@ -178,25 +202,22 @@ def append_tradeinfo_csv(payload: object, now: datetime) -> None:
     doc = docs[0]
     tx_bvav = _to_float(doc.get("tx_bvav"))
     mtx_bvav = _to_float(doc.get("mtx_bvav"))
-    mtx_tbta = _to_float(doc.get("mtx_tbta"))
-    signal = _get_signal(tx_bvav, mtx_bvav, mtx_tbta)
     mtx_bvav_avg = _calculate_mtx_bvav_avg(mtx_bvav)
+    signal = _get_signal(tx_bvav, mtx_bvav)
+    trend = _get_trend(mtx_bvav, mtx_bvav_avg)
 
     CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
     _ensure_mxf_csv_header()
-    file_exists = CSV_PATH.exists()
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     with CSV_PATH.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        if not file_exists:
-            writer.writerow(MXF_CSV_HEADER)
         writer.writerow([
             timestamp,
             _format_int(tx_bvav),
             _format_int(mtx_bvav),
             _format_int(mtx_bvav_avg),
-            _format_int(mtx_tbta),
             signal,
+            trend,
         ])
 
 
