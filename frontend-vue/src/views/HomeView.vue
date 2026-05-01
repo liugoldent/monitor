@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import MarketTable from '../components/MarketTable.vue'
 import DashboardPanel from '../components/DashboardPanel.vue'
 import { resolveApiUrl } from '../utils/api'
@@ -19,6 +20,7 @@ const marketAccessPassword = 'futures'
 const isMarketLocked = ref(true)
 const lockPassword = ref('')
 const lockError = ref('')
+const route = useRoute()
 
 const marketSentiment = ref({
   foreign: 0,
@@ -27,6 +29,7 @@ const marketSentiment = ref({
 })
 const marketSentimentDate = ref<string>('')
 const MXF_API_URL = resolveApiUrl('/api/mxf', import.meta.env.VITE_MXF_API_URL)
+const PRO_ACCESS_MODE = 'pro'
 
 const refreshMarketData = async () => {
   await fetchMarketSentiment()
@@ -80,6 +83,15 @@ const tradeSuggestion = computed(() => {
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
+  const mode = String(route.query.mode ?? route.query.view ?? '').trim().toLowerCase()
+  const directAccess = mode === PRO_ACCESS_MODE
+
+  if (directAccess) {
+    isMarketLocked.value = false
+    startMarketPolling()
+    return
+  }
+
   if (!isMarketLocked.value) startMarketPolling()
 })
 
@@ -98,7 +110,7 @@ watch(isMarketLocked, (locked) => {
 </script>
 
 <template>
-  <main class="home-shell h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4">
+  <main class="home-shell min-h-screen w-full overflow-x-hidden overflow-y-auto bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4 md:h-screen md:w-screen md:overflow-hidden">
     <div class="home-layout grid grid-cols-2 gap-4 h-full w-full">
       <div class="home-panel home-panel--dashboard h-full min-h-0 rounded-xl overflow-hidden shadow-2xl border border-gray-800">
         <DashboardPanel
@@ -212,7 +224,6 @@ watch(isMarketLocked, (locked) => {
                 解鎖
               </button>
             </form>
-
           </div>
         </div>
       </div>
@@ -249,6 +260,7 @@ watch(isMarketLocked, (locked) => {
   .home-panel {
     height: auto;
     min-height: 0;
+    overflow: visible;
   }
 
   .home-sentiment-row {
