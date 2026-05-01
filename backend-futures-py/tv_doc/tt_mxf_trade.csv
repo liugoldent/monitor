@@ -1,0 +1,7 @@
+timestamp,action,side,price,note,signal,trend,tx_bvav,mtx_bvav,mtx_bvav_avg,bbr
+2026-04-30 15:02:58,enter,bull,39424.0,"enter bull at 39424.0, prev_close=39420.0, tt_short=39381.1741095179, tt_long=39409.3342136179, signal=bull, trend=gold",bull,gold,172,241,-1419,0.423
+2026-04-30 15:53:00,exit,bull,39522.0,"exit bull at 39522.0, entry=39424.0, since=2026-04-30 15:02:59, tt_short=39501.0519939607, tt_long=39475.1822461756, signal=bull, trend=death",bull,death,179,409,515,0.621
+2026-04-30 22:10:59,enter,bear,39528.0,"enter bear at 39528.0, prev_close=39566.0, tt_short=39676.1389054886, tt_long=39733.7905332109, signal=bear, trend=death",bear,death,-174,-161,437,0.425
+2026-04-30 22:13:00,exit,bear,39565.0,"exit bear at 39565.0, entry=39528.0, since=2026-04-30 22:11:00, tt_short=39666.462711295, tt_long=39726.5896496422, signal=bear, trend=death",bear,death,-206,-240,327,0.477
+2026-04-30 22:17:02,enter,bear,39514.0,"enter bear at 39514.0, prev_close=39571.0, tt_short=39652.1693724304, tt_long=39714.5908069425, signal=bear, trend=death",bear,death,-327,-451,151,0.403
+2026-04-30 22:18:58,exit,bear,39549.0,"exit bear at 39549.0, entry=39514.0, since=2026-04-30 22:17:02, tt_short=39643.2566948118, tt_long=39707.5930299818, signal=bear, trend=death",bear,death,-315,-581,109,0.453
