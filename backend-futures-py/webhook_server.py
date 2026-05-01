@@ -926,8 +926,10 @@ def _apply_h_follow_strategy() -> bool:
         # cross = close 正式上穿 MA_N200
         # wick = 影線打到 MA_N200，但收盤收回上方
         # near = 收盤接近 MA_N200，當作打腳或貼線確認
-        long_cross_signal = prev_close <= prev_ma_n200 and curr_close > curr_ma_n200
-        long_wick_signal = curr_low <= curr_ma_n200 and curr_close > curr_ma_n200
+        # 這三種多方型態都要求當根 K 收盤站回 MA_N200 上方。
+        long_entry_close_ok = curr_close > curr_ma_n200
+        long_cross_signal = prev_close <= prev_ma_n200 and long_entry_close_ok
+        long_wick_signal = curr_low <= curr_ma_n200 and long_entry_close_ok
         long_near_signal = _is_close_above_level(curr_close, curr_ma_n200) and _is_within_near_touch(
             curr_close, curr_ma_n200, H_FOLLOW_NEAR_TOUCH_POINTS
         )
@@ -936,8 +938,10 @@ def _apply_h_follow_strategy() -> bool:
         # cross = close 正式下穿 MA_P200
         # wick = 影線插到 MA_P200 上方，但收盤收回下方
         # near = 收盤接近 MA_P200，當作壓力測試確認
-        short_cross_signal = prev_close >= prev_ma_p200 and curr_close < curr_ma_p200
-        short_wick_signal = curr_high >= curr_ma_p200 and curr_close < curr_ma_p200
+        # 這三種空方型態都要求當根 K 收盤站回 MA_P200 下方。
+        short_entry_close_ok = curr_close < curr_ma_p200
+        short_cross_signal = prev_close >= prev_ma_p200 and short_entry_close_ok
+        short_wick_signal = curr_high >= curr_ma_p200 and short_entry_close_ok
         short_near_signal = _is_close_below_level(curr_close, curr_ma_p200) and _is_within_near_touch(
             curr_close, curr_ma_p200, H_FOLLOW_NEAR_TOUCH_POINTS
         )
@@ -1020,7 +1024,7 @@ def _apply_h_follow_strategy() -> bool:
             return False
 
         # 只有當 h_trade 最新方向是 bull，且目前這筆 bull 是賺錢時，才允許啟動多單跟隨。
-        if latest_side == "bull" and reference_pnl > 0 and prev_long_cross:
+        if latest_side == "bull" and reference_pnl > 0 and prev_long_cross and long_entry_close_ok:
             entry_reason = "cross" if long_cross_signal else "wick" if long_wick_signal else "near"
             note = (
                 f"enter bull at {curr_close}, reason={entry_reason}, latest_h_entry={latest_entry_price}, latest_h_pnl={reference_pnl}, "
@@ -1045,7 +1049,7 @@ def _apply_h_follow_strategy() -> bool:
             return True
 
         # 只有當 h_trade 最新方向是 bear，且目前這筆 bear 是賺錢時，才允許啟動空單跟隨。
-        if latest_side == "bear" and reference_pnl > 0 and prev_short_cross:
+        if latest_side == "bear" and reference_pnl > 0 and prev_short_cross and short_entry_close_ok:
             entry_reason = "cross" if short_cross_signal else "wick" if short_wick_signal else "near"
             note = (
                 f"enter bear at {curr_close}, reason={entry_reason}, latest_h_entry={latest_entry_price}, latest_h_pnl={reference_pnl}, "
