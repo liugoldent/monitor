@@ -48,7 +48,7 @@ ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
 FUTURE_INDEX_DB_NAME = "FutureIndex"
 FUTURE_INDEX_COLLECTION = "index"
 TZ = ZoneInfo("Asia/Taipei")
-DEFAULT_DISCORD_WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or os.getenv("DISCORD_WEBHOOK_URL") or "").strip()
+DEFAULT_DISCORD_WEBHOOK_URL = (os.getenv("WEBHOOK_URL") or os.getenv("DISCORD_ETF_CROSS") or "").strip()
 PRICE_UP_JSON_PATH = Path(__file__).resolve().parent / "tv_doc" / "priceUp.json"
 
 mongo_client = MongoClient(MONGO_URI)

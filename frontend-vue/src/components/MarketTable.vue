@@ -14,6 +14,11 @@ const marketData = ref<MarketItem[]>([])
 const previousMarketData = ref<MarketItem[]>([])
 const marketDataDate = ref<string>('')
 const isDev = import.meta.env.VITE_ENV === 'DEV'
+const discordStockFuturesWebhook = import.meta.env.VITE_DISCORD_STOCK_FUTURES || ''
+
+const props = defineProps<{
+    tradeSuggestion: string
+}>()
 
 const MARKET_API_URL =
     resolveApiUrl('/api/stkfut_tradeinfo', import.meta.env.VITE_MARKET_API_URL)
@@ -45,6 +50,39 @@ const lowest20 = computed(() =>
 const highest20 = computed(() =>
     [...marketData.value].sort((a, b) => b.combine - a.combine).slice(0, 20),
 )
+
+const formatTopFiveList = (items: MarketItem[]) =>
+    items.map((item, index) => `${index + 1}. ${item.name}`).join(' ')
+
+const buildDiscordMessage = (highestItems: MarketItem[], lowestItems: MarketItem[]) => {
+    const topFive = highestItems.slice(0, 5)
+    const bottomFive = lowestItems.slice(0, 5)
+
+    return [
+        `操作建議：${props.tradeSuggestion || '混沌'}`,
+        `多方推薦：${formatTopFiveList(topFive) || '-'}`,
+        `空方推薦：${formatTopFiveList(bottomFive) || '-'}`,
+    ].join('\n')
+}
+
+const sendDiscordStockFutures = async (highestItems: MarketItem[], lowestItems: MarketItem[]) => {
+    if (!discordStockFuturesWebhook) return
+
+    const message = buildDiscordMessage(highestItems, lowestItems)
+    const response = await fetch(discordStockFuturesWebhook, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            content: message,
+        }),
+    })
+
+    if (!response.ok) {
+        throw new Error(`Discord webhook failed with ${response.status}`)
+    }
+}
 
 const combineScoreClass = (value: number) => {
     if (value < 0) return 'bg-green-500/80'
@@ -117,6 +155,11 @@ const fetchMarketData = async (force = false) => {
         previousMarketData.value = marketData.value.map((item) => ({ ...item }))
         marketData.value = sorted
         marketDataDate.value = matchedDate
+
+        void sendDiscordStockFutures(sorted, [...sorted].sort((a, b) => a.combine - b.combine))
+            .catch((error) => {
+                console.error('Failed to send Discord stock futures snapshot:', error)
+            })
     } catch (error) {
         console.error('Failed to load market data:', error)
     }
@@ -127,7 +170,7 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
     fetchMarketData(true)
     if (shouldFetchNow()) {
-        refreshTimer = setInterval(fetchMarketData, 30_000)
+        refreshTimer = setInterval(fetchMarketData, 60_000)
     }
 })
 

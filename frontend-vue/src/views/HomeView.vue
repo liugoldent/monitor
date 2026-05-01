@@ -170,6 +170,7 @@ watch(isMarketLocked, (locked) => {
 
           <div class="flex-1 min-h-0">
             <MarketTable
+              :tradeSuggestion="tradeSuggestion"
               @update:highest20="highest20 = $event"
               @update:lowest20="lowest20 = $event"
             />
