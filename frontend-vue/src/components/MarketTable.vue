@@ -10,8 +10,16 @@ type MarketItem = {
     combine: number
 }
 
+type MarketSnapshotItem = {
+    id: string | number
+    name: string
+    combine: number
+}
+
+const marketSnapshotStorageKey = 'frontend-vue:market-table:last-snapshot'
+
 const marketData = ref<MarketItem[]>([])
-const previousMarketData = ref<MarketItem[]>([])
+const previousMarketData = ref<MarketSnapshotItem[]>(loadPreviousSnapshot())
 const marketDataDate = ref<string>('')
 const isDev = import.meta.env.VITE_ENV === 'DEV'
 const discordStockFuturesWebhook = import.meta.env.VITE_DISCORD_STOCK_FUTURES || ''
@@ -24,7 +32,7 @@ const MARKET_API_URL =
     resolveApiUrl('/api/stkfut_tradeinfo', import.meta.env.VITE_MARKET_API_URL)
 const NAME_URL = 'https://storage.googleapis.com/symbol-config/code_to_chinese.json'
 
-const toNumber = (value: unknown) => {
+function toNumber(value: unknown) {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : 0
 }
@@ -51,24 +59,93 @@ const highest20 = computed(() =>
     [...marketData.value].sort((a, b) => b.combine - a.combine).slice(0, 20),
 )
 
-const formatTopFiveList = (items: MarketItem[]) =>
+const formatStockList = (items: MarketSnapshotItem[]) =>
     items.map((item, index) => `${index + 1}. ${item.name}`).join(' ')
 
-const buildDiscordMessage = (highestItems: MarketItem[], lowestItems: MarketItem[]) => {
-    const topFive = highestItems.slice(0, 5)
-    const bottomFive = lowestItems.slice(0, 5)
+const pickTopPositiveFlips = (items: MarketSnapshotItem[]) =>
+    [...items].sort((a, b) => b.combine - a.combine).slice(0, 3)
+
+const pickBottomNegativeFlips = (items: MarketSnapshotItem[]) =>
+    [...items].sort((a, b) => a.combine - b.combine).slice(0, 3)
+
+const getMarketSnapshot = (items: MarketItem[]): MarketSnapshotItem[] =>
+    items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        combine: item.combine,
+    }))
+
+function loadPreviousSnapshot(): MarketSnapshotItem[] {
+    if (typeof window === 'undefined') return []
+
+    try {
+        const raw = window.localStorage.getItem(marketSnapshotStorageKey)
+        if (!raw) return []
+
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return []
+
+        return parsed
+            .map((item) => ({
+                id: item?.id,
+                name: typeof item?.name === 'string' ? item.name : String(item?.id ?? ''),
+                combine: toNumber(item?.combine),
+            }))
+            .filter((item) => item.id !== '' && item.id !== null && item.id !== undefined)
+    } catch (error) {
+        console.warn('Failed to load market snapshot from localStorage:', error)
+        return []
+    }
+}
+
+function saveSnapshot(items: MarketSnapshotItem[]) {
+    if (typeof window === 'undefined') return
+
+    try {
+        window.localStorage.setItem(marketSnapshotStorageKey, JSON.stringify(items))
+    } catch (error) {
+        console.warn('Failed to save market snapshot to localStorage:', error)
+    }
+}
+
+const buildDiscordMessage = (
+    positiveFlipItems: MarketSnapshotItem[],
+    negativeFlipItems: MarketSnapshotItem[],
+) => {
+    const topPositiveFlipItems = pickTopPositiveFlips(positiveFlipItems)
+    const bottomNegativeFlipItems = pickBottomNegativeFlips(negativeFlipItems)
 
     return [
-        `操作建議：${props.tradeSuggestion || '混沌'}`,
-        `多方推薦：${formatTopFiveList(topFive) || '-'}`,
-        `空方推薦：${formatTopFiveList(bottomFive) || '-'}`,
+        `本分鐘由負轉正：${topPositiveFlipItems.length} 檔${topPositiveFlipItems.length ? `｜${formatStockList(topPositiveFlipItems)}` : ''}`,
+        `本分鐘由正轉負：${bottomNegativeFlipItems.length} 檔${bottomNegativeFlipItems.length ? `｜${formatStockList(bottomNegativeFlipItems)}` : ''}`,
     ].join('\n')
 }
 
-const sendDiscordStockFutures = async (highestItems: MarketItem[], lowestItems: MarketItem[]) => {
+const sendDiscordStockFutures = async (
+    currentItems: MarketItem[],
+    previousItems: MarketSnapshotItem[],
+) => {
     if (!discordStockFuturesWebhook) return
 
-    const message = buildDiscordMessage(highestItems, lowestItems)
+    const previousMap = new Map(previousItems.map((item) => [String(item.id), item]))
+    const positiveFlipItems = getMarketSnapshot(
+        currentItems.filter((item) => {
+            const previous = previousMap.get(String(item.id))
+            return !!previous && previous.combine < 0 && item.combine > 0
+        }),
+    )
+    const negativeFlipItems = getMarketSnapshot(
+        currentItems.filter((item) => {
+            const previous = previousMap.get(String(item.id))
+            return !!previous && previous.combine > 0 && item.combine < 0
+        }),
+    )
+
+    if (!positiveFlipItems.length && !negativeFlipItems.length) {
+        return
+    }
+
+    const message = buildDiscordMessage(positiveFlipItems, negativeFlipItems)
     const response = await fetch(discordStockFuturesWebhook, {
         method: 'POST',
         headers: {
@@ -152,14 +229,19 @@ const fetchMarketData = async (force = false) => {
             break
         }
 
-        previousMarketData.value = marketData.value.map((item) => ({ ...item }))
+        const previousSnapshot = previousMarketData.value.length
+            ? previousMarketData.value
+            : loadPreviousSnapshot()
         marketData.value = sorted
         marketDataDate.value = matchedDate
 
-        void sendDiscordStockFutures(sorted, [...sorted].sort((a, b) => a.combine - b.combine))
+        void sendDiscordStockFutures(sorted, previousSnapshot)
             .catch((error) => {
                 console.error('Failed to send Discord stock futures snapshot:', error)
             })
+
+        previousMarketData.value = getMarketSnapshot(sorted)
+        saveSnapshot(previousMarketData.value)
     } catch (error) {
         console.error('Failed to load market data:', error)
     }

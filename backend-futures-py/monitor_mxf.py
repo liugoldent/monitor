@@ -348,9 +348,14 @@ def is_market_open(now: datetime) -> bool:
     weekday = now.weekday()  # Mon=0 ... Sun=6
     current_time = now.time()
 
+    # 日盤：週一到週五 08:45~13:45
     day_session = dt_time(8, 45) <= current_time <= dt_time(13, 45)
+
+    # 夜盤：週一到週五 15:00~23:59:59
     night_session = dt_time(15, 0) <= current_time <= dt_time(23, 59, 59)
-    early_session = dt_time(0, 0) <= current_time <= dt_time(5, 0)
+
+    # 夜盤延續到隔日 05:00，包含週五夜盤一路到週六 05:00
+    early_session = weekday in {1, 2, 3, 4, 5} and dt_time(0, 0) <= current_time <= dt_time(5, 0)
 
     if weekday <= 4:
         return day_session or night_session
