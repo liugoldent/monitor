@@ -2,13 +2,10 @@ import os
 from pathlib import Path
 import re
 import time
-from datetime import datetime
 from zoneinfo import ZoneInfo
+
 from telethon import TelegramClient, events
 from auto_trade import auto_trade
-from auto_trade_shortCycle import auto_trade as auto_trade_shortcycle
-from auto_trade_shortCycle import _get_api_client as get_api_client_short
-from auto_trade_shortCycle import _close_position_with_api as close_position_with_api_short
 
 recent_signals = {}
 SIGNAL_TTL = 10 

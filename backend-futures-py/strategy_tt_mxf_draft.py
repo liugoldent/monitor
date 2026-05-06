@@ -1,28 +1,27 @@
 """TT/MXF draft strategy.
 
-這一版是 15 分鐘的候選策略，用來測試「TT band + BBR + MXF」的組合是否真的有邊際優勢。
+這一版是 15 分鐘的候選策略，用來測試「TT band 突破 + BBR + MXF 順勢確認」是否真的有邊際優勢。
 
 進場依據
-- 多單：15 分鐘 close 連續站在 TT band 下方，且 MXF 連續 2 筆都是 bear + death。
-  這是偏向均值回歸的邏輯，意思是價格在相對弱勢區，但 MXF 也沒有再惡化，反而呈現可等待反彈的結構。
-- 空單：15 分鐘 close 連續站在 TT band 上方，且 MXF 連續 2 筆都是 bear + gold。
-  這是偏向反轉做空的邏輯，意思是價格在相對強勢區，但 MXF 不是全面轉強，而是偏弱反彈，容易在高檔承壓。
+- 多單：15 分鐘 close 連續站在 TT band 上方，且 MXF 連續 2 筆都是 bull + gold。
+  這代表價格站穩上方突破，MXF 也同步確認多方力道。
+- 空單：15 分鐘 close 連續跌破 TT band 下方，且 MXF 連續 2 筆都是 bear + death。
+  這代表價格跌破下方區間，MXF 也同步確認空方力道。
 - BBR 用來做強弱濾網：
-  - 多單偏好低 BBR，代表盤勢壓縮後較容易出現回歸
-  - 空單偏好高 BBR，代表高檔若持續偏熱，容易有回落空間
+  - 多單要求 BBR 偏強，避免在上方突破但動能不足時追多
+  - 空單要求 BBR 偏弱，避免在下方跌破但動能不足時追空
 
 出場依據
 - 停損：固定點數停損，控制單筆風險。
 - 停利：固定點數停利，避免候選策略樣本太少時把已出現的優勢吐回去。
-- TT re-entry：價格回到 TT band 內，表示原本的「帶外偏離」已經消失，均值回歸的理由不再成立。
-- MXF flip：MXF 翻成相反方向，表示原本支持這筆交易的力道已經失效。
+- TT re-entry：價格回到 TT band 內，表示原本的「帶外突破」已經消失。
+- MXF fade：MXF 不再維持進場方向，表示原本支持這筆交易的力道已經失效。
 
 這一版不是拿來直接宣稱最強，而是把樣本內看起來有優勢的結構先獨立保存，之後再用更多資料驗證。
 """
 
 from __future__ import annotations
 
-import csv
 import json
 import os
 import sys
@@ -51,8 +50,8 @@ TT_MXF_DRAFT_TRADE_LOG_PATH = os.path.join(TV_DOC_DIR, "tt_mxf_draft_trade.csv")
 TT_MXF_DRAFT_STATE_PATH = os.path.join(TV_DOC_DIR, "tt_mxf_draft_state.json")
 
 TT_MXF_DRAFT_TIMEFRAME = "15"
-TT_MXF_DRAFT_SHORT_BBR_MIN = 0.5
-TT_MXF_DRAFT_LONG_BBR_MAX = 0.5
+TT_MXF_DRAFT_LONG_BBR_MIN = 0.5
+TT_MXF_DRAFT_SHORT_BBR_MAX = 0.5
 TT_MXF_DRAFT_STOP_LOSS_POINTS = 25.0
 TT_MXF_DRAFT_TAKE_PROFIT_POINTS = 50.0
 TT_MXF_PENDING_TIMEOUT_SECONDS = 60 * 60
@@ -192,10 +191,6 @@ def _is_mxf_bear(row: dict) -> bool:
     return str(row.get("signal", "")).strip().lower() == "bear" and str(row.get("trend", "")).strip().lower() == "death"
 
 
-def _is_mxf_bear_gold(row: dict) -> bool:
-    return str(row.get("signal", "")).strip().lower() == "bear" and str(row.get("trend", "")).strip().lower() == "gold"
-
-
 def _get_unrealized_pnl(side: str, entry_price: float, close_price: float) -> float | None:
     if entry_price is None or close_price is None:
         return None
@@ -212,46 +207,56 @@ def _reason_zh(reason: str) -> str:
         "take profit": "停利",
         "tt re-entry": "回到TT區間內",
         "mxf flip": "MXF翻轉",
-        "mean reversion long": "均值回歸做多",
-        "reversal short": "反轉做空",
+        "trend long": "順勢突破做多",
+        "trend short": "順勢跌破做空",
     }
     return mapping.get(reason, reason)
 
 
 def _trigger_entry(side: str, close_price: float, reason: str, mxf_row: dict, bbr: float, timeframe: str, tt_short: float, tt_long: float, note: str = "") -> None:
     def _runner() -> None:
+        zh_reason = _reason_zh(reason)
         try:
-            zh_reason = _reason_zh(reason)
-            _append_trade("enter", side, close_price, note or f"進場原因：{zh_reason}", mxf_row, bbr, timeframe, tt_short, tt_long)
             shortcycle_send_discord_message(
                 f"webhook_server: close={close_price}，TT/MXF 草案進場訊號 {side}，原因：{zh_reason}（僅通知，不下單）"
             )
-        finally:
+            _append_trade("enter", side, close_price, note or f"進場原因：{zh_reason}", mxf_row, bbr, timeframe, tt_short, tt_long)
             with STRATEGY_LOCK:
                 state = _load_state()
                 _clear_pending(state)
                 _set_position(state, side, close_price)
                 _save_state(state)
             print(f"🔔 TT/MXF draft entry alert({side}) because {reason}")
+        except Exception as exc:
+            with STRATEGY_LOCK:
+                state = _load_state()
+                _clear_pending(state)
+                _save_state(state)
+            print(f"⚠️ TT/MXF draft entry alert({side}) failed before state update: {exc}")
 
     Thread(target=_runner, daemon=True).start()
 
 
 def _trigger_exit(side: str, close_price: float, reason: str, mxf_row: dict, bbr: float, timeframe: str, tt_short: float, tt_long: float, note: str = "") -> None:
     def _runner() -> None:
+        zh_reason = _reason_zh(reason)
         try:
-            zh_reason = _reason_zh(reason)
-            _append_trade("exit", side, close_price, note or f"出場原因：{zh_reason}", mxf_row, bbr, timeframe, tt_short, tt_long)
             shortcycle_send_discord_message(
                 f"webhook_server: close={close_price}，TT/MXF 草案平倉訊號 {side}，原因：{zh_reason}（僅通知，不下單）"
             )
-        finally:
+            _append_trade("exit", side, close_price, note or f"出場原因：{zh_reason}", mxf_row, bbr, timeframe, tt_short, tt_long)
             with STRATEGY_LOCK:
                 state = _load_state()
                 _clear_pending(state)
                 _clear_position(state)
                 _save_state(state)
             print(f"🔔 TT/MXF draft exit alert({side}) because {reason}")
+        except Exception as exc:
+            with STRATEGY_LOCK:
+                state = _load_state()
+                _clear_pending(state)
+                _save_state(state)
+            print(f"⚠️ TT/MXF draft exit alert({side}) failed before state update: {exc}")
 
     Thread(target=_runner, daemon=True).start()
 
@@ -289,10 +294,10 @@ def apply_tt_mxf_draft_strategy() -> bool:
         curr_close_below_tt = curr_close < curr_lower_tt
         curr_close_inside_tt = not curr_close_above_tt and not curr_close_below_tt
 
-        long_mxf_confirm = _is_mxf_bear(prev_mxf_row) and _is_mxf_bear(curr_mxf_row)
-        short_mxf_confirm = _is_mxf_bear_gold(prev_mxf_row) and _is_mxf_bear_gold(curr_mxf_row)
-        long_strength_ok = curr_bbr <= TT_MXF_DRAFT_LONG_BBR_MAX
-        short_strength_ok = curr_bbr >= TT_MXF_DRAFT_SHORT_BBR_MIN
+        long_mxf_confirm = _is_mxf_bull(prev_mxf_row) and _is_mxf_bull(curr_mxf_row)
+        short_mxf_confirm = _is_mxf_bear(prev_mxf_row) and _is_mxf_bear(curr_mxf_row)
+        long_strength_ok = curr_bbr >= TT_MXF_DRAFT_LONG_BBR_MIN
+        short_strength_ok = curr_bbr <= TT_MXF_DRAFT_SHORT_BBR_MAX
 
         state = _load_state()
         position_side = str(state.get("position_side", "")).strip().lower()
@@ -313,7 +318,7 @@ def apply_tt_mxf_draft_strategy() -> bool:
                 (bull_unrealized_pnl is not None and bull_unrealized_pnl <= -TT_MXF_DRAFT_STOP_LOSS_POINTS)
                 or (bull_unrealized_pnl is not None and bull_unrealized_pnl >= TT_MXF_DRAFT_TAKE_PROFIT_POINTS)
                 or curr_close_inside_tt
-                or _is_mxf_bull(curr_mxf_row)
+                or not _is_mxf_bull(curr_mxf_row)
             ):
                 reason = (
                     "stop loss" if bull_unrealized_pnl is not None and bull_unrealized_pnl <= -TT_MXF_DRAFT_STOP_LOSS_POINTS
@@ -339,7 +344,7 @@ def apply_tt_mxf_draft_strategy() -> bool:
                 (bear_unrealized_pnl is not None and bear_unrealized_pnl <= -TT_MXF_DRAFT_STOP_LOSS_POINTS)
                 or (bear_unrealized_pnl is not None and bear_unrealized_pnl >= TT_MXF_DRAFT_TAKE_PROFIT_POINTS)
                 or curr_close_inside_tt
-                or _is_mxf_bull(curr_mxf_row)
+                or not _is_mxf_bear(curr_mxf_row)
             ):
                 reason = (
                     "stop loss" if bear_unrealized_pnl is not None and bear_unrealized_pnl <= -TT_MXF_DRAFT_STOP_LOSS_POINTS
@@ -359,8 +364,8 @@ def apply_tt_mxf_draft_strategy() -> bool:
             _save_state(state)
             return False
 
-        if prev_close_below_tt and curr_close_below_tt and long_mxf_confirm and long_strength_ok:
-            strength = "strong" if curr_bbr <= 0.2 else "normal"
+        if prev_close_above_tt and curr_close_above_tt and long_mxf_confirm and long_strength_ok:
+            strength = "strong" if curr_bbr >= 0.8 else "normal"
             note = (
                 f"多單進場：價格 {curr_close}，週期={timeframe}分，強度={strength}，"
                 f"TT短線={curr_tt_short}，TT長線={curr_tt_long}，訊號={curr_mxf_row.get('signal', '')}，"
@@ -368,11 +373,11 @@ def apply_tt_mxf_draft_strategy() -> bool:
             )
             _mark_pending(state, "enter", "bull")
             _save_state(state)
-            _trigger_entry("bull", curr_close, "均值回歸做多", curr_mxf_row, curr_bbr, timeframe, curr_tt_short, curr_tt_long, note=note)
+            _trigger_entry("bull", curr_close, "trend long", curr_mxf_row, curr_bbr, timeframe, curr_tt_short, curr_tt_long, note=note)
             return True
 
-        if prev_close_above_tt and curr_close_above_tt and short_mxf_confirm and short_strength_ok:
-            strength = "strong" if curr_bbr >= 0.8 else "normal"
+        if prev_close_below_tt and curr_close_below_tt and short_mxf_confirm and short_strength_ok:
+            strength = "strong" if curr_bbr <= 0.2 else "normal"
             note = (
                 f"空單進場：價格 {curr_close}，週期={timeframe}分，強度={strength}，"
                 f"TT短線={curr_tt_short}，TT長線={curr_tt_long}，訊號={curr_mxf_row.get('signal', '')}，"
@@ -380,7 +385,7 @@ def apply_tt_mxf_draft_strategy() -> bool:
             )
             _mark_pending(state, "enter", "bear")
             _save_state(state)
-            _trigger_entry("bear", curr_close, "反轉做空", curr_mxf_row, curr_bbr, timeframe, curr_tt_short, curr_tt_long, note=note)
+            _trigger_entry("bear", curr_close, "trend short", curr_mxf_row, curr_bbr, timeframe, curr_tt_short, curr_tt_long, note=note)
             return True
 
         _save_state(state)

@@ -4,16 +4,19 @@
 再用 1 分鐘 K 線上的 MA_N200 / MA_P200 結構去找跟進點。
 
 進場依據
-- 只有當最新 H 單本身是獲利狀態時，才允許跟單。
-  這個限制的目的，是避免去追一筆已經失真的參考方向。
-- 多單：
+- 當最新 H 單本身是獲利狀態時，順著 H 單方向跟進。
+- 當最新 H 單本身是虧損狀態時，允許用反向穿越訊號跟進當下盤勢。
+- 順勢多單：
   - close 正式站上 MA_N200，代表下方支撐被確認
   - 或影線打到 MA_N200 後收回上方，代表有打腳反應
   - 或 close 靠近 MA_N200，視為貼線確認
-- 空單：
+- 順勢空單：
   - close 正式跌破 MA_P200，代表上方壓力被確認
   - 或影線插到 MA_P200 後收回下方，代表有壓回反應
   - 或 close 靠近 MA_P200，視為貼線確認
+- 反向加碼：
+  - 最新 H 多單虧損時，close 正式跌破 MA_P200，代表現在偏空，送空單訊號
+  - 最新 H 空單虧損時，close 正式站上 MA_N200，代表現在偏多，送多單訊號
 
 出場依據
 - 停損：
@@ -245,20 +248,25 @@ def _reason_zh(reason: str) -> str:
         "cross": "正式穿越確認",
         "wick": "影線測試確認",
         "near": "貼線確認",
+        "loss reverse short": "H多單虧損後跌破P200",
+        "loss reverse long": "H空單虧損後上穿N200",
     }
     return mapping.get(reason, reason)
 
 
 def _trigger_entry(side: str, close_price: float, reason: str, latest_h_trade: dict, reference_pnl: float, ma_n200: float, ma_p200: float) -> None:
     def _runner() -> None:
+        latest_side = str(latest_h_trade.get("side", "")).strip().lower()
+        latest_entry_price = to_float(latest_h_trade.get("price"))
+        zh_reason = _reason_zh(reason)
         try:
-            latest_side = str(latest_h_trade.get("side", "")).strip().lower()
-            latest_entry_price = to_float(latest_h_trade.get("price"))
-            zh_reason = _reason_zh(reason)
             note = (
                 f"{'多單' if side == 'bull' else '空單'}進場：價格 {close_price}，原因：{zh_reason}，"
                 f"最新H單進場價={latest_entry_price}，最新H單浮盈虧={reference_pnl}，"
                 f"參考方向={latest_side}，MA_N200={ma_n200}，MA_P200={ma_p200}"
+            )
+            shortcycle_send_discord_message(
+                f"webhook_server: close={close_price}，H follow 進場訊號 {side}，原因：{zh_reason}（僅通知，不下單）"
             )
             _append_trade(
                 "enter",
@@ -272,30 +280,35 @@ def _trigger_entry(side: str, close_price: float, reason: str, latest_h_trade: d
                 ma_n200=ma_n200,
                 ma_p200=ma_p200,
             )
-            shortcycle_send_discord_message(
-                f"webhook_server: close={close_price}，H follow 進場訊號 {side}，原因：{zh_reason}（僅通知，不下單）"
-            )
-        finally:
             with STRATEGY_LOCK:
                 state = _load_state()
                 _clear_pending(state)
                 _set_position(state, side, close_price)
                 _save_state(state)
             print(f"🔔 H follow entry alert({side}) because {reason}")
+        except Exception as exc:
+            with STRATEGY_LOCK:
+                state = _load_state()
+                _clear_pending(state)
+                _save_state(state)
+            print(f"⚠️ H follow entry alert({side}) failed before state update: {exc}")
 
     Thread(target=_runner, daemon=True).start()
 
 
 def _trigger_exit(side: str, close_price: float, reason: str, latest_h_trade: dict, reference_pnl: float, position_entry_price: float | None, position_since: str, ma_n200: float, ma_p200: float) -> None:
     def _runner() -> None:
+        latest_side = str(latest_h_trade.get("side", "")).strip().lower()
+        latest_entry_price = to_float(latest_h_trade.get("price"))
+        zh_reason = _reason_zh(reason)
         try:
-            latest_side = str(latest_h_trade.get("side", "")).strip().lower()
-            latest_entry_price = to_float(latest_h_trade.get("price"))
-            zh_reason = _reason_zh(reason)
             note = (
                 f"{'多單' if side == 'bull' else '空單'}出場：價格 {close_price}，進場價 {position_entry_price}，持有至 {position_since}，"
                 f"出場原因：{zh_reason}，最新H方向={latest_side}，最新H單進場價={latest_entry_price}，"
                 f"最新H單浮盈虧={reference_pnl}，MA_N200={ma_n200}，MA_P200={ma_p200}"
+            )
+            shortcycle_send_discord_message(
+                f"webhook_server: close={close_price}，H follow 平倉訊號 {side}，原因：{zh_reason}（僅通知，不下單）"
             )
             _append_trade(
                 "exit",
@@ -309,16 +322,18 @@ def _trigger_exit(side: str, close_price: float, reason: str, latest_h_trade: di
                 ma_n200=ma_n200,
                 ma_p200=ma_p200,
             )
-            shortcycle_send_discord_message(
-                f"webhook_server: close={close_price}，H follow 平倉訊號 {side}，原因：{zh_reason}（僅通知，不下單）"
-            )
-        finally:
             with STRATEGY_LOCK:
                 state = _load_state()
                 _clear_pending(state)
                 _clear_position(state)
                 _save_state(state)
             print(f"🔔 H follow exit alert({side}) because {reason}")
+        except Exception as exc:
+            with STRATEGY_LOCK:
+                state = _load_state()
+                _clear_pending(state)
+                _save_state(state)
+            print(f"⚠️ H follow exit alert({side}) failed before state update: {exc}")
 
     Thread(target=_runner, daemon=True).start()
 
@@ -444,6 +459,18 @@ def apply_h_follow_strategy() -> bool:
             _mark_pending(state, "enter", "bear")
             _save_state(state)
             _trigger_entry("bear", curr_close, entry_reason, latest_h_trade, reference_pnl, curr_ma_n200, curr_ma_p200)
+            return True
+
+        if latest_side == "bull" and reference_pnl < 0 and short_cross_signal and short_entry_close_ok:
+            _mark_pending(state, "enter", "bear")
+            _save_state(state)
+            _trigger_entry("bear", curr_close, "loss reverse short", latest_h_trade, reference_pnl, curr_ma_n200, curr_ma_p200)
+            return True
+
+        if latest_side == "bear" and reference_pnl < 0 and long_cross_signal and long_entry_close_ok:
+            _mark_pending(state, "enter", "bull")
+            _save_state(state)
+            _trigger_entry("bull", curr_close, "loss reverse long", latest_h_trade, reference_pnl, curr_ma_n200, curr_ma_p200)
             return True
 
         _save_state(state)
