@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
+MXF_VALUE_WEBHOOK_URL = "https://discord.com/api/webhooks/1502132188592865312/fQS_XgKuFiJC1ZbaZhtV1hPDDiWTTxcgLxLeFLzkdhsh1BW48qHAAtWcSEi_4Zee4Zxd"
 LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
@@ -101,6 +102,13 @@ def _format_int(value: float | None) -> str:
     return str(int(round(value)))
 
 
+def _format_display_int(value: object) -> str:
+    number = _to_float(value)
+    if number is None:
+        return "-"
+    return _format_int(number)
+
+
 def _get_signal(tx_bvav: float | None, mtx_bvav: float | None) -> str:
     if tx_bvav is None or mtx_bvav is None:
         return "none"
@@ -119,6 +127,22 @@ def _get_trend(mtx_bvav: float | None, mtx_bvav_avg: float | None) -> str:
     if mtx_bvav < mtx_bvav_avg:
         return "death"
     return "none"
+
+
+def _format_trend_label(trend: str) -> str:
+    if trend == "gold":
+        return "金叉"
+    if trend == "death":
+        return "死叉"
+    return "無"
+
+
+def _format_recommendation(signal: str) -> str:
+    if signal == "bull":
+        return "做多"
+    if signal == "bear":
+        return "做空"
+    return "觀望"
 
 
 def _read_mtx_bvav_history() -> list[float]:
@@ -194,13 +218,14 @@ def _ensure_mxf_csv_header() -> None:
         writer.writerows(normalized_rows)
 
 
-def append_tradeinfo_csv(payload: object, now: datetime) -> None:
+def append_tradeinfo_csv(payload: object, now: datetime) -> dict[str, object] | None:
     docs = normalize_documents(payload)
     if not docs:
-        return
+        return None
 
     doc = docs[0]
     tx_bvav = _to_float(doc.get("tx_bvav"))
+    mtx_tbta = _to_float(doc.get("mtx_tbta"))
     mtx_bvav = _to_float(doc.get("mtx_bvav"))
     mtx_bvav_avg = _calculate_mtx_bvav_avg(mtx_bvav)
     signal = _get_signal(tx_bvav, mtx_bvav)
@@ -220,10 +245,35 @@ def append_tradeinfo_csv(payload: object, now: datetime) -> None:
             trend,
         ])
 
+    return {
+        "time": timestamp,
+        "tx_bvav": tx_bvav,
+        "mtx_tbta": mtx_tbta,
+        "mtx_bvav": mtx_bvav,
+        "mtx_bvav_avg": mtx_bvav_avg,
+        "signal": signal,
+        "trend": trend,
+    }
 
-def send_discord_message(message: str) -> None:
-    response = requests.post(WEBHOOK_URL, json={"content": message}, timeout=20)
+
+def build_mxf_value_discord_message(snapshot: dict[str, object], now: datetime) -> str:
+    timestamp = str(snapshot.get("time") or now.strftime("%Y-%m-%d %H:%M:%S"))
+    return " / ".join([
+        f"日期: {timestamp}",
+        f"外資: {_format_display_int(snapshot.get('tx_bvav'))}",
+        f"散戶: {_format_display_int(snapshot.get('mtx_tbta'))}",
+        f"游擊: {_format_display_int(snapshot.get('mtx_bvav'))}",
+    ])
+
+
+def send_discord_message(message: str, webhook_url: str = WEBHOOK_URL) -> None:
+    response = requests.post(webhook_url, json={"content": message}, timeout=20)
     response.raise_for_status()
+
+
+def send_mxf_value_discord_message(snapshot: dict[str, object], now: datetime) -> None:
+    message = build_mxf_value_discord_message(snapshot, now)
+    send_discord_message(message, MXF_VALUE_WEBHOOK_URL)
 
 
 def read_latest_trade_side() -> str | None:
@@ -349,19 +399,15 @@ def is_market_open(now: datetime) -> bool:
     current_time = now.time()
 
     # 日盤：週一到週五 08:45~13:45
-    day_session = dt_time(8, 45) <= current_time <= dt_time(13, 45)
+    day_session = weekday <= 4 and dt_time(8, 45) <= current_time <= dt_time(13, 45)
 
     # 夜盤：週一到週五 15:00~23:59:59
-    night_session = dt_time(15, 0) <= current_time <= dt_time(23, 59, 59)
+    night_session = weekday <= 4 and dt_time(15, 0) <= current_time <= dt_time(23, 59, 59)
 
-    # 夜盤延續到隔日 05:00，包含週五夜盤一路到週六 05:00
-    early_session = weekday in {1, 2, 3, 4, 5} and dt_time(0, 0) <= current_time <= dt_time(5, 0)
+    # 凌晨盤：週一到週六 00:00~05:00
+    early_session = weekday <= 5 and dt_time(0, 0) <= current_time <= dt_time(5, 0)
 
-    if weekday <= 4:
-        return day_session or night_session
-    if weekday == 5:
-        return early_session
-    return False
+    return day_session or night_session or early_session
 
 
 def sleep_until_next_minute() -> None:
@@ -386,7 +432,9 @@ def main() -> None:
                 payload = fetch_tradeinfo()
                 collection_name = get_collection_name(now)
                 insert_tradeinfo(payload, collection_name, now)
-                append_tradeinfo_csv(payload, now)
+                snapshot = append_tradeinfo_csv(payload, now)
+                if snapshot is not None:
+                    send_mxf_value_discord_message(snapshot, now)
                 # check_mtx_bvav_alert()
                 check_service_alive_alert(now)
             except Exception as exc:

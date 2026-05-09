@@ -1,3 +1,4 @@
+import csv
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ recent_signals = {}
 SIGNAL_TTL = 10 
 last_position = ""
 TZ = ZoneInfo("Asia/Taipei")
+MXF_VALUE_CSV_PATH = MONITOR_ROOT / "backend-futures-py" / "tv_doc" / "mxf_value.csv"
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -155,7 +157,7 @@ async def bot_message_handler(event):
         return
     
     match = POSITION_PATTERN.search(text)
-
+    
     if match and POSITION_REQUIRED_MARKER in text:
         position = match.group(1)
         quantity = int(match.group(2))
@@ -166,21 +168,32 @@ async def bot_message_handler(event):
             print(f"略過重複訊號: {position}{quantity} 口 (間隔 {now - last_seen:.1f}s)")
             print("──────────────")
             return
-        recent_signals[position] = now
+
+        mtx_bvav = None
+        with MXF_VALUE_CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if row.get("mtx_bvav"):
+                    mtx_bvav = float(str(row.get("mtx_bvav")).replace(",", "").strip())
 
         # h 長週期單API下單 / 短週期平倉
         if position == "多":
+            recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bull")
             time.sleep(1)  # 確保下單間有短暫間隔
             run_auto_trade("rosco", auto_trade_rosco, "bull")
             time.sleep(1)  # 確保下單間有短暫間隔
             run_auto_trade("ichih", auto_trade_ichih, "bull")
         elif position == "空":
+            recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bear")
             time.sleep(1)  # 確保下單間有短暫間隔
             run_auto_trade("rosco", auto_trade_rosco, "bear")
             time.sleep(1)  # 確保下單間有短暫間隔
             run_auto_trade("ichih", auto_trade_ichih, "bear")
+        else:
+            print(f"略過下單：position={position} mtx_bvav={mtx_bvav} 未通過門檻")
+            print("──────────────")
+            return
 
         print(f"解析結果: 目前倉位 {position}{quantity} 口")
 

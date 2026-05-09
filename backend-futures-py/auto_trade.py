@@ -233,13 +233,13 @@ def auto_trade(type):
         
         # 平倉後進新倉
         if type == 'bull':
-            buyOne(api, contract, entry_qty)
+            buyOne(api, contract, 1)
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull')
 
         if type == 'bear':
-            sellOne(api, contract, entry_qty)
+            sellOne(api, contract, 1)
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear')

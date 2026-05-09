@@ -134,6 +134,12 @@ watch(isMarketLocked, (locked) => {
               >
                 MXF 分析
               </RouterLink>
+              <RouterLink
+                to="/institutional"
+                class="text-xs text-emerald-200 border border-emerald-500/60 px-3 py-1 rounded-full hover:border-emerald-300 hover:text-white transition"
+              >
+                法人總結
+              </RouterLink>
             </div>
 
             <div class="home-sentiment-row flex gap-4">

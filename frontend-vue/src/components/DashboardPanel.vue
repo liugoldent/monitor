@@ -512,6 +512,18 @@ onBeforeUnmount(() => {
                     </p>
                 </div>
                 <div class="flex items-center gap-3">
+                    <RouterLink to="/institutional" custom v-slot="{ navigate }">
+                        <button
+                            type="button"
+                            class="px-3 py-1 rounded-full border text-xs transition-colors"
+                            :class="isContrastMode
+                                ? 'bg-emerald-400/15 border-emerald-300 text-emerald-100 hover:bg-emerald-400/25'
+                                : 'bg-emerald-500/10 border-emerald-400/60 text-emerald-200 hover:border-emerald-300 hover:text-white'"
+                            @click="navigate"
+                        >
+                            法人動向
+                        </button>
+                    </RouterLink>
                     <button
                         type="button"
                         class="px-3 py-1 rounded-full border text-xs transition-colors"

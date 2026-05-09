@@ -10,8 +10,8 @@
 - BBR 在這一版只當順勢濾網，避免在太弱或太亂的狀態下追單。
 
 出場依據
-- 停損：價格反向回到 TT band 的另一側，表示突破失敗或趨勢已破壞。
-- 停利：固定點數停利，避免獲利回吐。
+- 停損：依近期 1 分 K 波動動態放大，避免正常震盪造成過早停損。
+- 停利：依近期 1 分 K 波動動態放大，並把單趟約 3 點交易成本納入最低門檻。
 - 多單另外會在 MXF 翻空時出場，空單則在 MXF 翻多時出場。
 
 這一版的設計重點不是抓大波段，而是先把方向確認做好，避免在區間裡頻繁被洗掉。
@@ -48,11 +48,19 @@ TT_MXF_TRADE_LOG_PATH = os.path.join(TV_DOC_DIR, "tt_mxf_live_trade.csv")
 TT_MXF_STATE_PATH = os.path.join(TV_DOC_DIR, "tt_mxf_live_state.json")
 
 TT_MXF_ENABLE_LONG = False
+TT_MXF_ENABLE_SHORT = False
 TT_MXF_LONG_MAX_BREAKOUT_POINTS = 30.0
-TT_MXF_SHORT_BBR_MAX = 0.5
+TT_MXF_LONG_BBR_MIN = 0.20
+TT_MXF_LONG_BBR_MAX = 0.85
+TT_MXF_SHORT_BBR_MIN = 0.15
+TT_MXF_SHORT_BBR_MAX = 0.45
 TT_MXF_ENTRY_BREAKOUT_BUFFER_POINTS = 10.0
-TT_MXF_STOP_LOSS_POINTS = 10.0
-TT_MXF_TAKE_PROFIT_POINTS = 10.0
+TT_MXF_ROUND_TRIP_COST_POINTS = 3.0
+TT_MXF_ATR_LOOKBACK_BARS = 30
+TT_MXF_STOP_LOSS_MIN_POINTS = 45.0
+TT_MXF_TAKE_PROFIT_MIN_POINTS = 90.0
+TT_MXF_STOP_LOSS_ATR_MULTIPLIER = 1.6
+TT_MXF_TAKE_PROFIT_ATR_MULTIPLIER = 3.0
 TT_MXF_PENDING_TIMEOUT_SECONDS = 60 * 60
 
 STRATEGY_LOCK = RLock()
@@ -195,6 +203,33 @@ def _get_unrealized_pnl(side: str, entry_price: float, close_price: float) -> fl
     return None
 
 
+def _get_average_range(rows: list[dict]) -> float | None:
+    ranges: list[float] = []
+    for row in rows[-TT_MXF_ATR_LOOKBACK_BARS:]:
+        high = to_float(row.get("High"))
+        low = to_float(row.get("Low"))
+        if high is None or low is None:
+            continue
+        if high >= low:
+            ranges.append(high - low)
+    if not ranges:
+        return None
+    return sum(ranges) / len(ranges)
+
+
+def _get_exit_thresholds(rows: list[dict]) -> tuple[float, float]:
+    average_range = _get_average_range(rows)
+    if average_range is None:
+        return TT_MXF_STOP_LOSS_MIN_POINTS, TT_MXF_TAKE_PROFIT_MIN_POINTS
+
+    stop_loss_points = max(TT_MXF_STOP_LOSS_MIN_POINTS, average_range * TT_MXF_STOP_LOSS_ATR_MULTIPLIER)
+    take_profit_points = max(
+        TT_MXF_TAKE_PROFIT_MIN_POINTS,
+        average_range * TT_MXF_TAKE_PROFIT_ATR_MULTIPLIER + TT_MXF_ROUND_TRIP_COST_POINTS,
+    )
+    return round(stop_loss_points, 1), round(take_profit_points, 1)
+
+
 def _reason_zh(reason: str) -> str:
     mapping = {
         "stop loss": "停損",
@@ -247,7 +282,7 @@ def _trigger_exit(side: str, close_price: float, reason: str, mxf_row: dict, bbr
 def apply_tt_mxf_live_strategy() -> bool:
     """Apply the live conservative TT/MXF strategy on 1-minute data."""
     with STRATEGY_LOCK:
-        price_rows = read_last_n_rows(CSV_FILE_1MIN, 2)
+        price_rows = read_last_n_rows(CSV_FILE_1MIN, max(2, TT_MXF_ATR_LOOKBACK_BARS))
         mxf_rows = read_last_n_rows(MXF_VALUE_CSV_PATH, 2)
         if len(price_rows) < 2 or len(mxf_rows) < 2:
             return False
@@ -283,6 +318,9 @@ def apply_tt_mxf_live_strategy() -> bool:
 
         long_momentum_ok = curr_bbr >= prev_bbr and curr_bbr >= 0
         short_momentum_ok = curr_bbr <= prev_bbr and curr_bbr <= 1
+        long_bbr_ok = TT_MXF_LONG_BBR_MIN <= curr_bbr <= TT_MXF_LONG_BBR_MAX
+        short_bbr_ok = TT_MXF_SHORT_BBR_MIN <= curr_bbr <= TT_MXF_SHORT_BBR_MAX
+        stop_loss_points, take_profit_points = _get_exit_thresholds(price_rows)
 
         state = _load_state()
         position_side = str(state.get("position_side", "")).strip().lower()
@@ -298,15 +336,15 @@ def apply_tt_mxf_live_strategy() -> bool:
         if position_side == "bull":
             bull_unrealized_pnl = _get_unrealized_pnl("bull", position_entry_price, curr_close)
             if (
-                (bull_unrealized_pnl is not None and bull_unrealized_pnl <= -TT_MXF_STOP_LOSS_POINTS)
-                or (bull_unrealized_pnl is not None and bull_unrealized_pnl >= TT_MXF_TAKE_PROFIT_POINTS)
+                (bull_unrealized_pnl is not None and bull_unrealized_pnl <= -stop_loss_points)
+                or (bull_unrealized_pnl is not None and bull_unrealized_pnl >= take_profit_points)
                 or curr_close_inside_tt
                 or mxf_bear
                 or curr_close_below_tt
             ):
                 reason = (
-                    "stop loss" if bull_unrealized_pnl is not None and bull_unrealized_pnl <= -TT_MXF_STOP_LOSS_POINTS
-                    else "take profit" if bull_unrealized_pnl is not None and bull_unrealized_pnl >= TT_MXF_TAKE_PROFIT_POINTS
+                    "stop loss" if bull_unrealized_pnl is not None and bull_unrealized_pnl <= -stop_loss_points
+                    else "take profit" if bull_unrealized_pnl is not None and bull_unrealized_pnl >= take_profit_points
                     else "tt re-entry" if curr_close_inside_tt
                     else "mxf flip"
                 )
@@ -314,7 +352,8 @@ def apply_tt_mxf_live_strategy() -> bool:
                 note = (
                     f"多單出場：價格 {curr_close}，進場價 {position_entry_price}，持有至 {state.get('position_since', '')}，"
                     f"出場原因：{zh_reason}，TT短線={curr_tt_short}，TT長線={curr_tt_long}，"
-                    f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}"
+                    f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}，"
+                    f"動態停損={stop_loss_points}，動態停利={take_profit_points}，估計成本={TT_MXF_ROUND_TRIP_COST_POINTS}"
                 )
                 _mark_pending(state, "exit", "bull")
                 _save_state(state)
@@ -326,15 +365,15 @@ def apply_tt_mxf_live_strategy() -> bool:
         if position_side == "bear":
             bear_unrealized_pnl = _get_unrealized_pnl("bear", position_entry_price, curr_close)
             if (
-                (bear_unrealized_pnl is not None and bear_unrealized_pnl <= -TT_MXF_STOP_LOSS_POINTS)
-                or (bear_unrealized_pnl is not None and bear_unrealized_pnl >= TT_MXF_TAKE_PROFIT_POINTS)
+                (bear_unrealized_pnl is not None and bear_unrealized_pnl <= -stop_loss_points)
+                or (bear_unrealized_pnl is not None and bear_unrealized_pnl >= take_profit_points)
                 or curr_close_inside_tt
                 or mxf_bull
                 or curr_close_above_tt
             ):
                 reason = (
-                    "stop loss" if bear_unrealized_pnl is not None and bear_unrealized_pnl <= -TT_MXF_STOP_LOSS_POINTS
-                    else "take profit" if bear_unrealized_pnl is not None and bear_unrealized_pnl >= TT_MXF_TAKE_PROFIT_POINTS
+                    "stop loss" if bear_unrealized_pnl is not None and bear_unrealized_pnl <= -stop_loss_points
+                    else "take profit" if bear_unrealized_pnl is not None and bear_unrealized_pnl >= take_profit_points
                     else "tt re-entry" if curr_close_inside_tt
                     else "mxf flip"
                 )
@@ -342,7 +381,8 @@ def apply_tt_mxf_live_strategy() -> bool:
                 note = (
                     f"空單出場：價格 {curr_close}，進場價 {position_entry_price}，持有至 {state.get('position_since', '')}，"
                     f"出場原因：{zh_reason}，TT短線={curr_tt_short}，TT長線={curr_tt_long}，"
-                    f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}"
+                    f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}，"
+                    f"動態停損={stop_loss_points}，動態停利={take_profit_points}，估計成本={TT_MXF_ROUND_TRIP_COST_POINTS}"
                 )
                 _mark_pending(state, "exit", "bear")
                 _save_state(state)
@@ -356,12 +396,14 @@ def apply_tt_mxf_live_strategy() -> bool:
             and curr_close_above_tt
             and mxf_bull
             and long_momentum_ok
+            and long_bbr_ok
             and TT_MXF_ENABLE_LONG
             and (curr_close - curr_upper_tt) <= TT_MXF_LONG_MAX_BREAKOUT_POINTS
         ):
             note = (
                 f"多單進場：價格 {curr_close}，前一根收盤 {prev_close}，TT短線={curr_tt_short}，TT長線={curr_tt_long}，"
-                f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}"
+                f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}，"
+                f"BBR={curr_bbr}，動態停損={stop_loss_points}，動態停利={take_profit_points}，估計成本={TT_MXF_ROUND_TRIP_COST_POINTS}"
             )
             _mark_pending(state, "enter", "bull")
             _save_state(state)
@@ -373,12 +415,14 @@ def apply_tt_mxf_live_strategy() -> bool:
             and curr_close_below_tt
             and mxf_bear
             and short_momentum_ok
+            and TT_MXF_ENABLE_SHORT
             and curr_close <= curr_lower_tt - TT_MXF_ENTRY_BREAKOUT_BUFFER_POINTS
-            and curr_bbr <= TT_MXF_SHORT_BBR_MAX
+            and short_bbr_ok
         ):
             note = (
                 f"空單進場：價格 {curr_close}，前一根收盤 {prev_close}，TT短線={curr_tt_short}，TT長線={curr_tt_long}，"
-                f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}"
+                f"MXF訊號={curr_mxf_row.get('signal', '')}，MXF趨勢={curr_mxf_row.get('trend', '')}，"
+                f"BBR={curr_bbr}，動態停損={stop_loss_points}，動態停利={take_profit_points}，估計成本={TT_MXF_ROUND_TRIP_COST_POINTS}"
             )
             _mark_pending(state, "enter", "bear")
             _save_state(state)

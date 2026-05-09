@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import('../views/MxfView.vue'),
     },
     {
+      path: '/institutional/:date?',
+      name: 'institutional',
+      component: () => import('../views/InstitutionalView.vue'),
+    },
+    {
       path: '/about',
       name: 'about',
       // route level code-splitting
