@@ -1,6 +1,7 @@
 import shioaji as sj # 載入永豐金Python API
 import os
 import requests
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -77,6 +78,7 @@ def auto_trade(type):
         # 先平倉
         closePosition(api)
         entry_qty = _get_entry_quantity()
+        time.sleep(1)  # 確保下單間有短暫間隔
         
         # 平倉後進新倉
         if type == 'bull':

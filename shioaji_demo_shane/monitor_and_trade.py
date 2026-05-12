@@ -19,6 +19,7 @@ from shioaji_demo_ichih import auto_trade as auto_trade_ichih_module
 
 recent_signals = {}
 SIGNAL_TTL = 10 
+RECONNECT_DELAY_SECONDS = 5
 last_position = ""
 TZ = ZoneInfo("Asia/Taipei")
 MXF_VALUE_CSV_PATH = MONITOR_ROOT / "backend-futures-py" / "tv_doc" / "mxf_value.csv"
@@ -169,29 +170,22 @@ async def bot_message_handler(event):
             print("──────────────")
             return
 
-        mtx_bvav = None
-        with MXF_VALUE_CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
-                if row.get("mtx_bvav"):
-                    mtx_bvav = float(str(row.get("mtx_bvav")).replace(",", "").strip())
-
         # h 長週期單API下單 / 短週期平倉
         if position == "多":
             recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bull")
-            time.sleep(1)  # 確保下單間有短暫間隔
+            time.sleep(0.5)  # 確保下單間有短暫間隔
             run_auto_trade("rosco", auto_trade_rosco, "bull")
-            time.sleep(1)  # 確保下單間有短暫間隔
+            time.sleep(0.5)  # 確保下單間有短暫間隔
             run_auto_trade("ichih", auto_trade_ichih, "bull")
         elif position == "空":
             recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bear")
-            time.sleep(1)  # 確保下單間有短暫間隔
+            time.sleep(0.5)  # 確保下單間有短暫間隔
             run_auto_trade("rosco", auto_trade_rosco, "bear")
-            time.sleep(1)  # 確保下單間有短暫間隔
+            time.sleep(0.5)  # 確保下單間有短暫間隔
             run_auto_trade("ichih", auto_trade_ichih, "bear")
         else:
-            print(f"略過下單：position={position} mtx_bvav={mtx_bvav} 未通過門檻")
             print("──────────────")
             return
 
@@ -208,11 +202,20 @@ async def bot_message_handler(event):
 # 主程式
 # ======================
 def main():
-    client.start()
-    print("🚀 Telethon 開始監控 Telegram 訊息...")
-    client.run_until_disconnected()
+    while True:
+        try:
+            client.start()
+            print("🚀 Telethon 開始監控 Telegram 訊息...")
+            client.run_until_disconnected()
+        except (ConnectionError, OSError, TimeoutError) as exc:
+            print(f"⚠️ Telegram 連線中斷：{exc}")
+            print(f"⏳ {RECONNECT_DELAY_SECONDS} 秒後重新連線...")
+            time.sleep(RECONNECT_DELAY_SECONDS)
+        except KeyboardInterrupt:
+            print("收到停止指令，結束監控。")
+            break
 
 
 if __name__ == "__main__":
-    print('=== 台指期自動交易監控程式 ===')
+    print('=== 台指期自動交易監控程式 shane ichih rosco ===')
     main()

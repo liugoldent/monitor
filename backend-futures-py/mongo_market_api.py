@@ -430,7 +430,9 @@ def fetch_etf_holding_changes(date_str: str | None, etf_names: list[str]) -> dic
     common_codes = None
     for payload in per_etf_payload:
         latest_codes = set(payload["latest_map"].keys())
-        common_codes = latest_codes if common_codes is None else common_codes & latest_codes
+        previous_codes = set(payload["previous_map"].keys())
+        payload_codes = latest_codes | previous_codes if len(per_etf_payload) == 1 else latest_codes
+        common_codes = payload_codes if common_codes is None else common_codes & payload_codes
 
     if not common_codes:
         return {

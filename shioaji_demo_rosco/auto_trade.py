@@ -3,6 +3,7 @@ import os
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import time
 
 # 載入環境變數
 def load_env_file(path: str = ".env") -> None:
@@ -77,6 +78,7 @@ def auto_trade(type):
         # 先平倉
         closePosition(api)
         entry_qty = _get_entry_quantity()
+        time.sleep(1)  # 確保下單間有短暫間隔
         
         # 平倉後進新倉
         if type == 'bull':

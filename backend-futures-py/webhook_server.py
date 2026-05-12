@@ -27,12 +27,14 @@ from strategy_tt_mxf_live import apply_tt_mxf_live_strategy
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
 
 CSV_FILE_1MIN = os.path.join(TV_DOC_DIR, "webhook_data_1min.csv")
+CSV_FILE_3MIN = os.path.join(TV_DOC_DIR, "webhook_data_3min.csv")
 CSV_FILE_5MIN = os.path.join(TV_DOC_DIR, "webhook_data_5min.csv")
 CSV_FILE_10MIN = os.path.join(TV_DOC_DIR, "webhook_data_10min.csv")
 CSV_FILE_15MIN = os.path.join(TV_DOC_DIR, "webhook_data_15min.csv")
 
 CSV_FILE_BY_TIMEFRAME = {
     "1": CSV_FILE_1MIN,
+    "3": CSV_FILE_3MIN,
     "5": CSV_FILE_5MIN,
     "10": CSV_FILE_10MIN,
     "15": CSV_FILE_15MIN,

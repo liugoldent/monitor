@@ -10,6 +10,7 @@ from auto_trade import auto_trade
 
 recent_signals = {}
 SIGNAL_TTL = 10 
+RECONNECT_DELAY_SECONDS = 5
 last_position = ""
 TZ = ZoneInfo("Asia/Taipei")
 BASE_DIR = Path(__file__).resolve().parent
@@ -101,13 +102,7 @@ async def bot_message_handler(event):
             print(f"略過重複訊號: {position}{quantity} 口 (間隔 {now - last_seen:.1f}s)")
             print("──────────────")
             return
-
-        mtx_bvav = None
-        with MXF_VALUE_CSV_PATH.open("r", newline="", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
-                if row.get("mtx_bvav"):
-                    mtx_bvav = float(str(row.get("mtx_bvav")).replace(",", "").strip())
-
+        
         # h 長週期單API下單 / 短週期平倉
         if position == "多":
             recent_signals[position] = now
@@ -116,7 +111,6 @@ async def bot_message_handler(event):
             recent_signals[position] = now
             auto_trade("bear")
         else:
-            print(f"略過下單：position={position} mtx_bvav={mtx_bvav} 未通過門檻")
             print("──────────────")
             return
 
@@ -133,9 +127,18 @@ async def bot_message_handler(event):
 # 主程式
 # ======================
 def main():
-    client.start()
-    print("🚀 Telethon 開始監控 Telegram 訊息（Keedem）...")
-    client.run_until_disconnected()
+    while True:
+        try:
+            client.start()
+            print("🚀 Telethon 開始監控 Telegram 訊息（Keedem）...")
+            client.run_until_disconnected()
+        except (ConnectionError, OSError, TimeoutError) as exc:
+            print(f"⚠️ Telegram 連線中斷：{exc}")
+            print(f"⏳ {RECONNECT_DELAY_SECONDS} 秒後重新連線...")
+            time.sleep(RECONNECT_DELAY_SECONDS)
+        except KeyboardInterrupt:
+            print("收到停止指令，結束監控。")
+            break
 
 
 if __name__ == "__main__":

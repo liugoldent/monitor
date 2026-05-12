@@ -20,7 +20,7 @@ tell application "iTerm"
   delay 2
 
   tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/shioaji-demo-shane"
+    write text "cd ~/Desktop/self/monitor/shioaji_demo_shane"
     write text "source .venv/bin/activate"
     write text "python monitor_and_trade.py"
   end tell

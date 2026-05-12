@@ -66,6 +66,16 @@ type EtfNewHoldingGroup = {
     items: EtfNewHoldingItem[]
 }
 
+type EtfCommonMembershipChangeItem = {
+    code: string
+    name: string
+    latest_etf_count: number
+    previous_etf_count: number
+    latest_etfs: string[]
+    previous_etfs: string[]
+    delta: number
+}
+
 const stockName = ref('')
 const stockCode = ref('')
 const stockPrice = ref('')
@@ -294,6 +304,57 @@ const etfNewHoldings = computed<EtfNewHoldingGroup[]>(() => {
 })
 
 const hasEtfNewHoldings = computed(() => etfNewHoldings.value.some((group) => group.items.length > 0))
+
+const countHoldingEtfs = (item: EtfHoldingChangeItem, field: 'latest_holding_count' | 'previous_holding_count') => {
+    return item.etfs.filter((detail) => Number(detail[field]) > 0).length
+}
+
+const listHoldingEtfs = (item: EtfHoldingChangeItem, field: 'latest_holding_count' | 'previous_holding_count') => {
+    return item.etfs
+        .filter((detail) => Number(detail[field]) > 0)
+        .map((detail) => formatEtfLabel(detail.etf))
+}
+
+const commonMembershipChanges = computed(() => {
+    const added: EtfCommonMembershipChangeItem[] = []
+    const removed: EtfCommonMembershipChangeItem[] = []
+
+    for (const item of allEtfChanges.value) {
+        const previousEtfCount = countHoldingEtfs(item, 'previous_holding_count')
+        const latestEtfCount = countHoldingEtfs(item, 'latest_holding_count')
+        const wasCommon = previousEtfCount >= 3
+        const isCommon = latestEtfCount >= 3
+
+        if (wasCommon === isCommon) continue
+
+        const change = {
+            code: item.code,
+            name: item.name,
+            latest_etf_count: latestEtfCount,
+            previous_etf_count: previousEtfCount,
+            latest_etfs: listHoldingEtfs(item, 'latest_holding_count'),
+            previous_etfs: listHoldingEtfs(item, 'previous_holding_count'),
+            delta: item.delta,
+        }
+
+        if (isCommon) {
+            added.push(change)
+        } else {
+            removed.push(change)
+        }
+    }
+
+    const sortByCode = (a: EtfCommonMembershipChangeItem, b: EtfCommonMembershipChangeItem) => a.code.localeCompare(b.code)
+
+    return {
+        added: added.sort(sortByCode),
+        removed: removed.sort(sortByCode),
+    }
+})
+
+const hasCommonMembershipChanges = computed(() => {
+    return commonMembershipChanges.value.added.length > 0 || commonMembershipChanges.value.removed.length > 0
+})
 
 const visibleEtfChanges = computed<EtfHoldingDisplayItem[]>(() => {
     const source = showAtLeastThreeMode.value
@@ -752,6 +813,112 @@ onBeforeUnmount(() => {
 
                         <div v-else class="rounded-xl border border-dashed px-4 py-6 text-center text-xs" :class="isContrastMode ? 'border-slate-700 text-slate-200/70' : 'border-gray-800 text-gray-500'">
                             目前沒有任何選取 ETF 的「新增」股票
+                        </div>
+
+                        <div class="mt-5 border-t pt-4" :class="isContrastMode ? 'border-slate-700/80' : 'border-gray-800'">
+                            <div class="flex items-end justify-between gap-3 mb-3">
+                                <div>
+                                    <h3 class="text-sm font-bold tracking-wide text-white">
+                                        共同名單變化
+                                    </h3>
+                                    <p class="mt-1 text-[10px]" :class="isContrastMode ? 'text-slate-200/80' : 'text-gray-500'">
+                                        比較上一快照與最新快照「4 檔 ETF 中至少 3 檔持有」的股票，快速找出新增與剔除名單
+                                    </p>
+                                </div>
+                                <div class="text-[10px]" :class="isContrastMode ? 'text-slate-200/70' : 'text-gray-500'">
+                                    上一快照 {{ etfPreviousDate || '-' }} / 最新快照 {{ etfLatestDate || '-' }}
+                                </div>
+                            </div>
+
+                            <div v-if="hasCommonMembershipChanges" class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                                <div
+                                    class="rounded-xl border overflow-hidden"
+                                    :class="isContrastMode ? 'border-emerald-500/40 bg-[#07130f]' : 'border-emerald-900 bg-[#0b1410]'"
+                                >
+                                    <div
+                                        class="flex items-center justify-between gap-3 px-3 py-2 border-b text-xs font-semibold"
+                                        :class="isContrastMode ? 'border-emerald-500/30 text-emerald-100' : 'border-emerald-900 text-emerald-300'"
+                                    >
+                                        <span>最新新增共同股</span>
+                                        <span class="rounded-full px-2 py-0.5 text-[10px] bg-emerald-500/15 text-emerald-200">
+                                            {{ commonMembershipChanges.added.length }} 檔
+                                        </span>
+                                    </div>
+                                    <div v-if="commonMembershipChanges.added.length" class="max-h-72 overflow-y-auto">
+                                        <div
+                                            v-for="stock in commonMembershipChanges.added"
+                                            :key="`common-added-${stock.code}`"
+                                            class="flex items-center justify-between gap-3 border-b px-3 py-2 text-xs"
+                                            :class="isContrastMode ? 'border-emerald-900/60 bg-[#06100d]' : 'border-gray-800 bg-black/20'"
+                                        >
+                                            <div class="min-w-0">
+                                                <div class="truncate font-medium text-white">
+                                                    {{ stock.code }}
+                                                    <span class="ml-2 text-gray-300">{{ stock.name }}</span>
+                                                </div>
+                                                <div class="mt-1 text-[10px]" :class="isContrastMode ? 'text-slate-200/70' : 'text-gray-500'">
+                                                    上一快照 {{ stock.previous_etf_count }} 檔：{{ stock.previous_etfs.join('、') || '-' }}
+                                                </div>
+                                                <div class="mt-0.5 text-[10px] text-emerald-200">
+                                                    最新快照 {{ stock.latest_etf_count }} 檔：{{ stock.latest_etfs.join('、') || '-' }}
+                                                </div>
+                                            </div>
+                                            <div class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold text-emerald-100 bg-emerald-500/15">
+                                                進入共同
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else class="px-3 py-5 text-center text-xs" :class="isContrastMode ? 'text-slate-200/60' : 'text-gray-500'">
+                                        最新快照沒有新進入三檔共有的股票
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="rounded-xl border overflow-hidden"
+                                    :class="isContrastMode ? 'border-red-500/40 bg-[#160909]' : 'border-red-900 bg-[#140b0b]'"
+                                >
+                                    <div
+                                        class="flex items-center justify-between gap-3 px-3 py-2 border-b text-xs font-semibold"
+                                        :class="isContrastMode ? 'border-red-500/30 text-red-100' : 'border-red-900 text-red-300'"
+                                    >
+                                        <span>最新剔除共同股</span>
+                                        <span class="rounded-full px-2 py-0.5 text-[10px] bg-red-500/15 text-red-200">
+                                            {{ commonMembershipChanges.removed.length }} 檔
+                                        </span>
+                                    </div>
+                                    <div v-if="commonMembershipChanges.removed.length" class="max-h-72 overflow-y-auto">
+                                        <div
+                                            v-for="stock in commonMembershipChanges.removed"
+                                            :key="`common-removed-${stock.code}`"
+                                            class="flex items-center justify-between gap-3 border-b px-3 py-2 text-xs"
+                                            :class="isContrastMode ? 'border-red-900/60 bg-[#100606]' : 'border-gray-800 bg-black/20'"
+                                        >
+                                            <div class="min-w-0">
+                                                <div class="truncate font-medium text-white">
+                                                    {{ stock.code }}
+                                                    <span class="ml-2 text-gray-300">{{ stock.name }}</span>
+                                                </div>
+                                                <div class="mt-1 text-[10px] text-red-200">
+                                                    上一快照 {{ stock.previous_etf_count }} 檔：{{ stock.previous_etfs.join('、') || '-' }}
+                                                </div>
+                                                <div class="mt-0.5 text-[10px]" :class="isContrastMode ? 'text-slate-200/70' : 'text-gray-500'">
+                                                    最新快照 {{ stock.latest_etf_count }} 檔：{{ stock.latest_etfs.join('、') || '-' }}
+                                                </div>
+                                            </div>
+                                            <div class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold text-red-100 bg-red-500/15">
+                                                跌出共同
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else class="px-3 py-5 text-center text-xs" :class="isContrastMode ? 'text-slate-200/60' : 'text-gray-500'">
+                                        最新快照沒有跌出三檔共有的股票
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-else class="rounded-xl border border-dashed px-4 py-6 text-center text-xs" :class="isContrastMode ? 'border-slate-700 text-slate-200/70' : 'border-gray-800 text-gray-500'">
+                                最新快照的三檔共有名單與上一快照相同，沒有新增或剔除
+                            </div>
                         </div>
                     </div>
                 </div>

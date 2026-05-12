@@ -295,7 +295,21 @@ def main() -> None:
     args = parser.parse_args()
 
     load_env_file()
-    payload = build_payload(min_count=args.min_count, sleep_seconds=args.sleep)
+    try:
+        payload = build_payload(min_count=args.min_count, sleep_seconds=args.sleep)
+    except Exception as exc:
+        now = datetime.now(TZ)
+        threshold = args.min_count or max(len(ETF_COLLECTIONS) - 1, 1)
+        payload = {
+            "date": now.strftime("%Y-%m-%d"),
+            "generated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "source": "Yahoo Finance chart API",
+            "etf_mode": f"{len(ETF_COLLECTIONS)} ETF 中至少 {threshold} 檔持有",
+            "etf_collections": [name for name, _ in ETF_COLLECTIONS],
+            "count": 0,
+            "data": [],
+            "errors": [{"error": str(exc)}],
+        }
     output_path = write_payload(payload, args.output_dir)
     print(f"Saved {payload['count']} stocks to {output_path}")
     if payload["errors"]:
