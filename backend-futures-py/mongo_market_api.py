@@ -39,11 +39,13 @@ DB_NAME = "stock_futures"
 MXF_DB_NAME = "mxf_futures"
 ETF_DB_NAME = "Investment"
 ETF_COLLECTIONS = [
+    ("etf_00403A", "00403A"),
     ("etf_00981A", "00981A"),
     ("etf_00982A", "00982A"),
     ("etf_00991A", "00991A"),
     ("etf_00992A", "00992A"),
 ]
+ETF_COMMON_MIN_COUNT = 3
 ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
 FUTURE_INDEX_DB_NAME = "FutureIndex"
 FUTURE_INDEX_COLLECTION = "index"
@@ -382,11 +384,13 @@ def fetch_etf_holding_changes(date_str: str | None, etf_names: list[str]) -> dic
 
         current_latest_date = _doc_date(latest_doc.get("time"))
         previous_doc = _find_previous_doc_before_date(collection, current_latest_date) if current_latest_date else None
-        if not previous_doc:
-            continue
 
         latest_rows = latest_doc.get("data", []) if isinstance(latest_doc.get("data", []), list) else []
-        previous_rows = previous_doc.get("data", []) if isinstance(previous_doc.get("data", []), list) else []
+        previous_rows = (
+            previous_doc.get("data", [])
+            if previous_doc and isinstance(previous_doc.get("data", []), list)
+            else []
+        )
 
         latest_map: dict[str, dict] = {}
         previous_map: dict[str, dict] = {}
@@ -410,14 +414,14 @@ def fetch_etf_holding_changes(date_str: str | None, etf_names: list[str]) -> dic
         per_etf_payload.append({
             "etf": etf_name,
             "latest_date": current_latest_date,
-            "previous_date": _doc_date(previous_doc.get("time")),
+            "previous_date": _doc_date(previous_doc.get("time")) if previous_doc else "",
             "latest_map": latest_map,
             "previous_map": previous_map,
         })
 
         if not latest_date:
             latest_date = current_latest_date
-        if not previous_date:
+        if not previous_date and previous_doc:
             previous_date = _doc_date(previous_doc.get("time"))
 
     if not per_etf_payload:

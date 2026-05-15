@@ -134,11 +134,12 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             ]
             _append_webhook_row(target_csv, webhook_row)
 
+            if timeframe in {"1", "3", "5", "10", "15"}:
+                apply_tt_mxf_draft_strategy(timeframe)
+
             if timeframe == "1":
                 apply_tt_mxf_live_strategy()
                 apply_h_follow_strategy()
-            elif timeframe == "15":
-                apply_tt_mxf_draft_strategy()
 
             print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
             sys.stdout.flush()

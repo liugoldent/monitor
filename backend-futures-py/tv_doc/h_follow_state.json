@@ -1,8 +1,8 @@
 {
-  "position_side": "",
-  "position_entry_price": "",
-  "position_since": "",
-  "take_profit_armed": "",
+  "position_side": "bear",
+  "position_entry_price": 42241.0,
+  "position_since": "2026-05-15 09:20:59",
+  "take_profit_armed": "true",
   "pending_action": "",
   "pending_side": "",
   "pending_since": ""

@@ -17,6 +17,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 DB_NAME = "Investment"
 ETF_TARGETS = [
+    ("00403A", "https://www.pocket.tw/etf/tw/00403A/fundholding/", "etf_00403A"),
     ("00981A", "https://www.pocket.tw/etf/tw/00981A/fundholding/", "etf_00981A"),
     ("00982A", "https://www.pocket.tw/etf/tw/00982A/fundholding/", "etf_00982A"),
     ("00991A", "https://www.pocket.tw/etf/tw/00991A/fundholding/", "etf_00991A"),
@@ -217,5 +218,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     load_env_file()
-    print("=== Pocket ETF 00981A 持股明細監控 ===")
+    print("=== Pocket ETF 持股明細監控 ===")
     main()

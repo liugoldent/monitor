@@ -22,11 +22,13 @@ const ETF_HOLDING_CHANGES_API_URL =
     resolveApiUrl('/api/etf_holding_changes', import.meta.env.VITE_ETF_HOLDING_CHANGES_API_URL)
 
 const ETF_OPTIONS = [
+    { value: 'etf_00403A', label: '00403A' },
     { value: 'etf_00981A', label: '00981A' },
     { value: 'etf_00982A', label: '00982A' },
     { value: 'etf_00991A', label: '00991A' },
     { value: 'etf_00992A', label: '00992A' },
 ]
+const ETF_COMMON_MIN_COUNT = 3
 
 type EtfHoldingChangeItem = {
     code: string
@@ -92,8 +94,7 @@ const allEtfChanges = ref<EtfHoldingChangeItem[]>([])
 const etfLatestDate = ref('')
 const etfPreviousDate = ref('')
 const selectedEtfs = ref<string[]>(ETF_OPTIONS.map((item) => item.value))
-const etfPickerOpen = ref(false)
-const showAtLeastThreeMode = ref(false)
+const commonMinCount = ref(ETF_COMMON_MIN_COUNT)
 const showAiModal = ref(false)
 const showShareModal = ref(false)
 const shareLoading = ref(false)
@@ -103,6 +104,7 @@ let shareStatusTimer: ReturnType<typeof setTimeout> | null = null
 const isContrastMode = ref(true)
 const THEME_STORAGE_KEY = 'dashboard-etf-theme'
 const DISCORD_WEBHOOK_STORAGE_KEY = 'dashboard-discord-webhook-url'
+const COMMON_MIN_COUNT_OPTIONS = [3, 4, 5]
 
 const questions = [
     '分析技術面趨勢',
@@ -146,6 +148,42 @@ const formatPriceUpSuffix = (value?: string) => {
 }
 
 const formatEtfLabel = (value: string) => value.replace('etf_', '')
+const allowedEtfValues = new Set(ETF_OPTIONS.map((item) => item.value))
+
+const normalizeEtfDetails = (rawDetails: any[]): EtfHoldingDetail[] => {
+    const detailMap = new Map<string, EtfHoldingDetail>()
+
+    for (const detail of rawDetails) {
+        const etf = String(detail?.etf ?? '').trim()
+        if (!allowedEtfValues.has(etf)) continue
+
+        detailMap.set(etf, {
+            etf,
+            latest_holding_count: Number(detail?.latest_holding_count ?? 0),
+            previous_holding_count: Number(detail?.previous_holding_count ?? 0),
+            delta: Number(detail?.delta ?? 0),
+            weight: detail?.weight ?? '',
+            status: detail?.status ?? '持平',
+        })
+    }
+
+    return ETF_OPTIONS
+        .map((option) => detailMap.get(option.value))
+        .filter((detail): detail is EtfHoldingDetail => Boolean(detail))
+}
+
+const displayEtfDetails = (item: EtfHoldingChangeItem): EtfHoldingDetail[] => {
+    const detailMap = new Map(normalizeEtfDetails(item.etfs).map((detail) => [detail.etf, detail]))
+
+    return ETF_OPTIONS.map((option) => detailMap.get(option.value) ?? {
+        etf: option.value,
+        latest_holding_count: 0,
+        previous_holding_count: 0,
+        delta: 0,
+        weight: '',
+        status: '持平',
+    })
+}
 
 const formatDateString = (date: Date) => {
     const year = date.getFullYear()
@@ -157,7 +195,7 @@ const formatDateString = (date: Date) => {
 const formatShareMessage = () => {
     const lines: string[] = []
     lines.push(`ETF掃描 ${etfLatestDate.value || formatDateString(new Date())}`)
-    lines.push(`模式: ${showAtLeastThreeMode.value ? '至少 3 檔' : '選取交集'}`)
+    lines.push(`模式: 至少 ${commonMinCount.value} 檔`)
     lines.push(`ETF: ${currentIntersectionLabel.value}`)
 
     if (!visibleEtfChanges.value.length) {
@@ -193,21 +231,12 @@ const fetchEtfChanges = async () => {
             previous_holding_count: Number(item.previous_holding_count ?? 0),
             delta: Number(item.delta ?? 0),
             price_up_date: String(item.price_up_date ?? '').trim(),
-            etfs: Array.isArray(item.etfs)
-                ? item.etfs.map((detail: any) => ({
-                    etf: String(detail.etf ?? '').trim(),
-                    latest_holding_count: Number(detail.latest_holding_count ?? 0),
-                    previous_holding_count: Number(detail.previous_holding_count ?? 0),
-                    delta: Number(detail.delta ?? 0),
-                    weight: detail.weight ?? '',
-                    status: detail.status ?? '增加',
-                }))
-                : [],
+            etfs: normalizeEtfDetails(Array.isArray(item.etfs) ? item.etfs : []),
         }))
         etfLatestDate.value = String(payload?.latest_date ?? '')
         etfPreviousDate.value = String(payload?.previous_date ?? '')
     } catch (error) {
-        console.error('Failed to load ETF 00981A changes:', error)
+        console.error('Failed to load ETF holding changes:', error)
         etfChanges.value = []
     }
 }
@@ -237,16 +266,7 @@ const fetchAllEtfChanges = async () => {
             const latestHoldingCount = Number(item?.latest_holding_count ?? 0)
             const previousHoldingCount = Number(item?.previous_holding_count ?? 0)
             const delta = Number(item?.delta ?? 0)
-            const etfs = Array.isArray(item?.etfs)
-                ? item.etfs.map((detail: any) => ({
-                    etf: String(detail.etf ?? '').trim(),
-                    latest_holding_count: Number(detail.latest_holding_count ?? 0),
-                    previous_holding_count: Number(detail.previous_holding_count ?? 0),
-                    delta: Number(detail.delta ?? 0),
-                    weight: detail.weight ?? '',
-                    status: detail.status ?? '增加',
-                }))
-                : []
+            const etfs = normalizeEtfDetails(Array.isArray(item?.etfs) ? item.etfs : [])
 
             const existing = map.get(code)
             if (existing) {
@@ -306,11 +326,11 @@ const etfNewHoldings = computed<EtfNewHoldingGroup[]>(() => {
 const hasEtfNewHoldings = computed(() => etfNewHoldings.value.some((group) => group.items.length > 0))
 
 const countHoldingEtfs = (item: EtfHoldingChangeItem, field: 'latest_holding_count' | 'previous_holding_count') => {
-    return item.etfs.filter((detail) => Number(detail[field]) > 0).length
+    return displayEtfDetails(item).filter((detail) => Number(detail[field]) > 0).length
 }
 
 const listHoldingEtfs = (item: EtfHoldingChangeItem, field: 'latest_holding_count' | 'previous_holding_count') => {
-    return item.etfs
+    return displayEtfDetails(item)
         .filter((detail) => Number(detail[field]) > 0)
         .map((detail) => formatEtfLabel(detail.etf))
 }
@@ -322,8 +342,8 @@ const commonMembershipChanges = computed(() => {
     for (const item of allEtfChanges.value) {
         const previousEtfCount = countHoldingEtfs(item, 'previous_holding_count')
         const latestEtfCount = countHoldingEtfs(item, 'latest_holding_count')
-        const wasCommon = previousEtfCount >= 3
-        const isCommon = latestEtfCount >= 3
+        const wasCommon = previousEtfCount >= commonMinCount.value
+        const isCommon = latestEtfCount >= commonMinCount.value
 
         if (wasCommon === isCommon) continue
 
@@ -357,61 +377,31 @@ const hasCommonMembershipChanges = computed(() => {
 })
 
 const visibleEtfChanges = computed<EtfHoldingDisplayItem[]>(() => {
-    const source = showAtLeastThreeMode.value
-        ? allEtfChanges.value.filter((item) => {
-            const holdingCount = item.etfs.filter((detail) => Number(detail.latest_holding_count) > 0).length
-            return holdingCount >= 3
-        })
-        : etfChanges.value
+    const source = allEtfChanges.value.filter((item) => {
+        const holdingCount = countHoldingEtfs(item, 'latest_holding_count')
+        return holdingCount >= commonMinCount.value
+    })
 
     return source
         .map((item) => ({
             ...item,
-            holding_etf_count: item.etfs.filter((detail) => Number(detail.latest_holding_count) > 0).length,
+            holding_etf_count: countHoldingEtfs(item, 'latest_holding_count'),
         }))
         .sort((a, b) => {
-            if (showAtLeastThreeMode.value) {
-                if (b.holding_etf_count !== a.holding_etf_count) {
-                    return b.holding_etf_count - a.holding_etf_count
-                }
+            if (b.holding_etf_count !== a.holding_etf_count) {
+                return b.holding_etf_count - a.holding_etf_count
             }
             return Math.abs(b.delta) - Math.abs(a.delta)
         })
 })
 
 const currentIntersectionLabel = computed(() => {
-    if (showAtLeastThreeMode.value) {
-        return '4 檔 ETF 中至少 3 檔'
-    }
-    return selectedEtfs.value.map((etf) => formatEtfLabel(etf)).join(' + ') || '-'
+    return `${ETF_OPTIONS.length} 檔 ETF 中至少 ${commonMinCount.value} 檔`
 })
 
 const currentIntersectionDescription = computed(() => {
-    if (showAtLeastThreeMode.value) {
-        return '只列出 4 檔 ETF 中，至少 3 檔共同持有的股票'
-    }
-    return '多選 ETF 後，只顯示共同持有的股票，再看各 ETF 今天做了什麼操作'
+    return `只列出 ${ETF_OPTIONS.length} 檔 ETF 中，至少 ${commonMinCount.value} 檔共同持有的股票`
 })
-
-const isSelectedEtf = (value: string) => selectedEtfs.value.includes(value)
-
-const toggleEtf = (value: string) => {
-    if (isSelectedEtf(value)) {
-        if (selectedEtfs.value.length === 1) return
-        selectedEtfs.value = selectedEtfs.value.filter((item) => item !== value)
-    } else {
-        selectedEtfs.value = [...selectedEtfs.value, value]
-    }
-    fetchEtfChanges()
-}
-
-const setEtfSelection = (values: string[]) => {
-    selectedEtfs.value = values.length ? values : ETF_OPTIONS.map((item) => item.value)
-    fetchEtfChanges()
-}
-
-const selectAllEtfs = () => setEtfSelection(ETF_OPTIONS.map((item) => item.value))
-const clearEtfs = () => setEtfSelection(ETF_OPTIONS.map((item) => item.value))
 
 const toggleTheme = () => {
     isContrastMode.value = !isContrastMode.value
@@ -522,24 +512,14 @@ const askLLM = async () => {
     }
 }
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null
-
 onMounted(() => {
     loadTheme()
     loadDiscordWebhookUrl()
     fetchEtfChanges()
     fetchAllEtfChanges()
-    refreshTimer = setInterval(() => {
-        fetchEtfChanges()
-        fetchAllEtfChanges()
-    }, 60_000)
 })
 
 onBeforeUnmount(() => {
-    if (refreshTimer) {
-        clearInterval(refreshTimer)
-        refreshTimer = null
-    }
     if (shareStatusTimer) {
         clearTimeout(shareStatusTimer)
         shareStatusTimer = null
@@ -607,36 +587,32 @@ onBeforeUnmount(() => {
                 :class="isContrastMode ? 'bg-[#0f1724] border-slate-500/70' : 'bg-black/30 border-gray-700'"
             >
                 <div class="flex flex-wrap items-center gap-2">
-                    <span class="text-xs mr-2" :class="isContrastMode ? 'text-slate-100' : 'text-gray-400'">ETF 選擇</span>
-                    <label
-                        class="flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
-                        :class="isContrastMode ? 'border-slate-400/70 text-slate-100' : 'border-gray-700 text-gray-300'"
+                    <span class="text-xs mr-2" :class="isContrastMode ? 'text-slate-100' : 'text-gray-400'">交集篩選</span>
+                    <div
+                        class="flex items-center rounded-full border p-1"
+                        :class="isContrastMode ? 'border-slate-400/70 bg-[#111b2a]' : 'border-gray-700 bg-black/20'"
                     >
-                        <span>至少 3 檔</span>
-                        <input
-                            v-model="showAtLeastThreeMode"
-                            type="checkbox"
-                            class="toggle toggle-success toggle-sm"
-                        />
-                    </label>
-                    <button
-                        type="button"
-                        class="px-3 py-1 rounded-full border text-xs bg-transparent transition-colors"
-                        :class="isContrastMode
-                            ? 'border-slate-300 text-slate-100 hover:border-white hover:text-white'
-                            : 'border-gray-600 text-gray-300 hover:border-gray-400 hover:text-white'"
-                        @click="etfPickerOpen = !etfPickerOpen"
-                    >
-                        選擇 ETF
-                    </button>
+                        <button
+                            v-for="count in COMMON_MIN_COUNT_OPTIONS"
+                            :key="count"
+                            type="button"
+                            class="min-w-20 rounded-full px-3 py-1 text-xs transition-colors"
+                            :class="commonMinCount === count
+                                ? 'bg-emerald-400/20 text-emerald-100 shadow-[0_0_0_1px_rgba(110,231,183,0.65)]'
+                                : (isContrastMode ? 'text-slate-200 hover:text-white' : 'text-gray-400 hover:text-white')"
+                            @click="commonMinCount = count"
+                        >
+                            至少 {{ count }} 檔
+                        </button>
+                    </div>
                     <div class="flex flex-wrap items-center gap-2">
                         <span
                             v-for="option in ETF_OPTIONS"
                             :key="option.value"
                             class="flex items-center gap-1 px-3 py-1 rounded-full border text-xs"
-                            :class="isSelectedEtf(option.value)
+                            :class="isContrastMode
                                 ? 'bg-emerald-400/20 border-emerald-300 text-emerald-100'
-                                : (isContrastMode ? 'bg-transparent border-slate-400/70 text-slate-200' : 'bg-transparent border-gray-700 text-gray-500')"
+                                : 'bg-emerald-500/10 border-emerald-400/60 text-emerald-200'"
                         >
                             {{ option.label }}
                         </span>
@@ -649,45 +625,6 @@ onBeforeUnmount(() => {
                     </span>
                 </div>
 
-                <div
-                    v-if="etfPickerOpen"
-                    class="dashboard-panel-etf-picker absolute left-3 top-full z-30 mt-2 w-[min(520px,calc(100vw-2rem))] rounded-xl border shadow-2xl"
-                    :class="isContrastMode ? 'border-slate-400/80 bg-[#0a1018]' : 'border-gray-700 bg-[#111111]'"
-                >
-                    <div
-                        class="flex items-center justify-between px-3 py-2 border-b text-xs"
-                        :class="isContrastMode ? 'border-slate-700 text-slate-100' : 'border-gray-800 text-gray-400'"
-                    >
-                        <span>可複選 ETF</span>
-                        <div class="flex items-center gap-2">
-                            <button class="text-emerald-300 hover:text-emerald-200" @click="selectAllEtfs">
-                                全選
-                            </button>
-                            <button class="text-gray-300 hover:text-white" @click="clearEtfs">
-                                預設
-                            </button>
-                        </div>
-                    </div>
-                    <div class="max-h-56 overflow-y-auto p-2">
-                        <label
-                            v-for="option in ETF_OPTIONS"
-                            :key="option.value"
-                            class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm"
-                            :class="isContrastMode ? 'hover:bg-white/12' : 'hover:bg-white/5'"
-                        >
-                            <div class="flex items-center gap-3">
-                                <input
-                                    type="checkbox"
-                                    class="checkbox checkbox-sm checkbox-success"
-                                    :checked="isSelectedEtf(option.value)"
-                                    @change="toggleEtf(option.value)"
-                                />
-                                <span class="text-gray-200">{{ option.label }}</span>
-                            </div>
-                            <span class="text-[10px] text-gray-500">{{ option.value }}</span>
-                        </label>
-                    </div>
-                </div>
             </div>
 
             <div class="flex flex-col flex-1 min-h-0 overflow-hidden bg-black">
@@ -721,7 +658,7 @@ onBeforeUnmount(() => {
                                 <div>狀態</div>
                             </div>
                             <div
-                                v-for="detail in item.etfs"
+                                v-for="detail in displayEtfDetails(item)"
                                 :key="`${item.code}-${detail.etf}`"
                                 class="grid grid-cols-5 text-center py-2 border-b text-xs items-center"
                                 :class="isContrastMode ? 'border-slate-700/70 bg-[#090d13]' : 'border-gray-800 bg-black/20'"
@@ -822,7 +759,7 @@ onBeforeUnmount(() => {
                                         共同名單變化
                                     </h3>
                                     <p class="mt-1 text-[10px]" :class="isContrastMode ? 'text-slate-200/80' : 'text-gray-500'">
-                                        比較上一快照與最新快照「4 檔 ETF 中至少 3 檔持有」的股票，快速找出新增與剔除名單
+                                        比較上一快照與最新快照「{{ ETF_OPTIONS.length }} 檔 ETF 中至少 {{ commonMinCount }} 檔持有」的股票，快速找出新增與剔除名單
                                     </p>
                                 </div>
                                 <div class="text-[10px]" :class="isContrastMode ? 'text-slate-200/70' : 'text-gray-500'">

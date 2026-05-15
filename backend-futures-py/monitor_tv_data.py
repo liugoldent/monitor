@@ -182,11 +182,13 @@ TURNOVER_DB_NAME = "yahoo_turnover"
 WANTGOO_DB_NAME = "yahoo_turnover_tech"
 ETF_DB_NAME = "Investment"
 ETF_COLLECTIONS = [
+    "etf_00403A",
     "etf_00981A",
     "etf_00982A",
     "etf_00991A",
     "etf_00992A",
 ]
+ETF_COMMON_MIN_COUNT = 3
 ETF_COMMON_TECH_COLLECTION = "etf_Initiative_tech"
 
 
@@ -312,7 +314,7 @@ def get_etf_common_holdings():
             if name and code not in code_name_map:
                 code_name_map[code] = name
 
-    threshold = max(len(ETF_COLLECTIONS) - 1, 1)
+    threshold = ETF_COMMON_MIN_COUNT
     eligible = [code for code, count in code_counts.items() if count >= threshold]
     if not eligible:
         return []

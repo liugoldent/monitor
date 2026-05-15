@@ -19,11 +19,13 @@ STOCK_LIST_PATH = BASE_DIR / "static" / "twStock.json"
 OUTPUT_DIR = BASE_DIR / "stockTech"
 ETF_DB_NAME = "Investment"
 ETF_COLLECTIONS = [
+    ("etf_00403A", "00403A"),
     ("etf_00981A", "00981A"),
     ("etf_00982A", "00982A"),
     ("etf_00991A", "00991A"),
     ("etf_00992A", "00992A"),
 ]
+ETF_COMMON_MIN_COUNT = 3
 MA_WINDOWS = (5, 10, 20, 60)
 TZ = ZoneInfo("Asia/Taipei")
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -71,7 +73,7 @@ def normalize_code(value: object) -> str:
 def get_etf_common_holdings(min_count: int | None = None) -> dict[str, dict[str, Any]]:
     client = MongoClient(require_env("MONGO_URI"))
     db = client[ETF_DB_NAME]
-    threshold = min_count or max(len(ETF_COLLECTIONS) - 1, 1)
+    threshold = min_count or ETF_COMMON_MIN_COUNT
     holdings: dict[str, dict[str, Any]] = {}
     latest_times: dict[str, str] = {}
 
@@ -231,7 +233,7 @@ def build_payload(min_count: int | None = None, sleep_seconds: float = 0.35) -> 
     stock_list = load_stock_list()
     holdings = get_etf_common_holdings(min_count=min_count)
     generated_at = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-    threshold = min_count or max(len(ETF_COLLECTIONS) - 1, 1)
+    threshold = min_count or ETF_COMMON_MIN_COUNT
     items = []
     errors = []
 
@@ -299,7 +301,7 @@ def main() -> None:
         payload = build_payload(min_count=args.min_count, sleep_seconds=args.sleep)
     except Exception as exc:
         now = datetime.now(TZ)
-        threshold = args.min_count or max(len(ETF_COLLECTIONS) - 1, 1)
+        threshold = args.min_count or ETF_COMMON_MIN_COUNT
         payload = {
             "date": now.strftime("%Y-%m-%d"),
             "generated_at": now.strftime("%Y-%m-%d %H:%M:%S"),

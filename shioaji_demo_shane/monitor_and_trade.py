@@ -77,26 +77,12 @@ def temporary_env(values: dict[str, str]):
 
 
 SHANE_ENV = load_env_values(MONITOR_ROOT / "shioaji_demo_shane" / ".env")
-ROSCO_ENV = load_env_values(MONITOR_ROOT / "shioaji_demo_rosco" / ".env")
-ICHIH_ENV = load_env_values(MONITOR_ROOT / "shioaji_demo_ichih" / ".env")
 
 
 def auto_trade_shane(signal_type: str) -> None:
     auto_trade_shane_module.ca_path = str(MONITOR_ROOT / "shioaji_demo_shane" / "Sinopac.pfx")
     with temporary_env(SHANE_ENV):
         auto_trade_shane_module.auto_trade(signal_type)
-
-
-def auto_trade_rosco(signal_type: str) -> None:
-    auto_trade_rosco_module.ca_path = str(MONITOR_ROOT / "shioaji_demo_rosco" / "Sinopac.pfx")
-    with temporary_env(ROSCO_ENV):
-        auto_trade_rosco_module.auto_trade(signal_type)
-
-
-def auto_trade_ichih(signal_type: str) -> None:
-    auto_trade_ichih_module.ca_path = str(MONITOR_ROOT / "shioaji_demo_ichih" / "Sinopac.pfx")
-    with temporary_env(ICHIH_ENV):
-        auto_trade_ichih_module.auto_trade(signal_type)
 
 
 def run_auto_trade(name: str, trade_func, signal_type: str) -> None:
@@ -174,17 +160,9 @@ async def bot_message_handler(event):
         if position == "多":
             recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bull")
-            time.sleep(0.5)  # 確保下單間有短暫間隔
-            run_auto_trade("rosco", auto_trade_rosco, "bull")
-            time.sleep(0.5)  # 確保下單間有短暫間隔
-            run_auto_trade("ichih", auto_trade_ichih, "bull")
         elif position == "空":
             recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bear")
-            time.sleep(0.5)  # 確保下單間有短暫間隔
-            run_auto_trade("rosco", auto_trade_rosco, "bear")
-            time.sleep(0.5)  # 確保下單間有短暫間隔
-            run_auto_trade("ichih", auto_trade_ichih, "bear")
         else:
             print("──────────────")
             return
