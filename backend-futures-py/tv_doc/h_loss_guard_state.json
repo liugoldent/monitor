@@ -1,0 +1,13 @@
+{
+  "second_position_side": "",
+  "second_position_entry_price": "",
+  "second_add_entry_price": "",
+  "second_position_quantity": "",
+  "second_reference_h_key": "",
+  "second_max_favorable_points": "",
+  "last_second_entry_h_key": "",
+  "last_entry_signal_at": "",
+  "last_add_signal_at": "",
+  "last_exit_signal_at": "",
+  "note": "Second account starts flat. It enters only when the current H1 position is losing and the reverse guard condition triggers."
+}
