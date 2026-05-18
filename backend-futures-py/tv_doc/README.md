@@ -10,6 +10,7 @@ h_position_size_state.json
 h_mdd_position_size.md
 h_loss_guard_state.json
 h_loss_guard_strategy.md
+h_account2_hybrid_backtest.md
 webhook_data_1min.csv
 webhook_data_3min.csv
 webhook_data_5min.csv

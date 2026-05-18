@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
+    "institutional:normalize": "node scripts/normalize-institutional-report.mjs",
     "lint": "eslint . --fix --cache",
     "format": "prettier --write --experimental-cli src/"
   },

@@ -216,7 +216,7 @@ def calculate_technical(chart: dict[str, Any]) -> dict[str, Any]:
     }
     market_time = (chart.get("meta") or {}).get("regularMarketTime")
 
-    return {
+    technical = {
         "date": last["date"],
         "close": last["close"],
         "open": last["open"],
@@ -226,6 +226,54 @@ def calculate_technical(chart: dict[str, Any]) -> dict[str, Any]:
         **moving_averages,
         "market_time": date_from_timestamp(market_time) if market_time else "",
         "bars_used": len(rows),
+    }
+    technical["support"] = derive_support(rows, technical)
+    return technical
+
+
+def format_price_range(low: float, high: float) -> str:
+    def fmt(value: float) -> str:
+        if value >= 1000:
+            return f"{round(value):,.0f}".replace(",", "")
+        if value >= 100:
+            return f"{round(value):.0f}"
+        return f"{round(value, 2):g}"
+
+    if abs(high - low) < 1e-9:
+        return fmt(low)
+    return f"{fmt(low)}-{fmt(high)}"
+
+
+def derive_support(rows: list[dict[str, Any]], technical: dict[str, Any]) -> dict[str, str]:
+    close = float(technical["close"])
+    last_low = float(rows[-1]["low"] or close)
+    recent_lows = [float(row["low"]) for row in rows[-10:] if row.get("low") is not None]
+    swing_lows = [float(row["low"]) for row in rows[-30:] if row.get("low") is not None]
+    deep_lows = [float(row["low"]) for row in rows[-60:] if row.get("low") is not None]
+    near_candidates = [
+        last_low,
+        min(recent_lows) if recent_lows else close,
+        float(technical.get("ma10") or close),
+        float(technical.get("ma20") or close),
+    ]
+    near_anchor = max((price for price in near_candidates if price <= close * 1.03), default=min(near_candidates))
+    near_width = max(close * 0.015, near_anchor * 0.01)
+    near_low = max(0, near_anchor - near_width)
+    near_high = near_anchor + near_width
+
+    next_candidates = [
+        min(swing_lows) if swing_lows else near_low,
+        float(technical.get("ma60") or near_low),
+        min(deep_lows) if deep_lows else near_low,
+    ]
+    next_anchor = max((price for price in next_candidates if price < near_low), default=min(next_candidates))
+    next_width = max(close * 0.02, next_anchor * 0.012)
+
+    return {
+        "near": format_price_range(near_low, near_high),
+        "next": format_price_range(max(0, next_anchor - next_width), next_anchor + next_width),
+        "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+        "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60",
     }
 
 

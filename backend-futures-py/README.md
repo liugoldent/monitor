@@ -24,4 +24,15 @@ cd /Users/kt/Desktop/self/monitor/backend-futures-py
 
 # 手動規格化某天報告
 cd /Users/kt/Desktop/self/monitor/frontend-vue
-PATH=/Users/kt/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH node scripts/normalize-institutional-report.mjs 2026-05-08
+PATH=/Users/kt/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH pnpm institutional:normalize 2026-05-08
+
+# 每日完整產出順序
+cd /Users/kt/Desktop/self/monitor/backend-futures-py
+.venv/bin/python fetch_stock_tech.py --sleep 0.2
+
+cd /Users/kt/Desktop/self/monitor/frontend-vue
+PATH=/Users/kt/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH pnpm institutional:normalize YYYY-MM-DD
+
+# 自動化單一入口
+cd /Users/kt/Desktop/self/monitor
+bash scripts/build-institutional-report.sh YYYY-MM-DD

@@ -106,10 +106,16 @@ async def bot_message_handler(event):
         # h 長週期單API下單 / 短週期平倉
         if position == "多":
             recent_signals[position] = now
-            auto_trade("bull")
+            try:
+                auto_trade("bull")
+            except Exception as exc:
+                print(f"自動下單發生未處理錯誤: {exc}")
         elif position == "空":
             recent_signals[position] = now
-            auto_trade("bear")
+            try:
+                auto_trade("bear")
+            except Exception as exc:
+                print(f"自動下單發生未處理錯誤: {exc}")
         else:
             print("──────────────")
             return

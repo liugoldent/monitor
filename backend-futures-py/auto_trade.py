@@ -37,6 +37,7 @@ WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1
 POSITION_SIZE_STATE_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_position_size_state.json"
 POINT_VALUE = 10
 ADD_POSITION_DRAWDOWN_POINTS = 1750
+EXIT_ADD_POSITION_DRAWDOWN_POINTS = 1000
 BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
 
@@ -214,6 +215,10 @@ def _get_entry_quantity() -> int:
         _set_add_position_active(False)
         return BASE_ENTRY_QUANTITY
 
+    if current_drawdown_pnl < EXIT_ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
+        _set_add_position_active(False)
+        return BASE_ENTRY_QUANTITY
+
     if _is_add_position_active():
         return ADD_POSITION_ENTRY_QUANTITY
 
@@ -302,9 +307,28 @@ def _cancel_all_open_orders(api) -> int:
 # 純下單func
 def auto_trade(type):
     api = sj.Shioaji(simulation=False)
-    api.login(os.getenv("API_KEY"), os.getenv("SECRET_KEY"))
-    api.activate_ca(ca_path=ca_path, ca_passwd=os.getenv("PERSON_ID"), person_id=os.getenv("PERSON_ID"))
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
+
+    try:
+        api_key = os.getenv("API_KEY")
+        secret_key = os.getenv("SECRET_KEY")
+        person_id = os.getenv("PERSON_ID")
+        if not api_key or not secret_key:
+            raise RuntimeError("Missing API_KEY or SECRET_KEY")
+        if not person_id:
+            raise RuntimeError("Missing PERSON_ID")
+
+        api.login(api_key, secret_key)
+        api.activate_ca(ca_path=ca_path, ca_passwd=person_id, person_id=person_id)
+    except Exception as exc:
+        message = f'[{testNow:%H:%M:%S}]：長線。Shioaji 登入/憑證啟用失敗，未送單：{exc}'
+        print(message)
+        send_discord_message(message)
+        try:
+            api.logout()
+        except Exception:
+            pass
+        return
 
     try:
         if not os.path.exists(ca_path):

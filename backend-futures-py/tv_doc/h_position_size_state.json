@@ -3,8 +3,8 @@
   "initial_drawdown_points": 2300,
   "add_position_active": false,
   "virtual_position_side": "bear",
-  "virtual_position_entry_price": 41966,
-  "virtual_position_since": "2026-05-15 09:33:02",
-  "updated_at": "2026-05-15 00:00:00",
+  "virtual_position_entry_price": 40462.0,
+  "virtual_position_since": "2026-05-18 08:56:02",
+  "updated_at": "2026-05-18 20:38:03",
   "note": "Position sizing restarts after existing h_trade.csv rows; historical data is kept but ignored for this account sizing state."
 }

@@ -1,10 +1,11 @@
-"""H1 reverse guard signal strategy.
+"""H1 second-account hybrid signal strategy.
 
 This module outputs Discord entry/exit signals for a second account. It monitors
 the latest H1 position from `h_trade.csv`. When the H1 position is losing and
 short timeframes confirm the opposite side, the second account enters the
-opposite direction. The second-account position then has its own stop-loss,
-take-profit, and giveback exits.
+opposite direction. When the H1 position is already profitable and short
+timeframes support the same side, the second account can follow with one
+contract. The second-account position then has its own exits.
 
 All PnL values are single-contract points. Quantity is not used to scale MDD or
 guard thresholds.
@@ -68,6 +69,11 @@ SECOND_TRAIL_FLOOR_POINTS = 120.0
 SECOND_ADD_PROFIT_POINTS = 180.0
 SECOND_ADD_CONFIRM_SCORE = 2
 SECOND_AFTER_ADD_PROTECT_POINTS = 80.0
+FOLLOW_PROFIT_ENTRY_POINTS = 240.0
+FOLLOW_CONFIRM_SCORE = 2
+FOLLOW_STOP_LOSS_POINTS = -160.0
+FOLLOW_TAKE_PROFIT_POINTS = 800.0
+MAX_SECOND_SYNC_QUANTITY = 2
 
 
 def _load_state() -> dict:
@@ -235,19 +241,28 @@ def _opposite_side(side: str) -> str:
     return "bear" if side == "bull" else "bull"
 
 
+def _get_h_position_quantity(h_position: dict) -> int:
+    quantity = to_float(h_position.get("quantity"))
+    if quantity is None:
+        return 1
+    return max(1, min(MAX_SECOND_SYNC_QUANTITY, int(quantity)))
+
+
 def _build_second_entry_signal(h_position: dict, guard_signal: dict) -> dict:
     side = _opposite_side(h_position["side"])
     mxf = _get_latest_mxf()
+    quantity = _get_h_position_quantity(h_position)
     return {
         "side": side,
         "entry_price": guard_signal["close"],
         "close": guard_signal["close"],
         "unrealized_points": 0.0,
-        "reason": f"reverse H1 loss: {guard_signal['reason']}",
+        "reason": f"reverse H1 loss: {guard_signal['reason']}; sync qty {quantity}",
         "tf_score": guard_signal["tf_score"],
         "mxf_signal": mxf.get("signal", ""),
         "mxf_trend": mxf.get("trend", ""),
         "position_timestamp": h_position["timestamp"],
+        "quantity": quantity,
     }
 
 
@@ -266,6 +281,7 @@ def _get_second_position(state: dict) -> dict | None:
         "h_position_key": str(state.get("second_reference_h_key", "")).strip(),
         "max_favorable_points": float(state.get("second_max_favorable_points", 0) or 0),
         "quantity": int(float(state.get("second_position_quantity", 1) or 1)),
+        "mode": str(state.get("second_position_mode", "guard_reverse") or "guard_reverse").strip(),
     }
 
 
@@ -276,6 +292,7 @@ def _clear_second_position(state: dict) -> None:
     state["second_position_quantity"] = ""
     state["second_reference_h_key"] = ""
     state["second_max_favorable_points"] = ""
+    state["second_position_mode"] = ""
 
 
 def _build_exit_signal(side: str, entry_price: float, close: float, reason: str, h_position_key: str = "") -> dict:
@@ -306,6 +323,39 @@ def _build_add_signal(side: str, add_price: float, first_entry_price: float, clo
         "mxf_trend": mxf.get("trend", ""),
         "position_timestamp": h_position_key,
     }
+
+
+def _build_follow_entry_signal(h_position: dict, close: float, h_unrealized: float, confirm_score: int) -> dict:
+    mxf = _get_latest_mxf()
+    quantity = _get_h_position_quantity(h_position)
+    return {
+        "side": h_position["side"],
+        "entry_price": close,
+        "close": close,
+        "unrealized_points": 0.0,
+        "reason": f"profit follow H1 +{h_unrealized:.1f}pts, confirm {confirm_score}/3; sync qty {quantity}",
+        "tf_score": confirm_score,
+        "mxf_signal": mxf.get("signal", ""),
+        "mxf_trend": mxf.get("trend", ""),
+        "position_timestamp": h_position["timestamp"],
+        "quantity": quantity,
+    }
+
+
+def _build_follow_signal(position: dict) -> dict | None:
+    side = position["side"]
+    entry_price = position["price"]
+    latest_1m = _get_latest_row(WEBHOOK_CSV_BY_TF["1"])
+    close = _row_close(latest_1m)
+    if close is None:
+        return None
+
+    h_unrealized = _unrealized_points(side, entry_price, close)
+    confirm_score = _second_side_confirm_score(side)
+    if h_unrealized < FOLLOW_PROFIT_ENTRY_POINTS or confirm_score < FOLLOW_CONFIRM_SCORE:
+        return None
+
+    return _build_follow_entry_signal(position, close, h_unrealized, confirm_score)
 
 
 def _second_side_confirm_score(side: str) -> int:
@@ -344,9 +394,10 @@ def _send_second_entry_signal(h_position: dict, guard_signal: dict, state: dict)
     state["second_position_side"] = signal["side"]
     state["second_position_entry_price"] = signal["entry_price"]
     state["second_add_entry_price"] = ""
-    state["second_position_quantity"] = 1
+    state["second_position_quantity"] = signal["quantity"]
     state["second_reference_h_key"] = h_key
     state["second_max_favorable_points"] = 0.0
+    state["second_position_mode"] = "guard_reverse"
     state["last_entry_signal_at"] = now_str()
     _save_state(state)
 
@@ -355,13 +406,43 @@ def _send_second_entry_signal(h_position: dict, guard_signal: dict, state: dict)
     message = (
         f"第二帳號反向進場訊號：{side_label}\n"
         f"第一帳號 H1 {h_side_label} 看錯擴大，第二帳號反向進場\n"
-        f"進場價={signal['entry_price']}，原因：{signal['reason']}"
+        f"進場價={signal['entry_price']}，口數={signal['quantity']}，原因：{signal['reason']}"
+    )
+    send_loss_guard_message(message)
+
+
+def _send_follow_entry_signal(h_position: dict, follow_signal: dict, state: dict) -> None:
+    h_key = _position_key(h_position)
+    if _get_second_position(state) is not None:
+        return
+    if state.get("last_follow_entry_h_key") == h_key:
+        return
+
+    _append_guard_signal("follow_entry", follow_signal)
+    state["last_follow_entry_h_key"] = h_key
+    state["second_position_side"] = follow_signal["side"]
+    state["second_position_entry_price"] = follow_signal["entry_price"]
+    state["second_add_entry_price"] = ""
+    state["second_position_quantity"] = follow_signal["quantity"]
+    state["second_reference_h_key"] = h_key
+    state["second_max_favorable_points"] = 0.0
+    state["second_position_mode"] = "profit_follow"
+    state["last_entry_signal_at"] = now_str()
+    _save_state(state)
+
+    side_label = "多單" if follow_signal["side"] == "bull" else "空單"
+    message = (
+        f"第二帳號順向跟進訊號：{side_label}\n"
+        f"第一帳號 H1 已獲利，第二帳號順向跟進\n"
+        f"進場價={follow_signal['entry_price']}，口數={follow_signal['quantity']}，原因：{follow_signal['reason']}"
     )
     send_loss_guard_message(message)
 
 
 def _send_second_add_signal(state: dict, second_position: dict, close: float, first_unrealized: float) -> None:
     side = second_position["side"]
+    if second_position.get("mode") == "profit_follow":
+        return
     score = _second_side_confirm_score(side)
     if (
         second_position["quantity"] >= 2
@@ -420,15 +501,22 @@ def _manage_second_position(h_position: dict | None, state: dict) -> bool:
     _send_second_add_signal(state, second_position, close, first_unrealized)
     second_position = _get_second_position(state) or second_position
 
-    entries = [entry_price]
     if second_position.get("add_entry_price") is not None:
-        entries.append(second_position["add_entry_price"])
-    total_unrealized = sum(_unrealized_points(side, entry, close) for entry in entries)
+        total_unrealized = (
+            _unrealized_points(side, entry_price, close)
+            + _unrealized_points(side, second_position["add_entry_price"], close)
+        )
+    else:
+        total_unrealized = first_unrealized * second_position["quantity"]
 
     reason = ""
     h_key = _position_key(h_position) if h_position else ""
     if h_key and h_key != second_position["h_position_key"]:
         reason = "H1 position changed"
+    elif second_position.get("mode") == "profit_follow" and first_unrealized <= FOLLOW_STOP_LOSS_POINTS:
+        reason = f"profit-follow stop loss {FOLLOW_STOP_LOSS_POINTS:.0f}pts"
+    elif second_position.get("mode") == "profit_follow" and first_unrealized >= FOLLOW_TAKE_PROFIT_POINTS:
+        reason = f"profit-follow take profit {FOLLOW_TAKE_PROFIT_POINTS:.0f}pts"
     elif second_position["quantity"] >= 2 and first_unrealized <= SECOND_AFTER_ADD_PROTECT_POINTS:
         reason = f"second-account after-add protect {SECOND_AFTER_ADD_PROTECT_POINTS:.0f}pts"
     elif second_position["quantity"] < 2 and first_unrealized <= SECOND_STOP_LOSS_POINTS:
@@ -481,3 +569,8 @@ def apply_h_loss_guard_strategy() -> None:
         guard_signal = _build_guard_signal(h_position)
         if guard_signal:
             _send_second_entry_signal(h_position, guard_signal, state)
+            return
+
+        follow_signal = _build_follow_signal(h_position)
+        if follow_signal:
+            _send_follow_entry_signal(h_position, follow_signal, state)

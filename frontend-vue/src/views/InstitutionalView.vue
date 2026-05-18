@@ -14,6 +14,15 @@ type StockRow = {
   supplyChain: string
   interpretation: string
   position: string
+  nearSupport: string
+  nextSupport: string
+  supportNote: string
+}
+
+type UpstreamRow = {
+  layer: string
+  stocks: string
+  interpretation: string
 }
 
 type ReportOption = {
@@ -48,114 +57,6 @@ const markdownUrl = computed(() => {
   return selectedReport.value ? `/institutional/${selectedReport.value.file}` : ''
 })
 
-const escapeHtml = (value: string) => {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
-const formatInline = (value: string) => {
-  return escapeHtml(value)
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-}
-
-const parseTable = (lines: string[], startIndex: number) => {
-  const tableLines: string[] = []
-  let index = startIndex
-
-  while (index < lines.length && (lines[index] ?? '').trim().startsWith('|')) {
-    tableLines.push(lines[index] ?? '')
-    index += 1
-  }
-
-  if (tableLines.length < 2) return { html: '', nextIndex: startIndex }
-
-  const headers = (tableLines[0] ?? '')
-    .split('|')
-    .slice(1, -1)
-    .map((cell) => formatInline(cell.trim()))
-  const rows = tableLines.slice(2).map((line) =>
-    line
-      .split('|')
-      .slice(1, -1)
-      .map((cell) => formatInline(cell.trim())),
-  )
-
-  const headerHtml = headers.map((header) => `<th>${header}</th>`).join('')
-  const rowsHtml = rows
-    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
-    .join('')
-
-  return {
-    html: `<div class="markdown-table-wrap"><table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`,
-    nextIndex: index,
-  }
-}
-
-const markdownToHtml = (source: string) => {
-  const lines = source.split('\n')
-  const html: string[] = []
-  let listOpen = false
-  let index = 0
-
-  const closeList = () => {
-    if (!listOpen) return
-    html.push('</ul>')
-    listOpen = false
-  }
-
-  while (index < lines.length) {
-    const rawLine = lines[index] ?? ''
-    const line = rawLine.trim()
-
-    if (!line) {
-      closeList()
-      index += 1
-      continue
-    }
-
-    if (line.startsWith('|')) {
-      closeList()
-      const table = parseTable(lines, index)
-      html.push(table.html)
-      index = table.nextIndex
-      continue
-    }
-
-    if (line.startsWith('# ')) {
-      closeList()
-      html.push(`<h1>${formatInline(line.slice(2).trim())}</h1>`)
-    } else if (line.startsWith('## ')) {
-      closeList()
-      html.push(`<h2>${formatInline(line.slice(3).trim())}</h2>`)
-    } else if (line.startsWith('### ')) {
-      closeList()
-      html.push(`<h3>${formatInline(line.slice(4).trim())}</h3>`)
-    } else if (line.startsWith('> ')) {
-      closeList()
-      html.push(`<blockquote>${formatInline(line.slice(2).trim())}</blockquote>`)
-    } else if (line.startsWith('- ')) {
-      if (!listOpen) {
-        html.push('<ul>')
-        listOpen = true
-      }
-      html.push(`<li>${formatInline(line.slice(2).trim())}</li>`)
-    } else {
-      closeList()
-      html.push(`<p>${formatInline(line)}</p>`)
-    }
-
-    index += 1
-  }
-
-  closeList()
-  return html.join('')
-}
-
 const title = computed(() => {
   return markdown.value.match(/^#\s+(.+)$/m)?.[1] ?? '法人操作總結'
 })
@@ -163,6 +64,11 @@ const title = computed(() => {
 const reportDate = computed(() => {
   return title.value.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? '-'
 })
+
+const supplementalDiffByCode: Record<string, string> = {
+  '2327': '+2,221,000',
+  C_NTD: '-24,519,562,997',
+}
 
 const sections = computed<MarkdownSection[]>(() => {
   const matches = [...markdown.value.matchAll(/^##\s+(.+)$/gm)]
@@ -177,19 +83,35 @@ const sections = computed<MarkdownSection[]>(() => {
   })
 })
 
-const conclusionBullets = computed(() => {
-  const section = sections.value.find((item) => item.title === '今日結論')
-  if (!section) return []
-
-  return section.body
-    .split('\n')
-    .filter((line) => line.trim().startsWith('- '))
-    .map((line) => line.trim().slice(2))
-})
-
 const stockRows = computed<StockRow[]>(() => {
   const section = sections.value.find((item) => item.title === 'ETF 持有交集')
   if (!section) return []
+
+  const supportSection = sections.value.find((item) => item.title === '5/15 股價支撐')
+  const supportRows =
+    supportSection?.body
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('|'))
+      .slice(2)
+      .map((line) =>
+        line
+          .split('|')
+          .slice(1, -1)
+          .map((cell) => cell.trim()),
+      )
+      .filter((cells) => cells[0]) ?? []
+  const supportByCode = new Map(
+    supportRows.map((cells) => [
+      cells[0],
+      {
+        name: cells[1] ?? '',
+        nearSupport: cells[2] ?? '',
+        nextSupport: cells[3] ?? '',
+        supportNote: cells[4] ?? '',
+      },
+    ]),
+  )
 
   const tableLines = section.body
     .split('\n')
@@ -198,11 +120,12 @@ const stockRows = computed<StockRow[]>(() => {
 
   if (tableLines.length < 3) return []
 
-  return tableLines.slice(2).map((line) => {
+  const rows = tableLines.slice(2).map((line) => {
     const cells = line
       .split('|')
       .slice(1, -1)
       .map((cell) => cell.trim())
+    const support = supportByCode.get(cells[0] ?? '')
 
     return {
       code: cells[0] ?? '',
@@ -211,29 +134,72 @@ const stockRows = computed<StockRow[]>(() => {
       supplyChain: cells[3] ?? '',
       interpretation: cells[4] ?? '',
       position: cells[5] ?? '',
+      nearSupport: support?.nearSupport ?? '',
+      nextSupport: support?.nextSupport ?? '',
+      supportNote: support?.supportNote ?? '',
     }
   })
+
+  const stockCodes = new Set(rows.map((row) => row.code))
+  const supportOnlyRows = supportRows
+    .filter((cells) => !stockCodes.has(cells[0] ?? ''))
+    .map((cells) => ({
+      code: cells[0] ?? '',
+      name: cells[1] ?? '',
+      diff: supplementalDiffByCode[cells[0] ?? ''] ?? '',
+      supplyChain: '',
+      interpretation: '',
+      position: '',
+      nearSupport: cells[2] ?? '',
+      nextSupport: cells[3] ?? '',
+      supportNote: cells[4] ?? '',
+    }))
+
+  return [...rows, ...supportOnlyRows]
 })
 
 const strongestRows = computed(() => {
-  return stockRows.value
-    .filter((row) => row.diff.startsWith('+'))
-    .slice(0, 8)
+  return stockRows.value.filter((row) => row.diff.startsWith('+')).slice(0, 8)
 })
 
 const reducedRows = computed(() => {
   return stockRows.value.filter((row) => row.diff.startsWith('-'))
 })
 
-const topicCounts = computed(() => {
-  return stockRows.value.reduce<Record<string, number>>((acc, row) => {
-    const topic = row.supplyChain || '未分類'
-    acc[topic] = (acc[topic] ?? 0) + 1
-    return acc
-  }, {})
+const industryRows = computed(() => {
+  return Object.entries(
+    stockRows.value.reduce<Record<string, number>>((acc, row) => {
+      if (!row.supplyChain) return acc
+      acc[row.supplyChain] = (acc[row.supplyChain] ?? 0) + 1
+      return acc
+    }, {}),
+  )
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hant'))
 })
 
-const fullHtml = computed(() => markdownToHtml(markdown.value))
+const upstreamRows = computed<UpstreamRow[]>(() => {
+  const section = sections.value.find((item) => item.title === '上下游關係')
+  if (!section) return []
+
+  return section.body
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('|'))
+    .slice(2)
+    .map((line) =>
+      line
+        .split('|')
+        .slice(1, -1)
+        .map((cell) => cell.trim()),
+    )
+    .filter((cells) => cells[0] && cells[1])
+    .map((cells) => ({
+      layer: cells[0] ?? '',
+      stocks: cells[1] ?? '',
+      interpretation: cells[2] ?? '',
+    }))
+})
 
 const technicalUrl = (code: string) => {
   return `https://tw.stock.yahoo.com/quote/${code}.TW/technical-analysis`
@@ -246,43 +212,130 @@ const parseTechnicalValue = (source: string, label: string) => {
   return Number(match[1].replace(/,/g, ''))
 }
 
+const parseDiffValue = (source: string) => {
+  const normalized = source.replace(/,/g, '').trim()
+  if (!normalized) return null
+  const value = Number(normalized)
+  return Number.isFinite(value) ? value : null
+}
+
+const parseSupportRange = (source: string) => {
+  const match = source.match(/([0-9,]+(?:\.\d+)?)(?:\s*-\s*([0-9,]+(?:\.\d+)?))?/)
+  if (!match?.[1]) return null
+  const first = Number(match[1].replace(/,/g, ''))
+  const second = match[2] ? Number(match[2].replace(/,/g, '')) : first
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return null
+  return {
+    low: Math.min(first, second),
+    high: Math.max(first, second),
+  }
+}
+
 const isBetween = (value: number, first: number, second: number) => {
   const high = Math.max(first, second)
   const low = Math.min(first, second)
   return value <= high && value >= low
 }
 
-const technicalSignalInfo = (position: string) => {
-  const close = parseTechnicalValue(position, '收盤')
-  const ma5 = parseTechnicalValue(position, 'MA5')
-  const ma10 = parseTechnicalValue(position, 'MA10')
-  const ma20 = parseTechnicalValue(position, 'MA20')
-  const ma60 = parseTechnicalValue(position, 'MA60')
+const recommendationInfo = (row: StockRow) => {
+  const close = parseTechnicalValue(row.position, '收盤')
+  const ma5 = parseTechnicalValue(row.position, 'MA5')
+  const ma10 = parseTechnicalValue(row.position, 'MA10')
+  const ma20 = parseTechnicalValue(row.position, 'MA20')
+  const ma60 = parseTechnicalValue(row.position, 'MA60')
+  const diff = parseDiffValue(row.diff)
+  const support = parseSupportRange(row.nearSupport)
+  const reasons: string[] = []
+  let score = 2
+
+  if (diff === null && [close, ma5, ma10, ma20, ma60].some((value) => value === null)) {
+    return {
+      score: 0,
+      label: '資料不足',
+      icon: '-',
+      reason: '缺少 ETF 差異與均線資料，先不給推薦程度。',
+    }
+  }
+
+  if (diff !== null && diff > 0) {
+    score += diff >= 100000 ? 2 : 1
+    reasons.push(diff >= 100000 ? 'ETF 明顯加碼' : 'ETF 小幅加碼')
+  } else if (diff !== null && diff < 0) {
+    score -= 2
+    reasons.push('ETF 減碼，先保守')
+  } else {
+    reasons.push('ETF 持平或無差異資料')
+  }
 
   if ([close, ma5, ma10, ma20, ma60].some((value) => value === null)) {
-    return { icon: '', reason: '缺少收盤價或均線資料，無法判斷位階' }
+    if (support) {
+      score += 1
+      reasons.push('已有支撐區間，但缺少均線資料，推薦程度保守上修')
+    } else {
+      reasons.push('缺少均線資料，無法判斷追高或回測位階')
+    }
+  } else {
+    const price = close as number
+
+    if (price > Math.max(ma5 as number, ma10 as number, ma20 as number, ma60 as number)) {
+      score -= 1
+      reasons.push('高於所有均線，偏強但較容易追高')
+    } else if (price < Math.min(ma5 as number, ma10 as number, ma20 as number, ma60 as number)) {
+      score += diff !== null && diff > 0 ? 1 : -1
+      reasons.push(diff !== null && diff > 0 ? '低位階且有 ETF 買盤' : '低於所有均線，尚未轉強')
+    } else if (isBetween(price, ma20 as number, ma60 as number)) {
+      score += diff !== null && diff > 0 ? 2 : 1
+      reasons.push('介於月線與季線，位階較適合等轉強')
+    } else if (isBetween(price, ma10 as number, ma20 as number)) {
+      score += 1
+      reasons.push('介於 MA10 與 MA20，中段位階')
+    } else if (isBetween(price, ma5 as number, ma10 as number)) {
+      reasons.push('靠近短均，適合觀察回測是否守住')
+    }
+
+    if (support) {
+      if (price >= support.low * 0.97 && price <= support.high * 1.05) {
+        score += 1
+        reasons.push('價格接近近期支撐，風險報酬較好抓')
+      } else if (price > support.high * 1.15) {
+        score -= 1
+        reasons.push('距離近期支撐偏遠，追價風險較高')
+      }
+    }
   }
 
-  const price = close as number
-  const averages = [ma5, ma10, ma20, ma60] as number[]
+  const finalScore = Math.max(1, Math.min(5, score))
+  const label =
+    finalScore >= 5
+      ? '高'
+      : finalScore === 4
+        ? '偏高'
+        : finalScore === 3
+          ? '中'
+          : finalScore === 2
+            ? '低'
+            : '很低'
 
-  if (price > Math.max(...averages)) {
-    return { icon: '🔥', reason: '收盤價高於 MA5、MA10、MA20、MA60，代表價格在所有均線之上，偏強但可能較熱' }
+  return {
+    score: finalScore,
+    label,
+    icon: '★'.repeat(finalScore) + '☆'.repeat(5 - finalScore),
+    reason: reasons.join('；'),
   }
-  if (price < Math.min(...averages)) {
-    return { icon: '⭐⭐⭐⭐⭐', reason: '收盤價低於 MA5、MA10、MA20、MA60，代表價格在所有均線之下，若法人買超可優先觀察低位階轉強' }
-  }
-  if (isBetween(price, ma20 as number, ma60 as number)) {
-    return { icon: '⭐⭐⭐⭐', reason: '收盤價介於 MA20（月線）與 MA60（季線）之間，位階低於月線但尚未跌破季線' }
-  }
-  if (isBetween(price, ma10 as number, ma20 as number)) {
-    return { icon: '⭐⭐⭐', reason: '收盤價介於 MA10 與 MA20（月線）之間，屬於中段位階' }
-  }
-  if (isBetween(price, ma5 as number, ma10 as number)) {
-    return { icon: '⭐⭐', reason: '收盤價介於 MA5 與 MA10 之間，短線仍靠近短均' }
-  }
-  return { icon: '', reason: '收盤價不在預設均線區間內，請直接查看均線位階欄位' }
 }
+
+const sortedStockRows = computed(() => {
+  return [...stockRows.value].sort((a, b) => {
+    const scoreDiff = recommendationInfo(b).score - recommendationInfo(a).score
+    if (scoreDiff !== 0) return scoreDiff
+
+    const diffA = parseDiffValue(a.diff) ?? Number.NEGATIVE_INFINITY
+    const diffB = parseDiffValue(b.diff) ?? Number.NEGATIVE_INFINITY
+    if (diffB !== diffA) return diffB - diffA
+
+    return a.code.localeCompare(b.code)
+  })
+})
 
 const fetchReports = async () => {
   const response = await fetch(`${reportsUrl}?t=${Date.now()}`)
@@ -344,18 +397,22 @@ watch(
 </script>
 
 <template>
-  <main class="institutional-page min-h-screen w-screen overflow-x-hidden bg-[#080d14] text-slate-100">
-    <header class="border-b border-slate-700/70 bg-[#1d2839] px-5 py-5 md:px-8">
+  <main
+    class="institutional-page min-h-screen w-screen overflow-x-hidden bg-[#080d14] text-slate-100"
+  >
+    <header class="border-b border-slate-700/70 bg-[#1d2839] px-5 py-4 md:px-8">
       <div class="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
         <div>
-          <div class="mb-3 flex items-center gap-3">
-            <span class="h-10 w-2 rounded-full bg-emerald-400"></span>
-            <span class="rounded-full border border-emerald-300/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-200">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="h-8 w-2 rounded-full bg-emerald-400"></span>
+            <span
+              class="rounded-full border border-emerald-300/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-200"
+            >
               Flow
             </span>
           </div>
-          <h1 class="text-3xl font-semibold tracking-wide text-white md:text-4xl">{{ title }}</h1>
-          <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+          <h1 class="text-2xl font-semibold tracking-wide text-white md:text-3xl">{{ title }}</h1>
+          <p class="mt-1 max-w-3xl text-sm leading-6 text-slate-300">
             彙整 ETF 持有交集、資金流向、上下游關係、均線位階與加碼風險，作為每日盤後研究入口。
           </p>
         </div>
@@ -378,7 +435,7 @@ watch(
       </div>
     </header>
 
-    <section class="grid gap-4 border-b border-slate-800 px-5 py-5 md:grid-cols-4 md:px-8">
+    <section class="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-4 md:px-8">
       <div class="stat-tile">
         <span>資料日</span>
         <strong>{{ reportDate }}</strong>
@@ -397,17 +454,21 @@ watch(
       </div>
     </section>
 
-    <section class="border-b border-slate-800 px-5 py-4 md:px-8">
-      <div class="mb-3 text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">Report Dates</div>
+    <section class="border-b border-slate-800 px-5 py-3 md:px-8">
+      <div class="mb-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">
+        Report Dates
+      </div>
       <div class="flex flex-wrap gap-2">
         <button
           v-for="report in reports"
           :key="report.date"
           type="button"
           class="rounded-full border px-4 py-2 text-sm transition"
-          :class="report.date === selectedDate
-            ? 'border-emerald-300 bg-emerald-400/15 text-emerald-100'
-            : 'border-slate-600 bg-slate-900/70 text-slate-300 hover:border-emerald-300 hover:text-white'"
+          :class="
+            report.date === selectedDate
+              ? 'border-emerald-300 bg-emerald-400/15 text-emerald-100'
+              : 'border-slate-600 bg-slate-900/70 text-slate-300 hover:border-emerald-300 hover:text-white'
+          "
           @click="selectReport(report.date)"
         >
           {{ report.date }}
@@ -416,35 +477,44 @@ watch(
     </section>
 
     <div v-if="loading" class="px-8 py-16 text-center text-slate-300">載入 markdown...</div>
-    <div v-else-if="errorMessage" class="px-8 py-16 text-center text-rose-200">{{ errorMessage }}</div>
+    <div v-else-if="errorMessage" class="px-8 py-16 text-center text-rose-200">
+      {{ errorMessage }}
+    </div>
 
-    <div v-else class="grid gap-5 px-5 py-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:px-8">
-      <aside class="space-y-5">
-        <section class="panel">
-          <h2>今日結論</h2>
-          <div class="mt-4 space-y-3">
-            <div v-for="item in conclusionBullets" :key="item" class="rounded-lg border border-slate-700 bg-slate-950/45 p-3 text-sm leading-6 text-slate-200">
-              {{ item }}
+    <div v-else class="px-5 py-5 lg:px-8">
+      <div class="space-y-4">
+        <section class="context-grid">
+          <div class="panel compact-panel">
+            <div class="panel-title-row">
+              <h2>產業分布</h2>
+              <span>{{ industryRows.length }} 類</span>
+            </div>
+            <div class="chip-row">
+              <span v-for="item in industryRows" :key="item.name" class="industry-chip">
+                {{ item.name }}
+                <strong>{{ item.count }}</strong>
+              </span>
+            </div>
+          </div>
+
+          <div class="panel compact-panel">
+            <div class="panel-title-row">
+              <h2>上下游關係</h2>
+              <span>{{ upstreamRows.length }} 層</span>
+            </div>
+            <div class="upstream-list">
+              <div v-for="item in upstreamRows" :key="item.layer" class="upstream-item">
+                <strong>{{ item.layer }}</strong>
+                <span>{{ item.stocks }}</span>
+              </div>
             </div>
           </div>
         </section>
 
-        <section class="panel">
-          <h2>題材集中度</h2>
-          <div class="mt-4 space-y-3">
-            <div v-for="(count, topic) in topicCounts" :key="topic" class="flex items-center justify-between gap-4 border-b border-slate-800 pb-2 last:border-b-0 last:pb-0">
-              <span class="text-sm text-slate-300">{{ topic }}</span>
-              <strong class="text-sm text-emerald-200">{{ count }}</strong>
-            </div>
-          </div>
-        </section>
-      </aside>
-
-      <div class="space-y-5">
         <section class="panel">
           <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <h2>加碼檢查表</h2>
-            <span class="text-xs text-slate-400">由 markdown 的 ETF 持有交集表格自動整理</span>
+            <span class="text-xs text-slate-400">由 ETF 持有交集與 5/15 股價支撐表格自動整理</span>
           </div>
 
           <div class="mt-4 overflow-x-auto">
@@ -452,14 +522,15 @@ watch(
               <thead>
                 <tr>
                   <th>股票</th>
-                  <th>位階</th>
+                  <th>推薦程度</th>
                   <th>差異</th>
-                  <th>供應鏈</th>
-                  <th>均線位階</th>
+                  <th>近期支撐</th>
+                  <th>下一層支撐</th>
+                  <th>備註</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in stockRows" :key="`${row.code}-${row.name}`">
+                <tr v-for="row in sortedStockRows" :key="`${row.code}-${row.name}`">
                   <td>
                     <a
                       :href="technicalUrl(row.code)"
@@ -469,30 +540,35 @@ watch(
                     >
                       {{ row.code }} {{ row.name }}
                     </a>
+                    <div v-if="row.supplyChain" class="mt-1 text-xs text-emerald-200">
+                      {{ row.supplyChain }}
+                    </div>
                     <div class="mt-1 text-xs text-slate-500">{{ row.interpretation }}</div>
                   </td>
                   <td>
-                    <span
-                      class="inline-flex min-w-20 justify-center text-base leading-none"
-                      :title="technicalSignalInfo(row.position).reason"
-                    >
-                      {{ technicalSignalInfo(row.position).icon || '-' }}
+                    <span class="recommendation-pill" :title="recommendationInfo(row).reason">
+                      <strong>{{ recommendationInfo(row).label }}</strong>
+                      <span>{{ recommendationInfo(row).icon }}</span>
                     </span>
                   </td>
-                  <td :class="row.diff.startsWith('-') ? 'text-rose-300' : row.diff === '0' ? 'text-slate-300' : 'text-emerald-300'">
+                  <td
+                    :class="
+                      row.diff.startsWith('-')
+                        ? 'text-rose-300'
+                        : row.diff === '0'
+                          ? 'text-slate-300'
+                          : 'text-emerald-300'
+                    "
+                  >
                     {{ row.diff }}
                   </td>
-                  <td>{{ row.supplyChain }}</td>
-                  <td>{{ row.position }}</td>
+                  <td class="support-price">{{ row.nearSupport || '-' }}</td>
+                  <td class="support-price">{{ row.nextSupport || '-' }}</td>
+                  <td class="support-note">{{ row.supportNote || '-' }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </section>
-
-        <section class="panel">
-          <h2>完整 markdown 報告</h2>
-          <article class="markdown-body mt-4" v-html="fullHtml"></article>
         </section>
       </div>
     </div>
@@ -513,7 +589,7 @@ watch(
   border: 1px solid rgba(51, 65, 85, 0.9);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.72);
-  padding: 20px;
+  padding: 18px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
 }
 
@@ -523,11 +599,86 @@ watch(
   font-weight: 700;
 }
 
+.compact-panel {
+  padding: 14px 16px;
+}
+
+.context-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-title-row span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.industry-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.08);
+  padding: 5px 9px;
+  color: #d1fae5;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.industry-chip strong {
+  color: #f8fafc;
+  font-size: 11px;
+}
+
+.upstream-list {
+  display: grid;
+  gap: 7px 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.upstream-item {
+  display: grid;
+  gap: 3px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.7);
+  padding-bottom: 7px;
+}
+
+.upstream-item strong {
+  color: #e2e8f0;
+  font-size: 12px;
+}
+
+.upstream-item span {
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stat-tile {
   border: 1px solid rgba(51, 65, 85, 0.9);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.72);
-  padding: 14px 16px;
+  padding: 10px 14px;
 }
 
 .stat-tile span {
@@ -538,31 +689,27 @@ watch(
 
 .stat-tile strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: #f8fafc;
-  font-size: 24px;
+  font-size: 21px;
   font-weight: 800;
 }
 
-.stock-table,
-:deep(.markdown-body table) {
+.stock-table {
   width: 100%;
-  min-width: 880px;
+  min-width: 980px;
   border-collapse: collapse;
 }
 
 .stock-table th,
-.stock-table td,
-:deep(.markdown-body th),
-:deep(.markdown-body td) {
+.stock-table td {
   border-bottom: 1px solid rgba(51, 65, 85, 0.9);
-  padding: 12px;
+  padding: 10px 12px;
   text-align: left;
   vertical-align: top;
 }
 
-.stock-table th,
-:deep(.markdown-body th) {
+.stock-table th {
   background: rgba(51, 65, 85, 0.75);
   color: #e2e8f0;
   font-size: 12px;
@@ -570,75 +717,51 @@ watch(
   white-space: nowrap;
 }
 
-.stock-table td,
-:deep(.markdown-body td) {
+.stock-table td {
   color: #cbd5e1;
   font-size: 13px;
   line-height: 1.55;
 }
 
-:deep(.markdown-body) {
-  color: #cbd5e1;
-  font-size: 14px;
-  line-height: 1.75;
+.recommendation-pill {
+  display: grid;
+  gap: 3px;
+  min-width: 86px;
 }
 
-:deep(.markdown-body h1) {
-  display: none;
-}
-
-:deep(.markdown-body h2) {
-  margin: 28px 0 12px;
+.recommendation-pill strong {
   color: #f8fafc;
-  font-size: 20px;
-  font-weight: 800;
+  font-size: 13px;
+  line-height: 1;
 }
 
-:deep(.markdown-body h2:first-child) {
-  margin-top: 0;
+.recommendation-pill span {
+  color: #facc15;
+  font-size: 12px;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
-:deep(.markdown-body h3) {
-  margin: 22px 0 10px;
-  color: #e2e8f0;
-  font-size: 16px;
+.support-price {
+  color: #f8fafc;
   font-weight: 700;
+  white-space: nowrap;
 }
 
-:deep(.markdown-body p) {
-  margin: 10px 0;
-}
-
-:deep(.markdown-body ul) {
-  margin: 10px 0 18px;
-  padding-left: 20px;
-}
-
-:deep(.markdown-body li) {
-  margin: 8px 0;
-}
-
-:deep(.markdown-body strong) {
-  color: #f8fafc;
-  font-weight: 800;
-}
-
-:deep(.markdown-body blockquote) {
-  margin: 0 0 18px;
-  border-left: 4px solid #34d399;
-  background: rgba(16, 185, 129, 0.08);
-  padding: 12px 14px;
-  color: #d1fae5;
-}
-
-:deep(.markdown-table-wrap) {
-  overflow-x: auto;
-  margin: 14px 0 22px;
+.support-note {
+  min-width: 260px;
 }
 
 @media (max-width: 768px) {
-  .stock-table,
-  :deep(.markdown-body table) {
+  .context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .upstream-list {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-table {
     min-width: 760px;
   }
 }
