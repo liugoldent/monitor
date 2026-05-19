@@ -17,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
 STOCK_LIST_PATH = BASE_DIR / "static" / "twStock.json"
 OUTPUT_DIR = BASE_DIR / "stockTech"
+REPORT_DIR = BASE_DIR.parent / "frontend-vue" / "public" / "institutional"
 ETF_DB_NAME = "Investment"
 ETF_COLLECTIONS = [
     ("etf_00403A", "00403A"),
@@ -68,6 +69,72 @@ def load_stock_list() -> dict[str, dict[str, Any]]:
 
 def normalize_code(value: object) -> str:
     return str(value or "").strip().upper()
+
+
+def parse_markdown_table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.split("|")[1:-1]]
+
+
+def parse_number(value: str) -> int | float | None:
+    normalized = value.replace(",", "").strip()
+    if not normalized:
+        return None
+    try:
+        number = float(normalized)
+    except ValueError:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def get_report_holdings(report_date: str) -> dict[str, dict[str, Any]]:
+    report_path = REPORT_DIR / f"{report_date}.md"
+    if not report_path.exists():
+        raise RuntimeError(f"Report not found: {report_path}")
+
+    lines = report_path.read_text(encoding="utf-8").splitlines()
+    section_start = next(
+        (index for index, line in enumerate(lines) if line.strip() == "## ETF 持有交集"),
+        -1,
+    )
+    if section_start < 0:
+        raise RuntimeError(f"Missing ETF 持有交集 section: {report_path}")
+
+    table_start = next(
+        (
+            index
+            for index in range(section_start + 1, len(lines))
+            if lines[index].strip().startswith("|")
+        ),
+        -1,
+    )
+    if table_start < 0 or table_start + 2 >= len(lines):
+        raise RuntimeError(f"Missing ETF table: {report_path}")
+
+    headers = parse_markdown_table_row(lines[table_start])
+    rows: dict[str, dict[str, Any]] = {}
+    for line in lines[table_start + 2 :]:
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            break
+
+        cells = parse_markdown_table_row(stripped)
+        row = {header: cells[index] if index < len(cells) else "" for index, header in enumerate(headers)}
+        code = normalize_code(row.get("代號"))
+        name = str(row.get("股票") or "").strip()
+        if not code or not name or not code.isdigit():
+            continue
+
+        rows[code] = {
+            "code": code,
+            "name": name,
+            "difference": parse_number(str(row.get("差異") or "")),
+            "holding_etf_count": None,
+            "etfs": [],
+        }
+
+    if not rows:
+        raise RuntimeError(f"No stock rows found in report: {report_path}")
+    return dict(sorted(rows.items()))
 
 
 def get_etf_common_holdings(min_count: int | None = None) -> dict[str, dict[str, Any]]:
@@ -277,9 +344,21 @@ def derive_support(rows: list[dict[str, Any]], technical: dict[str, Any]) -> dic
     }
 
 
-def build_payload(min_count: int | None = None, sleep_seconds: float = 0.35) -> dict[str, Any]:
+def build_payload(
+    min_count: int | None = None,
+    sleep_seconds: float = 0.35,
+    report_date: str | None = None,
+) -> dict[str, Any]:
     stock_list = load_stock_list()
-    holdings = get_etf_common_holdings(min_count=min_count)
+    holdings_source = "Mongo ETF common holdings"
+    try:
+        holdings = get_etf_common_holdings(min_count=min_count)
+    except Exception:
+        if not report_date:
+            raise
+        holdings = get_report_holdings(report_date)
+        holdings_source = f"Report ETF table fallback: {report_date}"
+
     generated_at = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
     threshold = min_count or ETF_COMMON_MIN_COUNT
     items = []
@@ -320,6 +399,7 @@ def build_payload(min_count: int | None = None, sleep_seconds: float = 0.35) -> 
         "date": output_date,
         "generated_at": generated_at,
         "source": "Yahoo Finance chart API",
+        "holdings_source": holdings_source,
         "etf_mode": f"{len(ETF_COLLECTIONS)} ETF 中至少 {threshold} 檔持有",
         "etf_collections": [name for name, _ in ETF_COLLECTIONS],
         "count": len(items),
@@ -331,6 +411,19 @@ def build_payload(min_count: int | None = None, sleep_seconds: float = 0.35) -> 
 def write_payload(payload: dict[str, Any], output_dir: Path = OUTPUT_DIR) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{payload['date']}.json"
+    if output_path.exists() and int(payload.get("count") or 0) == 0:
+        try:
+            existing_payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing_payload = {}
+        if int(existing_payload.get("count") or 0) > 0:
+            payload["_preserved_existing"] = True
+            payload["count"] = existing_payload.get("count", payload.get("count", 0))
+            print(
+                f"Preserved existing non-empty stock tech file after empty fetch: {output_path}"
+            )
+            return output_path
+
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(payload, file, ensure_ascii=False, indent=2)
         file.write("\n")
@@ -342,11 +435,25 @@ def main() -> None:
     parser.add_argument("--min-count", type=int, default=None, help="Minimum ETF holding count.")
     parser.add_argument("--sleep", type=float, default=0.35, help="Seconds to wait between Yahoo requests.")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument(
+        "--output-date",
+        default=None,
+        help="Write the payload to this report date while preserving each quote's own technical.date.",
+    )
+    parser.add_argument(
+        "--report-date",
+        default=None,
+        help="Fallback to frontend institutional report rows when Mongo ETF holdings are unavailable.",
+    )
     args = parser.parse_args()
 
     load_env_file()
     try:
-        payload = build_payload(min_count=args.min_count, sleep_seconds=args.sleep)
+        payload = build_payload(
+            min_count=args.min_count,
+            sleep_seconds=args.sleep,
+            report_date=args.report_date,
+        )
     except Exception as exc:
         now = datetime.now(TZ)
         threshold = args.min_count or ETF_COMMON_MIN_COUNT
@@ -354,14 +461,18 @@ def main() -> None:
             "date": now.strftime("%Y-%m-%d"),
             "generated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
             "source": "Yahoo Finance chart API",
+            "holdings_source": "unavailable",
             "etf_mode": f"{len(ETF_COLLECTIONS)} ETF 中至少 {threshold} 檔持有",
             "etf_collections": [name for name, _ in ETF_COLLECTIONS],
             "count": 0,
             "data": [],
             "errors": [{"error": str(exc)}],
         }
+    if args.output_date:
+        payload["date"] = args.output_date
     output_path = write_payload(payload, args.output_dir)
-    print(f"Saved {payload['count']} stocks to {output_path}")
+    action = "Preserved" if payload.get("_preserved_existing") else "Saved"
+    print(f"{action} {payload['count']} stocks to {output_path}")
     if payload["errors"]:
         print(f"Errors: {len(payload['errors'])}")
 

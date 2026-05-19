@@ -1,7 +1,7 @@
 """Webhook ingestion server.
 
-This module receives webhook payloads, persists candle rows, and runs the H-loss
-guard strategy for the second account.
+This module receives webhook payloads, persists candle rows, and runs the active
+H reverse guard strategy for the second account.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
-from strategy_h_loss_guard import apply_h_loss_guard_strategy
+from strategy_h_reverse_guard_draft import evaluate_h_reverse_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
 
@@ -67,7 +67,7 @@ def _append_webhook_row(path: str, row: list[object]) -> None:
 
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        """Receive webhook data, persist it, and run the H-loss guard."""
+        """Receive webhook data, persist it, and run the H reverse guard."""
         if self.path != "/webhook":
             self.send_error(404, "Not Found")
             return
@@ -133,7 +133,9 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             _append_webhook_row(target_csv, webhook_row)
 
             if timeframe == "1":
-                apply_h_loss_guard_strategy()
+                guard_signal = evaluate_h_reverse_guard()
+                if guard_signal:
+                    print(f"🛡️ H reverse guard signal: {guard_signal}")
 
             print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
             sys.stdout.flush()

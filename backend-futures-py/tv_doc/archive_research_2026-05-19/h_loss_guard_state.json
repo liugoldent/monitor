@@ -5,11 +5,11 @@
   "second_position_quantity": "",
   "second_reference_h_key": "",
   "second_max_favorable_points": "",
-  "last_second_entry_h_key": "",
-  "last_entry_signal_at": "2026-05-15 23:06:58",
+  "last_second_entry_h_key": "2026-05-19 15:01:05|bull|40243.0",
+  "last_entry_signal_at": "2026-05-19 20:27:59",
   "last_add_signal_at": "",
-  "last_exit_signal_at": "2026-05-15 23:33:00",
-  "last_follow_entry_h_key": "2026-05-15 09:33:02|bear|41966.0",
+  "last_exit_signal_at": "2026-05-19 21:37:00",
+  "last_follow_entry_h_key": "2026-05-18 22:36:07|bear|40820.0",
   "second_position_mode": "",
   "note": "Second account starts flat. It can use guard_reverse when H is losing, or profit_follow when H is already profitable and short timeframes confirm."
 }

@@ -59,9 +59,11 @@ LOSS_GUARD_HEADER = [
     "mxf_trend",
 ]
 
-SOFT_LOSS_POINTS = -180.0
-HARD_LOSS_POINTS = -480.0
-INVALIDATION_SCORE = 3
+SOFT_LOSS_POINTS = -220.0
+HARD_LOSS_POINTS = -600.0
+INVALIDATION_SCORE = 4
+HARD_LOSS_MIN_INVALIDATION_SCORE = 2
+MXF_CONFIRM_MIN_INVALIDATION_SCORE = 4
 SECOND_STOP_LOSS_POINTS = -220.0
 SECOND_TAKE_PROFIT_POINTS = 450.0
 SECOND_TRAIL_ARM_POINTS = 220.0
@@ -73,6 +75,7 @@ FOLLOW_PROFIT_ENTRY_POINTS = 240.0
 FOLLOW_CONFIRM_SCORE = 2
 FOLLOW_STOP_LOSS_POINTS = -160.0
 FOLLOW_TAKE_PROFIT_POINTS = 800.0
+PROFIT_FOLLOW_ENABLED = False
 MAX_SECOND_SYNC_QUANTITY = 2
 
 
@@ -184,13 +187,21 @@ def _build_guard_signal(position: dict) -> dict | None:
     mxf_invalid = _is_mxf_invalid(side, mxf)
 
     reasons: list[str] = []
-    if unrealized <= HARD_LOSS_POINTS:
-        reasons.append(f"hard loss cap {HARD_LOSS_POINTS:.0f}pts")
+    if unrealized <= HARD_LOSS_POINTS and (
+        len(invalid_tfs) >= HARD_LOSS_MIN_INVALIDATION_SCORE or mxf_invalid
+    ):
+        reasons.append(
+            f"hard loss cap {HARD_LOSS_POINTS:.0f}pts with confirmation"
+        )
 
     if unrealized <= SOFT_LOSS_POINTS and len(invalid_tfs) >= INVALIDATION_SCORE:
         reasons.append(f"{len(invalid_tfs)} timeframe invalidation: {','.join(invalid_tfs)}")
 
-    if unrealized <= SOFT_LOSS_POINTS and mxf_invalid and len(invalid_tfs) >= 2:
+    if (
+        unrealized <= SOFT_LOSS_POINTS
+        and mxf_invalid
+        and len(invalid_tfs) >= MXF_CONFIRM_MIN_INVALIDATION_SCORE
+    ):
         reasons.append("MXF confirms opposite pressure")
 
     if not reasons:
@@ -571,6 +582,7 @@ def apply_h_loss_guard_strategy() -> None:
             _send_second_entry_signal(h_position, guard_signal, state)
             return
 
-        follow_signal = _build_follow_signal(h_position)
-        if follow_signal:
-            _send_follow_entry_signal(h_position, follow_signal, state)
+        if PROFIT_FOLLOW_ENABLED:
+            follow_signal = _build_follow_signal(h_position)
+            if follow_signal:
+                _send_follow_entry_signal(h_position, follow_signal, state)

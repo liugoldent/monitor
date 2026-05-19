@@ -32,6 +32,8 @@ type ReportOption = {
 }
 
 const markdown = ref('')
+const supportMarkdown = ref('')
+const supportSourceDate = ref('')
 const loading = ref(true)
 const errorMessage = ref('')
 const reports = ref<ReportOption[]>([])
@@ -70,26 +72,50 @@ const supplementalDiffByCode: Record<string, string> = {
   C_NTD: '-24,519,562,997',
 }
 
-const sections = computed<MarkdownSection[]>(() => {
-  const matches = [...markdown.value.matchAll(/^##\s+(.+)$/gm)]
+const parseMarkdownSections = (source: string): MarkdownSection[] => {
+  const matches = [...source.matchAll(/^##\s+(.+)$/gm)]
   return matches.map((match, index) => {
     const next = matches[index + 1]
     const start = (match.index ?? 0) + match[0].length
-    const end = next?.index ?? markdown.value.length
+    const end = next?.index ?? source.length
     return {
       title: match[1] ?? '',
-      body: markdown.value.slice(start, end).trim(),
+      body: source.slice(start, end).trim(),
     }
   })
+}
+
+const findSupportSection = (items: MarkdownSection[]) => {
+  return items.find((item) => /股價支撐$/.test(item.title))
+}
+
+const sections = computed<MarkdownSection[]>(() => {
+  return parseMarkdownSections(markdown.value)
+})
+
+const supportSections = computed<MarkdownSection[]>(() => {
+  return parseMarkdownSections(supportMarkdown.value)
+})
+
+const activeSupportSection = computed(() => {
+  return findSupportSection(sections.value) ?? findSupportSection(supportSections.value)
+})
+
+const supportSourceLabel = computed(() => {
+  if (!activeSupportSection.value) return '由 ETF 持有交集自動整理；尚無股價支撐表格'
+  const fallbackLabel =
+    supportSourceDate.value && supportSourceDate.value !== selectedDate.value
+      ? `（沿用 ${supportSourceDate.value}）`
+      : ''
+  return `由 ETF 持有交集與 ${activeSupportSection.value.title} 自動整理${fallbackLabel}`
 })
 
 const stockRows = computed<StockRow[]>(() => {
   const section = sections.value.find((item) => item.title === 'ETF 持有交集')
   if (!section) return []
 
-  const supportSection = sections.value.find((item) => item.title === '5/15 股價支撐')
   const supportRows =
-    supportSection?.body
+    activeSupportSection.value?.body
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.startsWith('|'))
@@ -344,16 +370,45 @@ const fetchReports = async () => {
   reports.value = Array.isArray(payload) ? payload : []
 }
 
+const fetchSupportReport = async () => {
+  supportMarkdown.value = ''
+  supportSourceDate.value = ''
+
+  if (findSupportSection(sections.value)) {
+    supportSourceDate.value = selectedDate.value
+    return
+  }
+
+  const candidates = reports.value
+    .filter((report) => report.date !== selectedDate.value && report.date <= selectedDate.value)
+    .sort((a, b) => b.date.localeCompare(a.date))
+
+  for (const report of candidates) {
+    const response = await fetch(`/institutional/${report.file}?t=${Date.now()}`)
+    if (!response.ok) continue
+
+    const source = await response.text()
+    if (findSupportSection(parseMarkdownSections(source))) {
+      supportMarkdown.value = source
+      supportSourceDate.value = report.date
+      return
+    }
+  }
+}
+
 const fetchReport = async () => {
   if (!markdownUrl.value) return
 
   loading.value = true
   errorMessage.value = ''
+  supportMarkdown.value = ''
+  supportSourceDate.value = ''
 
   try {
     const response = await fetch(`${markdownUrl.value}?t=${Date.now()}`)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     markdown.value = await response.text()
+    await fetchSupportReport()
   } catch (error) {
     console.error(error)
     errorMessage.value = '讀取法人操作 markdown 失敗'
@@ -514,7 +569,7 @@ watch(
         <section class="panel">
           <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <h2>加碼檢查表</h2>
-            <span class="text-xs text-slate-400">由 ETF 持有交集與 5/15 股價支撐表格自動整理</span>
+            <span class="text-xs text-slate-400">{{ supportSourceLabel }}</span>
           </div>
 
           <div class="mt-4 overflow-x-auto">

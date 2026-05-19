@@ -1,3 +1,0 @@
-timestamp,signal,side,entry_price,close,unrealized_points,reason,tf_score,mxf_signal,mxf_trend
-2026-05-15 23:06:58,follow_entry,bear,40706.0,40706.0,0.0,"profit follow H1 +1260.0pts, confirm 3/3",3,bear,death
-2026-05-15 23:33:00,exit,bear,40706.0,40868.0,-162.0,profit-follow stop loss -160pts,0,none,gold

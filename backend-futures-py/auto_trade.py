@@ -38,6 +38,7 @@ POSITION_SIZE_STATE_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_posit
 POINT_VALUE = 10
 ADD_POSITION_DRAWDOWN_POINTS = 1750
 EXIT_ADD_POSITION_DRAWDOWN_POINTS = 1000
+ADD_POSITION_LOSS_STREAK = 4
 BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
 
@@ -134,6 +135,7 @@ def _sync_virtual_position_for_signal(signal_side: str, close_price: float | Non
 
     pnl = _get_exit_pnl(virtual_side, close_price, virtual_entry_price)
     _append_trade("exiting", virtual_side, close_price, pnl, quantity=BASE_ENTRY_QUANTITY)
+    _sync_current_drawdown_state()
 
 
 def _iter_trade_rows_after_start() -> list[list[str]]:
@@ -187,6 +189,19 @@ def _get_all_exiting_pnls() -> list[float]:
     return pnls
 
 
+def _get_consecutive_loss_count(pnls: list[float] | None = None) -> int:
+    if pnls is None:
+        pnls = _get_all_exiting_pnls()
+
+    loss_count = 0
+    for pnl in reversed(pnls):
+        if pnl < 0:
+            loss_count += 1
+            continue
+        break
+    return loss_count
+
+
 def _get_current_drawdown_pnl() -> float:
     pnls = _get_all_exiting_pnls()
 
@@ -197,6 +212,23 @@ def _get_current_drawdown_pnl() -> float:
         equity += pnl
         peak_equity = max(peak_equity, equity)
     return peak_equity - equity
+
+
+def _sync_current_drawdown_state(
+    current_drawdown_pnl: float | None = None,
+    consecutive_loss_count: int | None = None,
+) -> None:
+    if current_drawdown_pnl is None:
+        current_drawdown_pnl = _get_current_drawdown_pnl()
+    if consecutive_loss_count is None:
+        consecutive_loss_count = _get_consecutive_loss_count()
+
+    state = _load_position_size_state()
+    state["current_drawdown_points"] = round(current_drawdown_pnl / POINT_VALUE, 2)
+    state["current_drawdown_pnl"] = round(current_drawdown_pnl, 2)
+    state["consecutive_loss_count"] = consecutive_loss_count
+    state["current_drawdown_calculated_at"] = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
+    _save_position_size_state(state)
 
 
 def _is_add_position_active() -> bool:
@@ -210,7 +242,19 @@ def _set_add_position_active(active: bool) -> None:
 
 
 def _get_entry_quantity() -> int:
+    pnls = _get_all_exiting_pnls()
     current_drawdown_pnl = _get_current_drawdown_pnl()
+    consecutive_loss_count = _get_consecutive_loss_count(pnls)
+    _sync_current_drawdown_state(current_drawdown_pnl, consecutive_loss_count)
+
+    should_start_or_keep_add_position = (
+        current_drawdown_pnl > ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE
+        or consecutive_loss_count >= ADD_POSITION_LOSS_STREAK
+    )
+    if should_start_or_keep_add_position:
+        _set_add_position_active(True)
+        return ADD_POSITION_ENTRY_QUANTITY
+
     if current_drawdown_pnl <= 0:
         _set_add_position_active(False)
         return BASE_ENTRY_QUANTITY
@@ -220,10 +264,6 @@ def _get_entry_quantity() -> int:
         return BASE_ENTRY_QUANTITY
 
     if _is_add_position_active():
-        return ADD_POSITION_ENTRY_QUANTITY
-
-    if current_drawdown_pnl >= ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        _set_add_position_active(True)
         return ADD_POSITION_ENTRY_QUANTITY
 
     return BASE_ENTRY_QUANTITY
@@ -359,6 +399,7 @@ def auto_trade(type):
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             _set_virtual_position("bull", entry_price)
+            _sync_current_drawdown_state()
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull，口數 {entry_qty}')
 
         if type == 'bear':
@@ -366,6 +407,7 @@ def auto_trade(type):
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             _set_virtual_position("bear", entry_price)
+            _sync_current_drawdown_state()
             send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear，口數 {entry_qty}')
 
         api.logout()
@@ -393,12 +435,14 @@ def closePosition(api, exit_price: float | None = None) -> bool:
                 sellOne(api, contract, pos_qty)
                 pnl = _get_exit_pnl("bull", exit_price, last_entry[1]) if last_entry else None
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
+                _sync_current_drawdown_state()
                 send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟空單平倉')
                 return True
             if pos['direction'] == 'Sell':
                 buyOne(api, contract, pos_qty)
                 pnl = _get_exit_pnl("bear", exit_price, last_entry[1]) if last_entry else None
                 _append_trade("exiting", "bear", exit_price, pnl, quantity=pos_qty)
+                _sync_current_drawdown_state()
                 send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟多單平倉')
                 return True
         else:

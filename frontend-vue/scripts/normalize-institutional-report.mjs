@@ -125,7 +125,6 @@ const normalizeEtfSection = (section, techByCode) => {
   const normalizedRows = rowLines
     .map((line) => buildRowMap(originalHeaders, parseTableRow(line)))
     .filter((row) => row.code && row.name)
-    .filter((row) => techByCode.size === 0 || techByCode.has(row.code))
     .map((row) => {
       const techItem = techByCode.get(row.code)
       const tech = techItem?.technical ?? techItem?.technical_reference
@@ -136,38 +135,37 @@ const normalizeEtfSection = (section, techByCode) => {
       }
     })
 
-  const rowCodes = new Set(normalizedRows.map((row) => row.code))
-  const supplementalRows = [...techByCode.values()]
-    .filter((item) => !rowCodes.has(String(item.code)))
-    .filter((item) => item.support || item.technical?.support)
-    .map((item) => {
-      const code = String(item.code ?? '')
-      const name = String(item.name ?? '')
-      const diff = formatSignedNumber(item.difference)
-      const support = item.support ?? item.technical?.support
-      const interpretation = support?.note ? `支撐補充：${support.note}` : '支撐補充'
-      const tech = item.technical ?? item.technical_reference
-      const position = classifyPosition(tech, diff)
-      return {
-        code,
-        line: `| ${[code, name, diff, '', interpretation, position].join(' | ')} |`,
-      }
-    })
-
   const normalizedTable = [
     `| ${tableHeaders.join(' | ')} |`,
     '| --- | --- | ---: | --- | --- | --- |',
     ...normalizedRows.map((row) => row.line),
-    ...supplementalRows.map((row) => row.line),
   ]
 
   return lines
     .map((line) =>
-      line.startsWith('股票數：') ? `股票數：${normalizedRows.length + supplementalRows.length}` : line,
+      line.startsWith('股票數：') ? `股票數：${normalizedRows.length}` : line,
     )
     .slice(0, tableStart)
     .concat(normalizedTable, lines.slice(tableEnd))
     .join('\n')
+}
+
+const collectEtfCodes = (markdown) => {
+  const sectionMatch = markdown.match(/## ETF 持有交集[\s\S]*?(?=\n## |\n?$)/)
+  if (!sectionMatch) return new Set()
+
+  const lines = sectionMatch[0].split('\n')
+  const tableStart = lines.findIndex((line) => line.trim().startsWith('|'))
+  if (tableStart < 0 || tableStart + 2 >= lines.length) return new Set()
+
+  const headers = parseTableRow(lines[tableStart])
+  const codes = new Set()
+  for (const line of lines.slice(tableStart + 2)) {
+    if (!line.trim().startsWith('|')) break
+    const row = buildRowMap(headers, parseTableRow(line))
+    if (row.code && row.name) codes.add(row.code)
+  }
+  return codes
 }
 
 const normalizeMovingAverageSection = (markdown, date) => {
@@ -183,49 +181,42 @@ const normalizeMovingAverageSection = (markdown, date) => {
 - 收盤價低於所有均線：先看成弱勢修復，不因單日 ETF 買超就重押。
 - 法人減碼且低於 MA20：除非有基本面或籌碼反轉，先放在風險觀察。`
 
-  if (/## 均線位階判讀[\s\S]*?## 明天要補的資料/.test(markdown)) {
-    return markdown.replace(/## 均線位階判讀[\s\S]*?## 明天要補的資料[\s\S]*?(?=\n## |\n?$)/, replacement)
-  }
   if (/## 均線位階判讀[\s\S]*?(?=\n## |\n?$)/.test(markdown)) {
     return markdown.replace(/## 均線位階判讀[\s\S]*?(?=\n## |\n?$)/, replacement)
   }
   return `${markdown.trim()}\n\n${replacement}\n`
 }
 
-const normalizeSupportSection = (markdown, stockTech, date) => {
+const normalizeSupportSection = (markdown, date, stockTech, reportCodes) => {
   const items = Array.isArray(stockTech.data) ? stockTech.data : []
-  const rows = items
+  const supportRows = items
+    .filter((item) => reportCodes.size === 0 || reportCodes.has(String(item?.code ?? '')))
+    .filter((item) => item?.code && item?.name && item?.technical?.support)
     .map((item) => {
-      const support = item.support ?? item.technical?.support
-      if (!support) return null
-      return `| ${[
-        item.code ?? '',
-        item.name ?? '',
-        support.near ?? '',
-        support.next ?? '',
-        support.note ?? '',
-      ].join(' | ')} |`
+      const support = item.technical.support
+      const technical = item.technical
+      const note = [
+        `收盤 ${formatNumber(technical.close)}`,
+        `MA5 ${formatNumber(technical.ma5)} / MA10 ${formatNumber(technical.ma10)} / MA20 ${formatNumber(technical.ma20)} / MA60 ${formatNumber(technical.ma60)}`,
+      ].join('；')
+      return `| ${[item.code, item.name, support.near ?? '', support.next ?? '', note].join(' | ')} |`
     })
-    .filter(Boolean)
 
-  if (rows.length === 0) {
-    return markdown.replace(/\n## \d{1,2}\/\d{1,2} 股價支撐[\s\S]*?(?=\n## |\n?$)/, '')
-  }
+  if (supportRows.length === 0) return markdown
 
-  const [year, month, day] = date.split('-')
-  const title = `${Number(month)}/${Number(day)} 股價支撐`
-  const replacement = `## ${title}
+  const supportDate = items.find((item) => item?.technical?.date)?.technical?.date ?? date
+  const replacement = `## ${supportDate} 股價支撐
 
-> 支撐是日線區間，不是精準買賣價；日線收破區間下緣，視為該層失守。
+> 股價資料直接由 Yahoo Finance chart API 回補到 Markdown，未寫入 Mongo；以下補齊本報告 ETF 持有交集表格中已成功取得報價的 ${supportRows.length} 檔股票。
 
 | 代號 | 股票 | 近期支撐 | 下一層支撐 | 備註 |
 | --- | --- | --- | --- | --- |
-${rows.join('\n')}`
+${supportRows.join('\n')}`
 
-  if (/\n## \d{1,2}\/\d{1,2} 股價支撐[\s\S]*?(?=\n## |\n?$)/.test(markdown)) {
-    return markdown.replace(/\n## \d{1,2}\/\d{1,2} 股價支撐[\s\S]*?(?=\n## |\n?$)/, `\n${replacement}`)
+  if (/## .+股價支撐[\s\S]*?(?=\n## |\n?$)/.test(markdown)) {
+    return markdown.replace(/## .+股價支撐[\s\S]*?(?=\n## |\n?$)/, replacement)
   }
-  return `${markdown.trim()}\n\n${replacement}`
+  return `${markdown.trim()}\n\n${replacement}\n`
 }
 
 const buildInitialReport = (date, stockTech) => {
@@ -281,15 +272,20 @@ const normalizeReport = () => {
   const sectionMatch = markdown.match(/## ETF 持有交集[\s\S]*?(?=\n## |\n?$)/)
   if (!sectionMatch) throw new Error('Missing ETF 持有交集 section')
 
+  const reportCodes = collectEtfCodes(markdown)
   let output = markdown.replace(sectionMatch[0], normalizeEtfSection(sectionMatch[0], techByCode))
   output = normalizeMovingAverageSection(output, date)
-  output = normalizeSupportSection(output, stockTech, date)
+  output = normalizeSupportSection(output, date, stockTech, reportCodes)
   output = output.replace(/- 每檔最新收盤價。\n- 5 日、10 日、20 日、60 日均線位階。\n/g, '')
-  output = output.replace(/\n## 明天要補的資料[\s\S]*?(?=\n## |\n?$)/, '')
 
   fs.writeFileSync(reportPath, `${output.trim()}\n`)
   console.log(`Normalized ${reportPath}`)
+  console.log(`ETF report rows: ${reportCodes.size}`)
   console.log(`Stock tech rows: ${techByCode.size}`)
+  const missingCodes = [...reportCodes].filter((code) => !techByCode.has(code))
+  if (missingCodes.length > 0) {
+    console.warn(`Missing stock tech rows: ${missingCodes.join(', ')}`)
+  }
 }
 
 normalizeReport()
