@@ -44,6 +44,16 @@ class Params:
     min_remaining_minutes: int
 
 
+PRACTICAL_PARAMS = Params(
+    min_h_loss=0.0,
+    avg_threshold=1200.0,
+    stop_threshold=0.0,
+    min_tf_invalid=0,
+    require_mxf_signal=True,
+    min_remaining_minutes=0,
+)
+
+
 def parse_dt(value: str) -> datetime:
     return datetime.strptime(value.strip(), "%Y-%m-%d %H:%M:%S")
 
@@ -388,6 +398,14 @@ def fmt_params(params: Params) -> str:
     )
 
 
+def fmt_trade_effects(trades: list[dict[str, Any]]) -> str:
+    effects = [
+        f"{float(trade['h_points']):,.0f} to {float(trade['combined_points']):,.0f}"
+        for trade in trades
+    ]
+    return ", ".join(effects) if effects else "none"
+
+
 def write_report(results: list[dict[str, Any]], intervals: list[dict[str, Any]], mxf_rows: list[dict[str, Any]]) -> None:
     h_summary = summary([float(row["h_points"]) for row in intervals])
     top = results[:12]
@@ -400,6 +418,9 @@ def write_report(results: list[dict[str, Any]], intervals: list[dict[str, Any]],
         for index, item in enumerate(top)
     )
     best = results[0]
+    practical = run_params(intervals, mxf_rows, PRACTICAL_PARAMS)
+    practical_combined = summary([float(row["combined_points"]) for row in practical["intervals"]])
+    practical_guard = summary([float(row["guard_points"]) for row in practical["intervals"]])
     trade_rows = "\n".join(
         (
             f"| {trade['h_entry_time']:%m-%d %H:%M} | {trade['h_exit_time']:%m-%d %H:%M} | "
@@ -407,7 +428,7 @@ def write_report(results: list[dict[str, Any]], intervals: list[dict[str, Any]],
             f"{trade['hedge_side']} | {trade['entry_time']:%m-%d %H:%M} | {trade['exit_time']:%m-%d %H:%M} | "
             f"{float(trade['guard_points']):,.0f} | {float(trade['combined_points']):,.0f} | {trade['reason']} |"
         )
-        for trade in best["run"]["trades"]
+        for trade in practical["trades"]
     )
     report = f"""# H Reverse Guard Optimizer Research
 
@@ -439,20 +460,21 @@ not modified.
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
 {rows}
 
-## Best Trade Details
+## Best Optimizer Params
 
 Best params: `{fmt_params(best['params'])}`
 
 ## Practical Draft Choice
 
 For a live guard, prefer the stricter draft version in
-`strategy_h_reverse_guard_draft.py`: H must already be losing,
+`strategy_h_reverse_guard_draft.py`: H must be at breakeven or already losing,
 `abs(mtx_bvav_avg)` >= 1,200 against H, and `signal/trend` must confirm the
 reverse direction. This is the high-win-rate choice, not the most aggressive
-choice: it triggered 3 hedge trades in the current sample, all 3 hedge trades
-were winners, and the hedge added +577 points while reducing responsive H losses
-from -577 to -465, -330 to -125, and -277 to -17. It still cannot protect
-same-minute reversals where there is no time for any guard to enter.
+choice: it triggered {len(practical['trades'])} hedge trades in the current
+sample, hedge points were {practical_guard['points']:,}, and combined points
+were {practical_combined['points']:,}. Responsive H outcomes changed:
+{fmt_trade_effects(practical['trades'])}. It still cannot protect same-minute
+reversals where there is no time for any guard to enter.
 
 | H Entry | H Exit | H Side | H Points | Hedge | Hedge Entry | Hedge Exit | Guard Points | Combined | Reason |
 | --- | --- | --- | ---: | --- | --- | --- | ---: | ---: | --- |

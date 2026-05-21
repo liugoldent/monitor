@@ -1,1 +1,5 @@
 timestamp,action,side,entry_price,close,h_side,h_entry_price,h_unrealized_points,mtx_bvav_avg,mxf_signal,mxf_trend,tf_score,reason
+2026-05-20 11:29:01,enter,bear,40101.0,40101.0,bull,40275.0,-174.0,-1201.0,bear,death,4,H losing and MXF avg/signal confirms reverse pressure
+2026-05-20 15:02:00,exit,bear,40101.0,40262.0,bear,40248.0,-14.0,-917.0,bear,gold,0,H position ended/changed
+2026-05-20 17:49:59,enter,bull,40582.0,40582.0,bear,40248.0,-334.0,1115.0,bull,gold,1,H losing and mtx_bvav/signal confirms reverse pressure
+2026-05-20 21:46:58,exit,bull,40582.0,40770.0,bear,40248.0,-522.0,1467.0,bull,gold,1,guard reached 160 points

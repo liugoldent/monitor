@@ -36,11 +36,13 @@ TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 POSITION_SIZE_STATE_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_position_size_state.json"
 POINT_VALUE = 10
-ADD_POSITION_DRAWDOWN_POINTS = 1750
-EXIT_ADD_POSITION_DRAWDOWN_POINTS = 1000
+ADD_POSITION_DRAWDOWN_POINTS = 1000
+MAX_POSITION_DRAWDOWN_POINTS = 2000
+EXIT_ADD_POSITION_DRAWDOWN_POINTS = 0
 ADD_POSITION_LOSS_STREAK = 4
 BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
+MAX_POSITION_ENTRY_QUANTITY = 3
 
 
 def _ensure_trade_log() -> None:
@@ -247,23 +249,20 @@ def _get_entry_quantity() -> int:
     consecutive_loss_count = _get_consecutive_loss_count(pnls)
     _sync_current_drawdown_state(current_drawdown_pnl, consecutive_loss_count)
 
-    should_start_or_keep_add_position = (
-        current_drawdown_pnl > ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE
-        or consecutive_loss_count >= ADD_POSITION_LOSS_STREAK
-    )
-    if should_start_or_keep_add_position:
-        _set_add_position_active(True)
-        return ADD_POSITION_ENTRY_QUANTITY
-
     if current_drawdown_pnl <= 0:
         _set_add_position_active(False)
         return BASE_ENTRY_QUANTITY
 
-    if current_drawdown_pnl < EXIT_ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        _set_add_position_active(False)
-        return BASE_ENTRY_QUANTITY
+    if current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
+        _set_add_position_active(True)
+        return MAX_POSITION_ENTRY_QUANTITY
 
-    if _is_add_position_active():
+    should_start_add_position = (
+        current_drawdown_pnl >= ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE
+        or consecutive_loss_count >= ADD_POSITION_LOSS_STREAK
+    )
+    if should_start_add_position or _is_add_position_active():
+        _set_add_position_active(True)
         return ADD_POSITION_ENTRY_QUANTITY
 
     return BASE_ENTRY_QUANTITY
@@ -308,7 +307,8 @@ def _get_current_position_side(api) -> str | None:
         return None
 
     pos = positions[0]
-    direction = str(getattr(pos, "direction", "")).strip().lower()
+    direction = pos['direction'] 
+    
     if direction == "buy":
         return "bull"
     if direction == "sell":

@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import RLock
 
-from strategy_common import now_str, to_float
+from strategy_common import build_shortcycle_send_discord_message, now_str, to_float
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -28,9 +28,12 @@ WEBHOOK_CSV_BY_TF = {
 }
 STATE_PATH = TV_DOC_DIR / "h_reverse_guard_state.json"
 ALERT_PATH = TV_DOC_DIR / "h_reverse_guard_alert.csv"
+send_reverse_guard_message = build_shortcycle_send_discord_message(str(MXF_VALUE_CSV_PATH))
 
-MIN_H_LOSS_POINTS = 0.0
-MTX_AVG_THRESHOLD = 1200.0
+MIN_H_LOSS_POINTS = 100.0
+FLOW_CONFIRM_THRESHOLD = 150.0
+TAKE_PROFIT_POINTS = 160.0
+MTX_BVAV_STOP_THRESHOLD = 0.0
 STOP_AVG_THRESHOLD = 0.0
 REQUIRE_MXF_SIGNAL = True
 MIN_TF_INVALID_SCORE = 0
@@ -74,6 +77,38 @@ def _append_alert(row: list[object]) -> None:
         if not exists:
             writer.writerow(ALERT_HEADER)
         writer.writerow(row)
+
+
+def _side_text(side: str) -> str:
+    if side == "bull":
+        return "多單"
+    if side == "bear":
+        return "空單"
+    return side
+
+
+def _send_guard_message(
+    signal: dict,
+    *,
+    h_side: str,
+    h_entry: float,
+    h_unrealized: float,
+    mtx_bvav: float | None,
+    avg: float | None,
+    tf_score: int,
+) -> None:
+    action = str(signal.get("action") or "")
+    guard_side = str(signal.get("side") or "")
+    close = signal.get("entry_price", signal.get("close", ""))
+    action_text = "進場" if action == "enter" else "出場"
+    message = (
+        f"H 反向護欄{action_text}：{_side_text(guard_side)}，"
+        f"價格={close}，H方向={_side_text(h_side)}，H進場={h_entry}，"
+        f"H浮動={h_unrealized:.1f}點，mtx_bvav={mtx_bvav if mtx_bvav is not None else '-'}，"
+        f"mtx_bvav_avg={avg if avg is not None else '-'}，"
+        f"tf_score={tf_score}，原因={signal.get('reason', '')}"
+    )
+    send_reverse_guard_message(message)
 
 
 def _latest_csv_row(path: Path) -> dict[str, str] | None:
@@ -131,28 +166,52 @@ def _is_tf_invalid(h_side: str, row: dict | None) -> bool:
     return ma_p200 is not None and close > ma_p200 and bbr > 0.55
 
 
+def _pressure_against_h(h_side: str, value: float | None) -> float | None:
+    if value is None:
+        return None
+    return -value if h_side == "bull" else value
+
+
 def _mxf_opposes_h(h_side: str, mxf: dict) -> bool:
+    tx_bvav = to_float(mxf.get("tx_bvav"))
+    mtx_bvav = to_float(mxf.get("mtx_bvav"))
     avg = to_float(mxf.get("mtx_bvav_avg"))
     signal = str(mxf.get("signal") or "").strip().lower()
     trend = str(mxf.get("trend") or "").strip().lower()
-    if avg is None:
+    pressures = [
+        _pressure_against_h(h_side, tx_bvav),
+        _pressure_against_h(h_side, mtx_bvav),
+        _pressure_against_h(h_side, avg),
+    ]
+    if any(pressure is None for pressure in pressures):
         return False
     if h_side == "bull":
-        avg_ok = avg <= -MTX_AVG_THRESHOLD
         signal_ok = signal == "bear" and trend == "death"
     else:
-        avg_ok = avg >= MTX_AVG_THRESHOLD
         signal_ok = signal == "bull" and trend == "gold"
-    return avg_ok and (signal_ok if REQUIRE_MXF_SIGNAL else True)
+    flow_ok = all(float(pressure) >= FLOW_CONFIRM_THRESHOLD for pressure in pressures)
+    return flow_ok and (signal_ok if REQUIRE_MXF_SIGNAL else True)
 
 
-def _stop_hit(guard_side: str, mxf: dict) -> bool:
+def _guard_points(guard_side: str, entry_price: float, close_price: float) -> float:
+    if guard_side == "bull":
+        return close_price - entry_price
+    return entry_price - close_price
+
+
+def _stop_hit(h_side: str, guard_side: str, entry_price: float | None, close_price: float, mxf: dict) -> tuple[bool, str]:
+    if entry_price is not None and _guard_points(guard_side, entry_price, close_price) >= TAKE_PROFIT_POINTS:
+        return True, f"guard reached {TAKE_PROFIT_POINTS:g} points"
+
+    mtx_bvav = to_float(mxf.get("mtx_bvav"))
     avg = to_float(mxf.get("mtx_bvav_avg"))
-    if avg is None:
-        return False
-    if guard_side == "bear":
-        return avg >= STOP_AVG_THRESHOLD
-    return avg <= -STOP_AVG_THRESHOLD
+    mtx_pressure = _pressure_against_h(h_side, mtx_bvav)
+    avg_pressure = _pressure_against_h(h_side, avg)
+    if mtx_pressure is not None and mtx_pressure <= MTX_BVAV_STOP_THRESHOLD:
+        return True, "mtx_bvav pressure reverted"
+    if avg_pressure is not None and avg_pressure <= STOP_AVG_THRESHOLD:
+        return True, "mtx_bvav_avg pressure reverted"
+    return False, ""
 
 
 def evaluate_h_reverse_guard() -> dict | None:
@@ -174,6 +233,7 @@ def evaluate_h_reverse_guard() -> dict | None:
         h_unrealized = _unrealized_points(h_side, h_entry, close)
         state = _read_state()
         active = state.get("active_guard")
+        mtx_bvav = to_float(mxf.get("mtx_bvav"))
         avg = to_float(mxf.get("mtx_bvav_avg"))
         tf_rows = {tf: _latest_csv_row(path) for tf, path in WEBHOOK_CSV_BY_TF.items()}
         tf_score = sum(1 for row in tf_rows.values() if _is_tf_invalid(h_side, row))
@@ -181,8 +241,10 @@ def evaluate_h_reverse_guard() -> dict | None:
         if active:
             guard_side = str(active.get("side") or "")
             h_key_changed = active.get("h_position_timestamp") != position.get("timestamp")
-            if h_key_changed or _stop_hit(guard_side, mxf):
-                reason = "H position ended/changed" if h_key_changed else "mtx_bvav_avg reverted"
+            guard_entry = to_float(active.get("entry_price"))
+            stop_hit, stop_reason = _stop_hit(h_side, guard_side, guard_entry, close, mxf)
+            if h_key_changed or stop_hit:
+                reason = "H position ended/changed" if h_key_changed else stop_reason
                 signal = {
                     "action": "exit",
                     "side": guard_side,
@@ -206,10 +268,19 @@ def evaluate_h_reverse_guard() -> dict | None:
                     tf_score,
                     reason,
                 ])
+                _send_guard_message(
+                    signal,
+                    h_side=h_side,
+                    h_entry=h_entry,
+                    h_unrealized=h_unrealized,
+                    mtx_bvav=mtx_bvav,
+                    avg=avg,
+                    tf_score=tf_score,
+                )
                 return signal
             return None
 
-        if h_unrealized > MIN_H_LOSS_POINTS:
+        if h_unrealized > -MIN_H_LOSS_POINTS:
             return None
         if tf_score < MIN_TF_INVALID_SCORE:
             return None
@@ -217,7 +288,7 @@ def evaluate_h_reverse_guard() -> dict | None:
             return None
 
         guard_side = _reverse_side(h_side)
-        reason = "H losing and MXF avg/signal confirms reverse pressure"
+        reason = "H losing and mtx_bvav/signal confirms reverse pressure"
         state["active_guard"] = {
             "side": guard_side,
             "entry_price": close,
@@ -240,12 +311,22 @@ def evaluate_h_reverse_guard() -> dict | None:
             tf_score,
             reason,
         ])
-        return {
+        signal = {
             "action": "enter",
             "side": guard_side,
             "entry_price": close,
             "reason": reason,
         }
+        _send_guard_message(
+            signal,
+            h_side=h_side,
+            h_entry=h_entry,
+            h_unrealized=h_unrealized,
+            mtx_bvav=mtx_bvav,
+            avg=avg,
+            tf_score=tf_score,
+        )
+        return signal
 
 
 if __name__ == "__main__":

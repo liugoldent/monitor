@@ -81,11 +81,11 @@ def auto_trade(type):
         time.sleep(1)  # 確保下單間有短暫間隔
         
         # 平倉後進新倉
-        # if type == 'bull':
-        #     buyOne(api, contract, quantity=entry_qty)
+        if type == 'bull':
+            buyOne(api, contract, quantity=entry_qty)
 
-        # if type == 'bear':
-        #     sellOne(api, contract, quantity=entry_qty)
+        if type == 'bear':
+            sellOne(api, contract, quantity=entry_qty)
 
         api.logout()
         print('送單完成')

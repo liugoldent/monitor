@@ -20,6 +20,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
+from strategy_h_open_turn_guard_draft import evaluate_h_open_turn_guard
 from strategy_h_reverse_guard_draft import evaluate_h_reverse_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
@@ -136,6 +137,9 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                 guard_signal = evaluate_h_reverse_guard()
                 if guard_signal:
                     print(f"🛡️ H reverse guard signal: {guard_signal}")
+                open_turn_signal = evaluate_h_open_turn_guard()
+                if open_turn_signal:
+                    print(f"⚠️ H open turn guard signal: {open_turn_signal}")
 
             print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
             sys.stdout.flush()

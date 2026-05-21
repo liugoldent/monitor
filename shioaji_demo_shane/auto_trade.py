@@ -45,7 +45,8 @@ def _get_current_position_side(api) -> str | None:
         return None
 
     pos = positions[0]
-    direction = str(getattr(pos, "direction", "")).strip().lower()
+    direction = pos['direction']
+    
     if direction == "buy":
         return "bull"
     if direction == "sell":

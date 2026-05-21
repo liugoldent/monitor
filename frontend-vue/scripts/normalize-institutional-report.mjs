@@ -29,6 +29,41 @@ const readJson = (filePath, fallback) => {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'))
 }
 
+const hasStockTechRows = (stockTech) =>
+  Array.isArray(stockTech?.data) && stockTech.data.length > 0
+
+const resolveStockTech = (date) => {
+  const stockTechPath = path.join(stockTechDir, `${date}.json`)
+  const stockTech = readJson(stockTechPath, { data: [] })
+  if (hasStockTechRows(stockTech)) {
+    return { stockTech, stockTechDate: date, stockTechPath, isFallback: false }
+  }
+
+  const fallbackFile = fs
+    .readdirSync(stockTechDir)
+    .filter((file) => /^\d{4}-\d{2}-\d{2}\.json$/.test(file))
+    .map((file) => file.replace(/\.json$/, ''))
+    .filter((candidateDate) => candidateDate < date)
+    .sort()
+    .reverse()
+    .find((candidateDate) => {
+      const candidate = readJson(path.join(stockTechDir, `${candidateDate}.json`), { data: [] })
+      return hasStockTechRows(candidate)
+    })
+
+  if (!fallbackFile) {
+    return { stockTech, stockTechDate: date, stockTechPath, isFallback: false }
+  }
+
+  const fallbackPath = path.join(stockTechDir, `${fallbackFile}.json`)
+  return {
+    stockTech: readJson(fallbackPath, { data: [] }),
+    stockTechDate: fallbackFile,
+    stockTechPath: fallbackPath,
+    isFallback: true,
+  }
+}
+
 const resolveReportDate = () => {
   if (dateArg) return dateArg
   const reports = readJson(reportsPath, [])
@@ -168,10 +203,10 @@ const collectEtfCodes = (markdown) => {
   return codes
 }
 
-const normalizeMovingAverageSection = (markdown, date) => {
+const normalizeMovingAverageSection = (markdown, stockTechDate) => {
   const replacement = `## 均線位階判讀
 
-均線資料已由 \`backend-futures-py/stockTech/${date}.json\` 回填到上方 ETF 持有交集表格。
+均線資料已由 \`backend-futures-py/stockTech/${stockTechDate}.json\` 回填到上方 ETF 持有交集表格。
 
 判讀方式：
 
@@ -185,6 +220,22 @@ const normalizeMovingAverageSection = (markdown, date) => {
     return markdown.replace(/## 均線位階判讀[\s\S]*?(?=\n## |\n?$)/, replacement)
   }
   return `${markdown.trim()}\n\n${replacement}\n`
+}
+
+const normalizeTechnicalStatus = (markdown, reportDate, stockTechDate, isFallback) => {
+  const sourceText = isFallback
+    ? `當日 \`backend-futures-py/stockTech/${reportDate}.json\` 無可用資料，已沿用 \`backend-futures-py/stockTech/${stockTechDate}.json\` 回填均線/位階與股價支撐。`
+    : `均線/位階與股價支撐由 \`backend-futures-py/stockTech/${stockTechDate}.json\` 回填。`
+
+  const replacement = `- 技術資料狀態：${sourceText}`
+  if (/- 技術資料狀態：.*(?:\n|$)/.test(markdown)) {
+    return markdown.replace(/- 技術資料狀態：.*(?:\n|$)/, `${replacement}\n`)
+  }
+
+  return markdown.replace(
+    /(## 今日結論\n\n)/,
+    `$1${replacement}\n`,
+  )
 }
 
 const normalizeSupportSection = (markdown, date, stockTech, reportCodes) => {
@@ -258,8 +309,7 @@ const normalizeReport = () => {
   if (!date) throw new Error('Unable to resolve report date')
 
   const reportPath = path.join(reportDir, `${date}.md`)
-  const stockTechPath = path.join(stockTechDir, `${date}.json`)
-  const stockTech = readJson(stockTechPath, { data: [] })
+  const { stockTech, stockTechDate, stockTechPath, isFallback } = resolveStockTech(date)
   if (!fs.existsSync(reportPath)) {
     if (!Array.isArray(stockTech.data) || stockTech.data.length === 0) {
       throw new Error(`Report not found and stockTech has no data: ${reportPath}`)
@@ -274,12 +324,14 @@ const normalizeReport = () => {
 
   const reportCodes = collectEtfCodes(markdown)
   let output = markdown.replace(sectionMatch[0], normalizeEtfSection(sectionMatch[0], techByCode))
-  output = normalizeMovingAverageSection(output, date)
-  output = normalizeSupportSection(output, date, stockTech, reportCodes)
+  output = normalizeTechnicalStatus(output, date, stockTechDate, isFallback)
+  output = normalizeMovingAverageSection(output, stockTechDate)
+  output = normalizeSupportSection(output, stockTechDate, stockTech, reportCodes)
   output = output.replace(/- 每檔最新收盤價。\n- 5 日、10 日、20 日、60 日均線位階。\n/g, '')
 
   fs.writeFileSync(reportPath, `${output.trim()}\n`)
   console.log(`Normalized ${reportPath}`)
+  console.log(`Stock tech source: ${stockTechPath}${isFallback ? ' (fallback)' : ''}`)
   console.log(`ETF report rows: ${reportCodes.size}`)
   console.log(`Stock tech rows: ${techByCode.size}`)
   const missingCodes = [...reportCodes].filter((code) => !techByCode.has(code))

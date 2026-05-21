@@ -14,7 +14,7 @@ LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_1MIN_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 MTX_BVAV_AVG_WINDOW = 23
-MXF_CSV_HEADER = ["time", "tx_bvav", "mtx_bvav", "mtx_bvav_avg", "signal", "trend"]
+MXF_CSV_HEADER = ["time", "tx_bvav", "mtx_bvav", "mtx_tbta", "mtx_bvav_avg", "signal", "trend"]
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -166,13 +166,15 @@ def _calculate_mtx_bvav_avg(current_value: float | None) -> float | None:
     history = _read_mtx_bvav_history()
     window = history[-(MTX_BVAV_AVG_WINDOW - 1):]
     window.append(current_value)
-    if not window:
+    if len(window) < MTX_BVAV_AVG_WINDOW:
         return None
     return sum(window) / len(window)
 
 
 def _ensure_mxf_csv_header() -> None:
     if not CSV_PATH.exists():
+        with CSV_PATH.open("w", newline="", encoding="utf-8") as handle:
+            csv.writer(handle).writerow(MXF_CSV_HEADER)
         return
 
     try:
@@ -183,6 +185,8 @@ def _ensure_mxf_csv_header() -> None:
         return
 
     if not rows:
+        with CSV_PATH.open("w", newline="", encoding="utf-8") as handle:
+            csv.writer(handle).writerow(MXF_CSV_HEADER)
         return
 
     current_header = rows[0]
@@ -192,25 +196,24 @@ def _ensure_mxf_csv_header() -> None:
     data_rows = rows[1:]
     normalized_rows: list[list[str]] = []
     for row in data_rows:
-        if len(row) >= 6:
-            # 舊格式：time, tx_bvav, mtx_bvav, mtx_bvav_avg, mtx_tbta, signal
-            time_value = row[0]
-            tx_bvav = row[1]
-            mtx_bvav = row[2]
-            mtx_bvav_avg = row[3]
-            tx_num = _to_float(tx_bvav)
-            mtx_num = _to_float(mtx_bvav)
-            avg_num = _to_float(mtx_bvav_avg)
-            signal = _get_signal(tx_num, mtx_num)
-            trend = _get_trend(mtx_num, avg_num)
-            normalized_rows.append([time_value, tx_bvav, mtx_bvav, mtx_bvav_avg, signal, trend])
-            continue
-
-        if len(row) < len(MXF_CSV_HEADER):
-            row = row + [""] * (len(MXF_CSV_HEADER) - len(row))
-        elif len(row) > len(MXF_CSV_HEADER):
-            row = row[:len(MXF_CSV_HEADER)]
-        normalized_rows.append(row)
+        record = {
+            name: row[index] if index < len(row) else ""
+            for index, name in enumerate(current_header)
+        }
+        tx_num = _to_float(record.get("tx_bvav"))
+        mtx_num = _to_float(record.get("mtx_bvav"))
+        avg_num = _to_float(record.get("mtx_bvav_avg"))
+        signal = record.get("signal") or _get_signal(tx_num, mtx_num)
+        trend = record.get("trend") or _get_trend(mtx_num, avg_num)
+        normalized_rows.append([
+            record.get("time", ""),
+            record.get("tx_bvav", ""),
+            record.get("mtx_bvav", ""),
+            record.get("mtx_tbta", ""),
+            record.get("mtx_bvav_avg", ""),
+            signal,
+            trend,
+        ])
 
     with CSV_PATH.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -240,6 +243,7 @@ def append_tradeinfo_csv(payload: object, now: datetime) -> dict[str, object] | 
             timestamp,
             _format_int(tx_bvav),
             _format_int(mtx_bvav),
+            _format_int(mtx_tbta),
             _format_int(mtx_bvav_avg),
             signal,
             trend,
