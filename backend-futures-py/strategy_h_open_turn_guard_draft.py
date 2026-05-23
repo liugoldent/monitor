@@ -186,6 +186,7 @@ def _risk_reason(position: dict, latest_1m: dict, mxf: dict) -> str | None:
 def _send_guard_message(signal: dict, *, mxf: dict, bbr: float | None, h_unrealized: float) -> None:
     side = str(signal.get("side") or "")
     message = (
+        f"策略=H開盤轉向護欄(strategy_h_open_turn_guard_draft)；"
         f"H 開盤轉向護欄提醒：建議第二帳號先避開/暫不跟進 {_side_text(side)}，"
         f"H進場時間={signal.get('h_entry_time', '')}，H進場={signal.get('h_entry_price', '')}，"
         f"現價={signal.get('close', '')}，H浮動={h_unrealized:.1f}點，"

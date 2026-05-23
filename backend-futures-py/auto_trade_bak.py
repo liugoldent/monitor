@@ -36,22 +36,13 @@ TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 POSITION_SIZE_STATE_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_position_size_state.json"
 POINT_VALUE = 10
-# 下列門檻都用「點數」設定；實際比較時會乘上 POINT_VALUE 轉成單口 pnl。
 ADD_POSITION_DRAWDOWN_POINTS = 1000
 MAX_POSITION_DRAWDOWN_POINTS = 2000
-DEEP_DRAWDOWN_POINTS = 3000
 EXIT_ADD_POSITION_DRAWDOWN_POINTS = 0
-B_OVERLAY_START_LOSS_STREAK = 2
-
-# A 是常駐核心部位：MDD 到 1000/2000 點時，把核心口數提高到 2/3 口。
+ADD_POSITION_LOSS_STREAK = 4
 BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
 MAX_POSITION_ENTRY_QUANTITY = 3
-
-# B 是修復段加碼部位：連輸 2 次才啟動，MDD 到 2000/3000 點時提高到 2/3 口。
-B_OVERLAY_BASE_QUANTITY = 1
-B_OVERLAY_ADD_QUANTITY = 2
-B_OVERLAY_DEEP_DRAWDOWN_QUANTITY = 3
 
 
 def _ensure_trade_log() -> None:
@@ -214,9 +205,6 @@ def _get_consecutive_loss_count(pnls: list[float] | None = None) -> int:
 
 
 def _get_current_drawdown_pnl() -> float:
-    # 只從 h_trade.csv 已寫入的 exiting 紀錄重算單口 MDD。
-    # 進場前會先 closePosition() 或 _sync_virtual_position_for_signal() 寫入 exiting，
-    # 然後 _get_entry_quantity() 才讀這些已落檔的 pnl 來決定下一筆口數。
     pnls = _get_all_exiting_pnls()
 
     equity = -_get_initial_drawdown_pnl()
@@ -245,106 +233,39 @@ def _sync_current_drawdown_state(
     _save_position_size_state(state)
 
 
-def _is_b_overlay_active(state: dict | None = None) -> bool:
-    if state is None:
-        state = _load_position_size_state()
-    # 舊版只記 add_position_active；讀取時保留相容，避免既有 state 檔升級後漏接狀態。
-    return bool(state.get("b_overlay_active", state.get("add_position_active", False)))
+def _is_add_position_active() -> bool:
+    return bool(_load_position_size_state().get("add_position_active", False))
 
 
-def _get_a_core_quantity(current_drawdown_pnl: float) -> int:
-    # A 部位永遠存在，MDD 越深核心口數越高，最多 3 口。
-    if current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        return MAX_POSITION_ENTRY_QUANTITY
-    if current_drawdown_pnl >= ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        return ADD_POSITION_ENTRY_QUANTITY
-    return BASE_ENTRY_QUANTITY
-
-
-def _get_b_overlay_quantity(current_drawdown_pnl: float, b_overlay_active: bool) -> int:
-    # B 未啟動時完全不下單；啟動後只負責回撤修復段的額外口數。
-    if not b_overlay_active:
-        return 0
-    # 3000 點以上是少見深回撤，只讓 B 多加 1 口，A 不再提高。
-    if current_drawdown_pnl >= DEEP_DRAWDOWN_POINTS * POINT_VALUE:
-        return B_OVERLAY_DEEP_DRAWDOWN_QUANTITY
-    if current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        return B_OVERLAY_ADD_QUANTITY
-    return B_OVERLAY_BASE_QUANTITY
-
-
-def _update_position_size_detail_state(
-    current_drawdown_pnl: float,
-    consecutive_loss_count: int,
-    b_overlay_active: bool,
-    a_core_qty: int,
-    b_overlay_qty: int,
-) -> None:
+def _set_add_position_active(active: bool) -> None:
     state = _load_position_size_state()
-    state["current_drawdown_points"] = round(current_drawdown_pnl / POINT_VALUE, 2)
-    state["current_drawdown_pnl"] = round(current_drawdown_pnl, 2)
-    state["consecutive_loss_count"] = consecutive_loss_count
-    state["b_overlay_active"] = b_overlay_active
-    state["b_overlay_entry_rule"] = f"連輸 {B_OVERLAY_START_LOSS_STREAK} 次且單口 MDD > 0 時啟動"
-    state["b_overlay_exit_rule"] = "單口 MDD 歸 0 時停止"
-    state["a_core_quantity"] = a_core_qty
-    state["b_overlay_quantity"] = b_overlay_qty
-    state["target_entry_quantity"] = a_core_qty + b_overlay_qty
-    state["position_size_rule"] = (
-        "A: MDD<1000點=1口, >=1000點=2口, >=2000點=3口; "
-        "B: 連輸2次啟動, MDD<2000點=1口, >=2000點=2口, >=3000點=3口; "
-        "總口數=A+B"
-    )
-    # 舊欄位保留給既有人工檢查，但語意改為 B overlay 是否啟動。
-    state["add_position_active"] = b_overlay_active
-    state["current_drawdown_calculated_at"] = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
+    state["add_position_active"] = active
     _save_position_size_state(state)
 
 
 def _get_entry_quantity() -> int:
-    # 讀取 h_trade.csv 內所有 exiting 的單口損益，用來計算連輸與單口 MDD。
     pnls = _get_all_exiting_pnls()
-    # 目前單口回撤金額：只用已寫入 h_trade.csv 的 exiting pnl 重算，
     current_drawdown_pnl = _get_current_drawdown_pnl()
-    # 從最近一筆 exiting 往前數，連續 pnl < 0 的筆數；B overlay 連輸 2 次才啟動。
     consecutive_loss_count = _get_consecutive_loss_count(pnls)
-    # 讀取 h_position_size_state.json，延續上一輪是否已經啟動 B overlay 的狀態。
-    state = _load_position_size_state()
-    # B overlay 啟動後要一路維持到 MDD 歸 0；不能只看當下是否仍連輸 2 次。
-    b_overlay_active = _is_b_overlay_active(state)
+    _sync_current_drawdown_state(current_drawdown_pnl, consecutive_loss_count)
 
-    # MDD 歸 0 代表這輪修復結束，B 必須退場，下一輪重新等連輸 2 次才啟動。
     if current_drawdown_pnl <= 0:
-        b_overlay_active = False
-    # B 只用連輸啟動一次；啟動後即使後續有獲利，也會持續到 MDD 歸 0 才停止。
-    elif consecutive_loss_count >= B_OVERLAY_START_LOSS_STREAK:
-        b_overlay_active = True
+        _set_add_position_active(False)
+        return BASE_ENTRY_QUANTITY
 
-    a_core_qty = _get_a_core_quantity(current_drawdown_pnl)
-    b_overlay_qty = _get_b_overlay_quantity(current_drawdown_pnl, b_overlay_active)
-    _update_position_size_detail_state(
-        current_drawdown_pnl,
-        consecutive_loss_count,
-        b_overlay_active,
-        a_core_qty,
-        b_overlay_qty,
+    if current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
+        _set_add_position_active(True)
+        return MAX_POSITION_ENTRY_QUANTITY
+
+    should_start_add_position = (
+        current_drawdown_pnl >= ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE
+        or consecutive_loss_count >= ADD_POSITION_LOSS_STREAK
     )
-    return a_core_qty + b_overlay_qty
+    if should_start_add_position or _is_add_position_active():
+        _set_add_position_active(True)
+        return ADD_POSITION_ENTRY_QUANTITY
 
-
-def _get_position_size_message_detail() -> str:
-    state = _load_position_size_state()
-
-    a_core_qty = state.get("a_core_quantity", "?")
-    b_overlay_qty = state.get("b_overlay_quantity", "?")
-    b_overlay_active = "啟動" if state.get("b_overlay_active") else "未啟動"
-    drawdown_points = state.get("current_drawdown_points", "?")
-    consecutive_loss_count = state.get("consecutive_loss_count", "?")
-
-    return (
-        f"A {a_core_qty} 口、B {b_overlay_qty} 口"
-        f"（B {b_overlay_active}，MDD {drawdown_points} 點，連輸 {consecutive_loss_count} 次）"
-    )
+    return BASE_ENTRY_QUANTITY
 
 
 def _get_latest_webhook_close() -> float | None:
@@ -395,6 +316,34 @@ def _get_current_position_side(api) -> str | None:
     return None
 
 
+# 刪單
+def _cancel_all_open_orders(api) -> int:
+    try:
+        try:
+            api.update_status(api.futopt_account)
+        except TypeError:
+            api.update_status()
+        trades = api.list_trades()
+    except Exception as exc:
+        print(f"⚠️ 查詢掛單失敗: {exc}")
+        return 0
+
+    cancelled = 0
+    for trade in trades:
+        try:
+            status = str(getattr(trade.status, "status", "")).strip().lower()
+            if "." in status:
+                status = status.split(".")[-1]
+            status = status.replace("_", "").replace("-", "")
+            if status in {"filled", "cancelled", "failed", "inactive"}:
+                continue
+            api.cancel_order(trade)
+            cancelled += 1
+        except Exception as exc:
+            print(f"⚠️ 刪單失敗: {exc}")
+    return cancelled
+
+
 # 純下單func
 def auto_trade(type):
     api = sj.Shioaji(simulation=False)
@@ -442,14 +391,7 @@ def auto_trade(type):
         closed_actual_position = closePosition(api, latest_close)
         if not closed_actual_position:
             _sync_virtual_position_for_signal(type, latest_close)
-        # 口數計算若因 state/json/csv 異常失敗，仍至少用 1 口進場，避免策略訊號完全漏單。
-        entry_qty = BASE_ENTRY_QUANTITY
-        try:
-            entry_qty = _get_entry_quantity()
-        except Exception as exc:
-            message = f'[{testNow:%H:%M:%S}]：長線。口數計算失敗，改用預設 1 口進場：{exc}'
-            print(message)
-            send_discord_message(message)
+        entry_qty = _get_entry_quantity()
         
         # 平倉後進新倉
         if type == 'bull':
@@ -458,11 +400,7 @@ def auto_trade(type):
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
             _set_virtual_position("bull", entry_price)
             _sync_current_drawdown_state()
-            position_size_detail = _get_position_size_message_detail()
-            send_discord_message(
-                f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull，'
-                f'總口數 {entry_qty}，{position_size_detail}'
-            )
+            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月多單進場 go bull，口數 {entry_qty}')
 
         if type == 'bear':
             sellOne(api, contract, entry_qty)
@@ -470,11 +408,7 @@ def auto_trade(type):
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
             _set_virtual_position("bear", entry_price)
             _sync_current_drawdown_state()
-            position_size_detail = _get_position_size_message_detail()
-            send_discord_message(
-                f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear，'
-                f'總口數 {entry_qty}，{position_size_detail}'
-            )
+            send_discord_message(f'[{testNow:%H:%M:%S}]：長線。近月空單進場 go bear，口數 {entry_qty}')
 
         api.logout()
         print('送單完成')
@@ -502,22 +436,14 @@ def closePosition(api, exit_price: float | None = None) -> bool:
                 pnl = _get_exit_pnl("bull", exit_price, last_entry[1]) if last_entry else None
                 _append_trade("exiting", "bull", exit_price, pnl, quantity=pos_qty)
                 _sync_current_drawdown_state()
-                pnl_text = "未知" if pnl is None else round(pnl, 2)
-                send_discord_message(
-                    f'[{testNow:%H:%M:%S}] 長線。多單平倉，丟空單平 {pos_qty} 口，'
-                    f'單口 pnl {pnl_text}'
-                )
+                send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟空單平倉')
                 return True
             if pos['direction'] == 'Sell':
                 buyOne(api, contract, pos_qty)
                 pnl = _get_exit_pnl("bear", exit_price, last_entry[1]) if last_entry else None
                 _append_trade("exiting", "bear", exit_price, pnl, quantity=pos_qty)
                 _sync_current_drawdown_state()
-                pnl_text = "未知" if pnl is None else round(pnl, 2)
-                send_discord_message(
-                    f'[{testNow:%H:%M:%S}] 長線。空單平倉，丟多單平 {pos_qty} 口，'
-                    f'單口 pnl {pnl_text}'
-                )
+                send_discord_message(f'[{testNow:%H:%M:%S}] 長線。丟多單平倉')
                 return True
         else:
             print("目前沒有倉位，不補寫實際平倉紀錄")

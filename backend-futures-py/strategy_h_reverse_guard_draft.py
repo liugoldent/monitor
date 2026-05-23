@@ -102,6 +102,7 @@ def _send_guard_message(
     close = signal.get("entry_price", signal.get("close", ""))
     action_text = "進場" if action == "enter" else "出場"
     message = (
+        f"策略=H反向護欄(strategy_h_reverse_guard_draft)；"
         f"H 反向護欄{action_text}：{_side_text(guard_side)}，"
         f"價格={close}，H方向={_side_text(h_side)}，H進場={h_entry}，"
         f"H浮動={h_unrealized:.1f}點，mtx_bvav={mtx_bvav if mtx_bvav is not None else '-'}，"
