@@ -21,6 +21,7 @@ if BASE_DIR not in sys.path:
 
 from strategy_common import TZ, ensure_csv_header
 from strategy_h_open_turn_guard_draft import evaluate_h_open_turn_guard
+from strategy_h_profit_breakout_add import evaluate_h_profit_breakout_add
 from strategy_h_reverse_guard_draft import evaluate_h_reverse_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
@@ -140,6 +141,9 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                 open_turn_signal = evaluate_h_open_turn_guard()
                 if open_turn_signal:
                     print(f"⚠️ H open turn guard signal: {open_turn_signal}")
+                profit_breakout_signal = evaluate_h_profit_breakout_add()
+                if profit_breakout_signal:
+                    print(f"📈 H profit breakout add signal: {profit_breakout_signal}")
 
             print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
             sys.stdout.flush()

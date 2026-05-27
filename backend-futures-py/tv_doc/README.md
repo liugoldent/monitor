@@ -7,6 +7,8 @@
 ```text
 h_trade.csv
 h_position_size_state.json
+h_profit_breakout_add_state.json
+h_profit_breakout_add_alert.csv
 h_reverse_guard_state.json
 h_reverse_guard_alert.csv
 mxf_value.csv

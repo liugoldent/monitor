@@ -24,17 +24,19 @@ single_mdd = single_peak - single_equity
 3000 點 = 30000 元 pnl
 ```
 
-目前 `h_position_size_state.json` 內若有 `initial_drawdown_points`，代表這輪口數計算從指定的既有回撤點數開始，而不是從完整歷史資料的 0 點開始。
+目前 `h_position_size_state.json` 內若有 `starting_mdd_points`，代表這輪口數計算從指定的既有回撤點數開始，而不是從完整歷史資料的 0 點開始。
 
 ## A 核心部位
 
-A 是常駐核心策略，永遠會有部位。
+A 是常駐核心策略，永遠會有部位。A 加碼後會維持口數，直到單口 MDD 歸零或連贏 3 次才回到 1 口。
 
 ```text
-MDD < 1000 點：A_core_qty = 1
-MDD >= 1000 點：A_core_qty = 2
-MDD >= 2000 點：A_core_qty = 3
-MDD 歸 0：A_core_qty 回到 1
+單口 MDD 未達 1000 點：A_core_qty = 1
+單口 MDD 達 1000 點：A_core_qty = 2
+單口 MDD 達 2000 點：A_core_qty = 3
+單口 MDD 歸 0：A_core_qty 回到 1
+實作上 MDD <= 5 點視為歸 0，避免轉倉造成的小誤差讓口數卡住
+連贏 3 次：A_core_qty 回到 1
 ```
 
 A 最高 3 口。
@@ -125,8 +127,10 @@ backend-futures-py/tv_doc/h_position_size_state.json
 主要欄位：
 
 ```text
-current_drawdown_points      目前單口 MDD 點數
-current_drawdown_pnl         目前單口 MDD 金額
+mdd_start_after_trade_row    從 h_trade.csv 哪一筆之後開始算
+starting_mdd_points          起算時手動帶入的單口 MDD 點數
+current_mdd_points           目前單口 MDD 點數
+current_mdd_pnl              目前單口 MDD 金額
 consecutive_loss_count       目前連續虧損次數
 b_overlay_active             B 是否啟動
 a_core_quantity              A 目前口數
@@ -142,17 +146,18 @@ target_entry_quantity        同帳號下一筆目標進場口數
 
 | Key | 說明 |
 |---|---|
-| `trade_log_start_row` | 從 `h_trade.csv` 第幾筆歷史交易後開始計算本輪口數狀態。用途是保留舊交易紀錄，但讓新帳戶或新資金只從指定位置開始算。 |
-| `initial_drawdown_points` | 本輪起算時已經存在的單口 MDD 點數。程式會乘上 `POINT_VALUE` 轉成 pnl，放進單口 equity 起點。 |
-| `current_drawdown_points` | 目前單口 MDD 點數，由已寫入 `h_trade.csv` 的 `exiting` pnl 重算。 |
-| `current_drawdown_pnl` | 目前單口 MDD 金額。微台每點 10 元，所以 `current_drawdown_pnl = current_drawdown_points * 10`。 |
-| `current_drawdown_calculated_at` | 最近一次重算 `current_drawdown_points` / `current_drawdown_pnl` 的時間。 |
+| `mdd_start_after_trade_row` | 從 `h_trade.csv` 第幾筆交易後開始計算本輪口數狀態。用途是保留舊交易紀錄，但讓新帳戶或新資金只從指定位置開始算。 |
+| `starting_mdd_points` | 本輪起算時手動帶入的單口 MDD 點數。程式會乘上 `POINT_VALUE` 轉成 pnl，放進單口 equity 起點。 |
+| `current_mdd_points` | 目前單口 MDD 點數，由已寫入 `h_trade.csv` 的 `exiting` pnl 重算。 |
+| `current_mdd_pnl` | 目前單口 MDD 金額。微台每點 10 元，所以 `current_mdd_pnl = current_mdd_points * 10`。 |
+| `current_drawdown_calculated_at` | 最近一次重算 `current_mdd_points` / `current_mdd_pnl` 的時間。 |
 | `consecutive_loss_count` | 從最近一筆 `exiting` 往前數，連續 pnl < 0 的筆數。B overlay 用連輸 2 次作為啟動條件。 |
 | `add_position_active` | 舊欄位。現在保留給人工檢查與相容舊 state 使用，語意同步為 `b_overlay_active`。 |
 | `b_overlay_active` | B overlay 是否已啟動。啟動後會維持到單口 MDD 歸 0，不會因為中途一筆獲利就關掉。 |
 | `b_overlay_entry_rule` | 文字說明欄位，記錄 B overlay 的啟動規則。 |
 | `b_overlay_exit_rule` | 文字說明欄位，記錄 B overlay 的停止規則。 |
-| `a_core_quantity` | A 核心部位目前應該使用的口數。A 永遠存在，依 MDD 1000/2000 點提高到 2/3 口。 |
+| `a_core_quantity` | A 核心部位目前應該使用的口數。A 永遠存在；MDD 達 1000/2000 點後提高到 2/3 口，MDD 歸 0 或連贏 3 次時回 1 口。 |
+| `a_core_exit_rule` | 文字說明欄位，記錄 A 核心部位何時回 1 口。 |
 | `b_overlay_quantity` | B overlay 目前應該使用的口數。B 未啟動為 0；啟動後依 MDD 2000/3000 點提高到 2/3 口。 |
 | `target_entry_quantity` | 下一筆同帳號目標進場總口數，等於 `a_core_quantity + b_overlay_quantity`。 |
 | `position_size_rule` | 文字說明欄位，記錄目前 A+B 口數規則。 |
@@ -178,6 +183,6 @@ auto_trade() 準備進新倉
 
 ### 注意事項
 
-`current_drawdown_points` 與 `current_drawdown_pnl` 只看已經出場並寫入 `h_trade.csv` 的 `exiting` pnl，不看未平倉浮動損益。
+`current_mdd_points` 與 `current_mdd_pnl` 只看已經出場並寫入 `h_trade.csv` 的 `exiting` pnl，不看未平倉浮動損益。
 
 `target_entry_quantity` 是下一筆進場口數，不一定等於目前帳戶實際持倉口數。實際持倉仍以券商 API 查詢為準。

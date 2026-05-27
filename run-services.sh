@@ -115,7 +115,6 @@ tell application "iTerm"
 
   tell current session of mainWindow
     write text "cd ~/Desktop/self/monitor/google-clockin"
-    write text "source .venv/bin/activate"
     write text "python hqt_keedem_schedule_output.py"
   end tell
   delay 2
