@@ -1,0 +1,2 @@
+h_entry_time,h_exit_time,h_side,h_entry_price,h_exit_price,h_points,max_favorable_points,max_favorable_time,max_favorable_price,giveback_points,guard_side,entry_time,exit_time,entry_price,exit_price,entry_mxf_avg,entry_mxf_signal,entry_mxf_trend,guard_points,combined_points,reason
+2026-05-28 08:46:07,2026-05-29 10:16:06,bear,45168.0,45212.0,-44.0,1669.0,2026-05-28 13:05:00,43499.0,994.0,bull,2026-05-28 21:02:00,2026-05-29 10:16:00,44493.0,45203.0,514.0,bull,gold,707.0,663.0,exit: H strategy ended

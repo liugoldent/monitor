@@ -172,6 +172,83 @@ def _close_position_with_api(api, test_now: datetime):
             send_discord_message(f'[{test_now:%H:%M:%S}]：短線。丟多單平倉')
 
 
+def _get_current_position(api) -> tuple[str | None, int]:
+    positions = api.list_positions(api.futopt_account)
+    if not positions:
+        return None, 0
+
+    pos = positions[0]
+    side = None
+    direction = str(pos["direction"]).strip().lower()
+    if direction == "buy":
+        side = "bull"
+    elif direction == "sell":
+        side = "bear"
+    return side, int(pos["quantity"])
+
+
+def execute_h_profit_breakout_add_signal(signal: dict) -> bool:
+    """Place short-cycle account orders for H profit-breakout add-on signals."""
+    testNow = datetime.now(ZoneInfo("Asia/Taipei"))
+    action = str(signal.get("action") or "").strip().lower()
+    side = str(signal.get("side") or "").strip().lower()
+    if action not in {"enter", "exit"} or side not in {"bull", "bear"}:
+        return False
+
+    try:
+        quantity = max(1, int(float(signal.get("quantity", 1))))
+    except (TypeError, ValueError):
+        quantity = 1
+
+    try:
+        with API_LOCK:
+            api = _get_api_client()
+            contract = _get_contract(api)
+            try:
+                api.update_status(api.futopt_account)
+            except TypeError:
+                api.update_status()
+            current_side, current_qty = _get_current_position(api)
+
+            if action == "enter":
+                if current_side is not None and current_side != side:
+                    send_discord_message(
+                        f'[{testNow:%H:%M:%S}]：短線。H獲利突破加碼略過，'
+                        f'帳戶目前為 {current_side} {current_qty} 口，訊號為 {side} {quantity} 口'
+                    )
+                    return False
+
+                if side == "bull":
+                    buyOne(api, contract, quantity)
+                else:
+                    sellOne(api, contract, quantity)
+                send_discord_message(
+                    f'[{testNow:%H:%M:%S}]：短線。H獲利突破加碼進場 {side} {quantity} 口'
+                )
+                return True
+
+            if current_side != side or current_qty <= 0:
+                send_discord_message(
+                    f'[{testNow:%H:%M:%S}]：短線。H獲利突破加碼出場略過，'
+                    f'帳戶沒有可退的 {side} 加碼部位'
+                )
+                return False
+
+            exit_quantity = min(quantity, current_qty)
+            if side == "bull":
+                sellOne(api, contract, exit_quantity)
+            else:
+                buyOne(api, contract, exit_quantity)
+            send_discord_message(
+                f'[{testNow:%H:%M:%S}]：短線。H獲利突破加碼出場 {side} {exit_quantity} 口'
+            )
+            return True
+    except Exception as e:
+        print('H獲利突破加碼送單錯誤', e)
+        send_discord_message(f'[{testNow:%H:%M:%S}]：短線。H獲利突破加碼送單錯誤：{e}')
+    return False
+
+
 # 純下單func
 def auto_trade(type):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))

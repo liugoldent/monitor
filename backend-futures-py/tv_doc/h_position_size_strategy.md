@@ -32,8 +32,8 @@ A 是常駐核心策略，永遠會有部位。A 加碼後會維持口數，直�
 
 ```text
 單口 MDD 未達 1000 點：A_core_qty = 1
-單口 MDD 達 1000 點：A_core_qty = 2
-單口 MDD 達 2000 點：A_core_qty = 3
+單口 MDD 達 1000 點：A_core_qty = 2，之後維持 2 口直到重置條件成立
+單口 MDD 達 2000 點：A_core_qty = 3，之後維持 3 口直到重置條件成立
 單口 MDD 歸 0：A_core_qty 回到 1
 實作上 MDD <= 5 點視為歸 0，避免轉倉造成的小誤差讓口數卡住
 連贏 3 次：A_core_qty 回到 1
@@ -50,12 +50,14 @@ B 是回撤修復段加碼，平常不跑。
 ```text
 策略連續虧損 2 次
 且 single_mdd > 0
+或 single_mdd >= 2000 點
 ```
 
 停止條件：
 
 ```text
 single_mdd 歸 0
+或連贏 3 次
 ```
 
 B 啟動後的口數：
@@ -151,12 +153,12 @@ target_entry_quantity        同帳號下一筆目標進場口數
 | `current_mdd_points` | 目前單口 MDD 點數，由已寫入 `h_trade.csv` 的 `exiting` pnl 重算。 |
 | `current_mdd_pnl` | 目前單口 MDD 金額。微台每點 10 元，所以 `current_mdd_pnl = current_mdd_points * 10`。 |
 | `current_drawdown_calculated_at` | 最近一次重算 `current_mdd_points` / `current_mdd_pnl` 的時間。 |
-| `consecutive_loss_count` | 從最近一筆 `exiting` 往前數，連續 pnl < 0 的筆數。B overlay 用連輸 2 次作為啟動條件。 |
+| `consecutive_loss_count` | 從最近一筆 `exiting` 往前數，連續 pnl < 0 的筆數。B overlay 可用連輸 2 次或單口 MDD >= 2000 點作為啟動條件。 |
 | `add_position_active` | 舊欄位。現在保留給人工檢查與相容舊 state 使用，語意同步為 `b_overlay_active`。 |
-| `b_overlay_active` | B overlay 是否已啟動。啟動後會維持到單口 MDD 歸 0，不會因為中途一筆獲利就關掉。 |
+| `b_overlay_active` | B overlay 是否已啟動。啟動後會維持到單口 MDD 歸 0或連贏 3 次，不會因為中途一筆獲利就關掉。 |
 | `b_overlay_entry_rule` | 文字說明欄位，記錄 B overlay 的啟動規則。 |
 | `b_overlay_exit_rule` | 文字說明欄位，記錄 B overlay 的停止規則。 |
-| `a_core_quantity` | A 核心部位目前應該使用的口數。A 永遠存在；MDD 達 1000/2000 點後提高到 2/3 口，MDD 歸 0 或連贏 3 次時回 1 口。 |
+| `a_core_quantity` | A 核心部位目前應該使用的口數。A 永遠存在；MDD 達 1000/2000 點後提高到 2/3 口並維持，MDD 歸 0 或連贏 3 次時才回 1 口。 |
 | `a_core_exit_rule` | 文字說明欄位，記錄 A 核心部位何時回 1 口。 |
 | `b_overlay_quantity` | B overlay 目前應該使用的口數。B 未啟動為 0；啟動後依 MDD 2000/3000 點提高到 2/3 口。 |
 | `target_entry_quantity` | 下一筆同帳號目標進場總口數，等於 `a_core_quantity + b_overlay_quantity`。 |

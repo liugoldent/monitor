@@ -8,6 +8,8 @@ Rules:
 - Bear add-on entry requires an MA_P200 downside breakout confirmed by two closes.
 - Add-on exits when price closes back through the same MA, or when H changes to
   the opposite direction / a new H position.
+- Add-on quantity follows `h_position_size_state.json` `a_core_quantity`, which
+  is maintained by `auto_trade.py`.
 - When flat, H profit >= 750 points is enough to allow a fresh add-on entry.
 - The add-on's own +750 point gate is reserved for future pyramiding logic; this
   signal strategy currently holds at most one add-on at a time.
@@ -28,6 +30,7 @@ TV_DOC_DIR = BASE_DIR / "tv_doc"
 H_TRADE_CSV_PATH = TV_DOC_DIR / "h_trade.csv"
 MXF_VALUE_CSV_PATH = TV_DOC_DIR / "mxf_value.csv"
 WEBHOOK_1M_CSV_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
+POSITION_SIZE_STATE_PATH = TV_DOC_DIR / "h_position_size_state.json"
 STATE_PATH = TV_DOC_DIR / "h_profit_breakout_add_state.json"
 ALERT_PATH = TV_DOC_DIR / "h_profit_breakout_add_alert.csv"
 
@@ -63,6 +66,21 @@ def _read_state() -> dict:
         return json.loads(STATE_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def _get_add_quantity() -> int:
+    if not POSITION_SIZE_STATE_PATH.exists():
+        return ADD_QUANTITY
+    try:
+        state = json.loads(POSITION_SIZE_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return ADD_QUANTITY
+
+    try:
+        quantity = int(float(state.get("a_core_quantity", ADD_QUANTITY)))
+    except (TypeError, ValueError):
+        return ADD_QUANTITY
+    return max(1, quantity)
 
 
 def _write_state(state: dict) -> None:
@@ -306,10 +324,11 @@ def evaluate_h_profit_breakout_add() -> dict | None:
             _write_state(state)
             return None
 
+        add_quantity = _get_add_quantity()
         signal = {
             "action": "enter",
             "side": side,
-            "quantity": ADD_QUANTITY,
+            "quantity": add_quantity,
             "entry_price": close,
             "close": close,
             "h_position_timestamp": position.get("timestamp", ""),
@@ -323,7 +342,7 @@ def evaluate_h_profit_breakout_add() -> dict | None:
         }
         state["active_add"] = {
             "side": side,
-            "quantity": ADD_QUANTITY,
+            "quantity": add_quantity,
             "entry_time": now_str(),
             "entry_price": close,
             "h_position_key": h_key,
@@ -336,7 +355,7 @@ def evaluate_h_profit_breakout_add() -> dict | None:
             now_str(),
             "enter",
             side,
-            ADD_QUANTITY,
+            add_quantity,
             close,
             close,
             position.get("timestamp", ""),

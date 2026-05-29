@@ -20,8 +20,10 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
-from strategy_h_open_turn_guard_draft import evaluate_h_open_turn_guard
+from auto_trade_shortCycle import execute_h_profit_breakout_add_signal
+from strategy_h_loss_streak_follow import evaluate_h_loss_streak_follow
 from strategy_h_profit_breakout_add import evaluate_h_profit_breakout_add
+from strategy_h_profit_retrace_guard import evaluate_h_profit_retrace_guard
 from strategy_h_reverse_guard_draft import evaluate_h_reverse_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
@@ -135,15 +137,31 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             _append_webhook_row(target_csv, webhook_row)
 
             if timeframe == "1":
-                guard_signal = evaluate_h_reverse_guard()
-                if guard_signal:
-                    print(f"🛡️ H reverse guard signal: {guard_signal}")
-                open_turn_signal = evaluate_h_open_turn_guard()
-                if open_turn_signal:
-                    print(f"⚠️ H open turn guard signal: {open_turn_signal}")
-                profit_breakout_signal = evaluate_h_profit_breakout_add()
-                if profit_breakout_signal:
-                    print(f"📈 H profit breakout add signal: {profit_breakout_signal}")
+                # 第二帳號策略優先順序：
+                # 1. 先檢查 H 連輸 2 次一次性跟單，因為這是最高優先策略。
+                # 2. 如果連輸跟單已經進場，這根 1 分 K 就不再跑護欄/加碼，
+                #    避免第二帳號同一時間被多個策略重複進場。
+                # 3. 浮盈回吐保護目前只做 Discord 觀察通知，不擋其他策略、不下單。
+                # 4. 如果連輸跟單沒有進場，才回到平常的反向護欄與 H 獲利突破加碼。
+                loss_streak_signal = evaluate_h_loss_streak_follow()
+                if loss_streak_signal:
+                    print(f"🔁 H loss-streak follow signal: {loss_streak_signal}")
+
+                if not loss_streak_signal or loss_streak_signal.get("action") != "enter":
+                    guard_signal = evaluate_h_reverse_guard()
+                    if guard_signal:
+                        print(f"🛡️ H reverse guard signal: {guard_signal}")
+
+                    if not guard_signal or guard_signal.get("action") != "enter":
+                        profit_retrace_signal = evaluate_h_profit_retrace_guard()
+                        if profit_retrace_signal:
+                            print(f"🧯 H profit retrace guard signal: {profit_retrace_signal}")
+
+                    profit_breakout_signal = evaluate_h_profit_breakout_add()
+                    if profit_breakout_signal:
+                        print(f"📈 H profit breakout add signal: {profit_breakout_signal}")
+                        order_sent = execute_h_profit_breakout_add_signal(profit_breakout_signal)
+                        print(f"📈 H profit breakout add order sent: {order_sent}")
 
             print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
             sys.stdout.flush()

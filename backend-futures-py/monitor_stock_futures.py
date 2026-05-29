@@ -34,6 +34,7 @@ MONGO_URI = require_env("MONGO_URI")
 API_URL = "https://market-data-api.futures-ai.com/stkfut_tradeinfo/"
 DB_NAME = "stock_futures"
 TZ = ZoneInfo("Asia/Taipei")
+MAX_DATE_COLLECTIONS = 10
 
 
 def fetch_tradeinfo() -> object:
@@ -55,27 +56,58 @@ def normalize_documents(payload: object) -> list[dict]:
     return [{"value": payload}]
 
 
-def insert_tradeinfo(payload: object, collection_name: str, now: datetime) -> None:
-    client = MongoClient(MONGO_URI)
-    db = client[DB_NAME]
-    collection = db[collection_name]
+def _parse_date_collection_name(name: str) -> datetime | None:
+    try:
+        return datetime.strptime(name, "%Y-%m-%d")
+    except ValueError:
+        return None
 
-    docs = normalize_documents(payload)
-    if not docs:
-        print("⚠️ 沒有資料可插入。")
+
+def prune_old_date_collections(db, keep_count: int = MAX_DATE_COLLECTIONS) -> None:
+    # stock_futures 會每天新增一個 YYYY-MM-DD collection。
+    # 只清理這種日期命名的 collection，避免誤刪其他用途的集合。
+    dated_collections: list[tuple[datetime, str]] = []
+    for name in db.list_collection_names():
+        parsed_date = _parse_date_collection_name(name)
+        if parsed_date is not None:
+            dated_collections.append((parsed_date, name))
+
+    if len(dated_collections) <= keep_count:
         return
 
-    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-    for doc in docs:
-        doc.setdefault("time", timestamp)
+    dated_collections.sort(key=lambda item: item[0])
+    stale_collections = dated_collections[: len(dated_collections) - keep_count]
+    for _, name in stale_collections:
+        db.drop_collection(name)
+        print(f"🧹 已刪除舊集合 {name}，保留最新 {keep_count} 個 stock_futures 日期集合")
 
-    if len(docs) == 1:
-        collection.insert_one(docs[0])
-        fetch_time = now.strftime("%y-%m-%d %H-%M")
-        print(f"{fetch_time} ✅ 成功插入 1 筆資料到集合 {collection_name}")
-    else:
-        collection.insert_many(docs)
-        print(f"✅ 成功插入 {len(docs)} 筆資料到集合 {collection_name}")
+
+def insert_tradeinfo(payload: object, collection_name: str, now: datetime) -> None:
+    client = MongoClient(MONGO_URI)
+    try:
+        db = client[DB_NAME]
+        collection = db[collection_name]
+
+        docs = normalize_documents(payload)
+        if not docs:
+            print("⚠️ 沒有資料可插入。")
+            return
+
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        for doc in docs:
+            doc.setdefault("time", timestamp)
+
+        if len(docs) == 1:
+            collection.insert_one(docs[0])
+            fetch_time = now.strftime("%y-%m-%d %H-%M")
+            print(f"{fetch_time} ✅ 成功插入 1 筆資料到集合 {collection_name}")
+        else:
+            collection.insert_many(docs)
+            print(f"✅ 成功插入 {len(docs)} 筆資料到集合 {collection_name}")
+
+        prune_old_date_collections(db)
+    finally:
+        client.close()
 
 
 def get_collection_name(now: datetime) -> str:
