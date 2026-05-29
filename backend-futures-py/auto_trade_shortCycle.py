@@ -249,6 +249,68 @@ def execute_h_profit_breakout_add_signal(signal: dict) -> bool:
     return False
 
 
+def execute_h_loss_streak_follow_signal(signal: dict) -> bool:
+    """Place short-cycle account orders for H loss-streak one-shot follow signals."""
+    testNow = datetime.now(ZoneInfo("Asia/Taipei"))
+    action = str(signal.get("action") or "").strip().lower()
+    side = str(signal.get("side") or "").strip().lower()
+    if action not in {"enter", "exit"} or side not in {"bull", "bear"}:
+        return False
+
+    try:
+        quantity = max(1, int(float(signal.get("quantity", 1))))
+    except (TypeError, ValueError):
+        quantity = 1
+
+    try:
+        with API_LOCK:
+            api = _get_api_client()
+            contract = _get_contract(api)
+            try:
+                api.update_status(api.futopt_account)
+            except TypeError:
+                api.update_status()
+            current_side, current_qty = _get_current_position(api)
+
+            if action == "enter":
+                if current_side is not None and current_side != side:
+                    send_discord_message(
+                        f'[{testNow:%H:%M:%S}]：短線。H連輸跟單略過，'
+                        f'帳戶目前為 {current_side} {current_qty} 口，訊號為 {side} {quantity} 口'
+                    )
+                    return False
+
+                if side == "bull":
+                    buyOne(api, contract, quantity)
+                else:
+                    sellOne(api, contract, quantity)
+                send_discord_message(
+                    f'[{testNow:%H:%M:%S}]：短線。H連輸2次一次性跟單進場 {side} {quantity} 口'
+                )
+                return True
+
+            if current_side != side or current_qty <= 0:
+                send_discord_message(
+                    f'[{testNow:%H:%M:%S}]：短線。H連輸跟單出場略過，'
+                    f'帳戶沒有可退的 {side} 跟單部位'
+                )
+                return False
+
+            exit_quantity = min(quantity, current_qty)
+            if side == "bull":
+                sellOne(api, contract, exit_quantity)
+            else:
+                buyOne(api, contract, exit_quantity)
+            send_discord_message(
+                f'[{testNow:%H:%M:%S}]：短線。H連輸2次一次性跟單出場 {side} {exit_quantity} 口'
+            )
+            return True
+    except Exception as e:
+        print('H連輸跟單送單錯誤', e)
+        send_discord_message(f'[{testNow:%H:%M:%S}]：短線。H連輸跟單送單錯誤：{e}')
+    return False
+
+
 # 純下單func
 def auto_trade(type):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))

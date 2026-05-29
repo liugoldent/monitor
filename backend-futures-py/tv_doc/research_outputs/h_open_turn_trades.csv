@@ -1,0 +1,3 @@
+time,open_minute,old_side,side,entry_price,h_exit_time,exit_time,exit_price,points,max_unrealized_points,open_close,ma960,mtx_bvav,reason
+2026-05-18 08:47:00,2026-05-18 08:46:00,bear,bull,40296.0,2026-05-18 22:36:00,2026-05-18 22:36:00,40820.0,524.0,1129.0,40313.0,40842.4083333333,498.0,"trail after 1000, giveback 600"
+2026-05-20 08:47:00,2026-05-20 08:46:00,bear,bull,40109.0,2026-05-20 15:02:00,2026-05-20 15:02:00,40262.0,153.0,399.0,40275.0,40328.7375,852.0,end: H exited or changed

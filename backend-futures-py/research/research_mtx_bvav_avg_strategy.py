@@ -13,13 +13,15 @@ from datetime import datetime
 from pathlib import Path
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]
 TV_DOC_DIR = BASE_DIR / "tv_doc"
+RESEARCH_OUTPUT_DIR = TV_DOC_DIR / "research_outputs"
 MXF_VALUE_PATH = TV_DOC_DIR / "mxf_value.csv"
 PRICE_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
 H_TRADE_PATH = TV_DOC_DIR / "h_trade.csv"
-REPORT_PATH = TV_DOC_DIR / "mtx_bvav_avg_sign_strategy_research.md"
-TRADE_PATH = TV_DOC_DIR / "mtx_bvav_avg_sign_strategy_trade.csv"
+REPORT_PATH = RESEARCH_OUTPUT_DIR / "mtx_bvav_avg_sign_strategy_research.md"
+TRADE_PATH = RESEARCH_OUTPUT_DIR / "mtx_bvav_avg_sign_strategy_trade.csv"
+RESEARCH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 POINT_VALUE_TWD = 10.0
 ROUND_TRIP_COST_POINTS = 3.0

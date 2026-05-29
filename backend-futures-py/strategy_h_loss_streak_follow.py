@@ -24,13 +24,15 @@ from strategy_common import build_shortcycle_send_discord_message, now_str, to_f
 
 BASE_DIR = Path(__file__).resolve().parent
 TV_DOC_DIR = BASE_DIR / "tv_doc"
+STRATEGY_STATE_DIR = TV_DOC_DIR / "strategy_state"
+STRATEGY_ALERT_DIR = TV_DOC_DIR / "strategy_alerts"
 H_TRADE_CSV_PATH = TV_DOC_DIR / "h_trade.csv"
 MXF_VALUE_CSV_PATH = TV_DOC_DIR / "mxf_value.csv"
 WEBHOOK_1M_CSV_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
-PROFIT_BREAKOUT_STATE_PATH = TV_DOC_DIR / "h_profit_breakout_add_state.json"
-REVERSE_GUARD_STATE_PATH = TV_DOC_DIR / "h_reverse_guard_state.json"
-STATE_PATH = TV_DOC_DIR / "h_loss_streak_follow_state.json"
-ALERT_PATH = TV_DOC_DIR / "h_loss_streak_follow_alert.csv"
+PROFIT_BREAKOUT_STATE_PATH = STRATEGY_STATE_DIR / "h_profit_breakout_add_state.json"
+REVERSE_GUARD_STATE_PATH = STRATEGY_STATE_DIR / "h_reverse_guard_state.json"
+STATE_PATH = STRATEGY_STATE_DIR / "h_loss_streak_follow_state.json"
+ALERT_PATH = STRATEGY_ALERT_DIR / "h_loss_streak_follow_alert.csv"
 
 ENTRY_LOSS_STREAK = 2
 FOLLOW_QUANTITY = 1
@@ -69,11 +71,13 @@ def _read_state() -> dict:
 
 
 def _write_state(state: dict) -> None:
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _append_alert(row: list[object]) -> None:
     exists = ALERT_PATH.exists()
+    ALERT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with ALERT_PATH.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         if not exists:

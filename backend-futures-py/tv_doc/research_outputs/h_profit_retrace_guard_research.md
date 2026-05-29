@@ -9,7 +9,7 @@ market-flow pressure against H.
 
 ## Baseline Window
 
-- 1m price window: 2026-04-29 13:41:00 to 2026-05-29 10:46:01
+- 1m price window: 2026-04-29 13:41:00 to 2026-05-29 19:37:01
 - H intervals tested: 22
 - H points: 6,030.0
 - H cash: 60,300.0
@@ -52,7 +52,7 @@ Round-trip cost: 3 points per guard trade.
 
 ## Practical Draft Choice
 
-`profit>=750, giveback>=600/50%, avg>=500, signal=yes, recover_stop=0, guard_stop=300, remain>=5m`
+`profit>=750, giveback>=500/50%, avg>=500, signal=yes, recover_stop=0, guard_stop=300, remain>=5m`
 
 - Guard trades: 1
 - Guard points: 707.0

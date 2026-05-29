@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Any
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]
 TV_DOC_DIR = BASE_DIR / "tv_doc"
+RESEARCH_OUTPUT_DIR = TV_DOC_DIR / "research_outputs"
 MXF_VALUE_PATH = TV_DOC_DIR / "mxf_value.csv"
 PRICE_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
 H_TRADE_PATH = TV_DOC_DIR / "h_trade.csv"
@@ -27,8 +28,9 @@ TF_PATHS = {
     "10": TV_DOC_DIR / "webhook_data_10min.csv",
     "15": TV_DOC_DIR / "webhook_data_15min.csv",
 }
-REPORT_PATH = TV_DOC_DIR / "h_reverse_guard_optimizer_research.md"
-BEST_TRADE_PATH = TV_DOC_DIR / "h_reverse_guard_optimizer_best_trade.csv"
+REPORT_PATH = RESEARCH_OUTPUT_DIR / "h_reverse_guard_optimizer_research.md"
+BEST_TRADE_PATH = RESEARCH_OUTPUT_DIR / "h_reverse_guard_optimizer_best_trade.csv"
+RESEARCH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 POINT_VALUE_TWD = 10.0
 ROUND_TRIP_COST_POINTS = 3.0
@@ -466,8 +468,8 @@ Best params: `{fmt_params(best['params'])}`
 
 ## Practical Draft Choice
 
-For a live guard, prefer the stricter draft version in
-`strategy_h_reverse_guard_draft.py`: H must be at breakeven or already losing,
+For a live guard, prefer the stricter loss-guard branch now merged into
+`strategy_h_weakness_reverse_guard.py`: H must be at breakeven or already losing,
 `abs(mtx_bvav_avg)` >= 1,200 against H, and `signal/trend` must confirm the
 reverse direction. This is the high-win-rate choice, not the most aggressive
 choice: it triggered {len(practical['trades'])} hedge trades in the current

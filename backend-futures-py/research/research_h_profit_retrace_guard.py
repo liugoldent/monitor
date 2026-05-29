@@ -22,13 +22,15 @@ from pathlib import Path
 from typing import Any
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]
 TV_DOC_DIR = BASE_DIR / "tv_doc"
+RESEARCH_OUTPUT_DIR = TV_DOC_DIR / "research_outputs"
 H_TRADE_PATH = TV_DOC_DIR / "h_trade.csv"
 MXF_VALUE_PATH = TV_DOC_DIR / "mxf_value.csv"
 PRICE_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
-REPORT_PATH = TV_DOC_DIR / "h_profit_retrace_guard_research.md"
-TRADE_PATH = TV_DOC_DIR / "h_profit_retrace_guard_trades.csv"
+REPORT_PATH = RESEARCH_OUTPUT_DIR / "h_profit_retrace_guard_research.md"
+TRADE_PATH = RESEARCH_OUTPUT_DIR / "h_profit_retrace_guard_trades.csv"
+RESEARCH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 POINT_VALUE_TWD = 10.0
 ROUND_TRIP_COST_POINTS = 3.0
@@ -48,7 +50,7 @@ class Params:
 
 PRACTICAL_PARAMS = Params(
     profit_trigger_points=750.0,
-    giveback_points=600.0,
+    giveback_points=500.0,
     giveback_ratio=0.5,
     mxf_avg_threshold=500.0,
     require_mxf_signal=True,
