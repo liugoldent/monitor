@@ -43,7 +43,8 @@ RUN cd backend-heyu-node && pnpm install --no-frozen-lockfile \
 
 COPY . .
 
-RUN chmod +x /app/run-services.sh /app/run-trade-services.sh /app/scripts/run-services-docker.sh
+RUN sed -i 's/\r$//' /app/run-services.sh /app/run-trade-services.sh /app/scripts/run-services-docker.sh \
+    && chmod +x /app/run-services.sh /app/run-trade-services.sh /app/scripts/run-services-docker.sh
 
 EXPOSE 8080 5050 5173
 
