@@ -20,6 +20,7 @@ RUN apt-get update \
     && python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
     && corepack enable \
+    && corepack prepare pnpm@10.24.0 --activate \
     && arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
         amd64) cloudflared_arch="amd64" ;; \
@@ -37,8 +38,8 @@ RUN pip install --no-cache-dir -r backend-futures-py/requirements.txt
 
 COPY backend-heyu-node/package.json backend-heyu-node/pnpm-lock.yaml backend-heyu-node/
 COPY frontend-vue/package.json frontend-vue/pnpm-lock.yaml frontend-vue/
-RUN cd backend-heyu-node && pnpm install --frozen-lockfile \
-    && cd /app/frontend-vue && pnpm install --frozen-lockfile
+RUN cd backend-heyu-node && pnpm install --no-frozen-lockfile \
+    && cd /app/frontend-vue && pnpm install --no-frozen-lockfile
 
 COPY . .
 
