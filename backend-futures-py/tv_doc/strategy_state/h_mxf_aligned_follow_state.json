@@ -1,15 +1,8 @@
 {
-  "active_follow": {
-    "side": "bull",
-    "quantity": 1,
-    "entry_price": 45388.0,
-    "entry_time": "2026-05-29 20:29:16",
-    "h_position_key": "2026-05-29 10:16:07|bull|45212.0",
-    "h_position_timestamp": "2026-05-29 10:16:07",
-    "h_entry_price": 45212.0,
-    "rule": "morning_avg_supports_h_stop_250",
-    "max_follow_points": 8.0
-  },
+  "active_follow": null,
+  "entered_h_keys": [
+    "2026-05-29 10:16:07|bull|45212.0"
+  ],
   "last_checked_h_key": "2026-05-29 10:16:07|bull|45212.0",
   "last_signal": {
     "timestamp": "2026-05-29 20:29:16",
@@ -36,5 +29,5 @@
     "max_follow_points": 0,
     "reason": "早盤 H 新倉且 mtx_bvav_avg 順著 H，第二帳號同向跟單；逆行 250 點停損，H 出場同步出場"
   },
-  "updated_at": "2026-05-29 20:34:17"
+  "updated_at": "2026-05-29 20:37:16"
 }

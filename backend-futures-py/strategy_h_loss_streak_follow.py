@@ -1,14 +1,16 @@
-"""Second-account one-shot follow strategy after two H losses.
+"""策略名稱：H 連輸 2 次一次性跟單。
 
-This strategy emits second-account signals only. It does not place orders.
-Rules:
-- If H has exactly two completed consecutive losses, the second account follows
-  the next fresh H position with one contract.
-- The recovery entry is one-shot: after the third H trade exits, this strategy
-  returns to neutral and lets the normal add/guard strategies handle later H
-  trades, whether the recovery trade wins or loses.
-- Existing second-account add/guard positions have priority for exits and block
-  a new recovery entry.
+用途：第二帳號實單策略，webhook 會把 enter/exit 訊號交給
+`execute_h_loss_streak_follow_signal()` 下單。
+
+進場規則：
+- H 策略最近已完成交易剛好連續虧損 2 次。
+- 下一筆 H 新倉出現後，且該 H 新倉仍在新鮮時間內，就用第二帳號同向跟 1 口。
+- 若第二帳號已有 H 獲利突破加碼或反向護欄部位，則不開新的連輸跟單。
+
+出場規則：
+- 這筆跟單跟著 H 第三筆交易出場、反向或換倉同步出場。
+- 出場後本策略回到空手；不論第三筆贏或輸，同一輪連輸跟單只做一次。
 """
 
 from __future__ import annotations

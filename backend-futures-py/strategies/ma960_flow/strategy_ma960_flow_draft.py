@@ -1,7 +1,18 @@
-"""MA960 + MXF flow continuation signal draft.
+"""策略名稱：MA960 籌碼順勢觀察草稿。
 
-This draft only emits CSV/state/Discord alerts. It is intentionally not wired
-into `webhook_server.py` yet.
+用途：草稿觀察策略，只寫本資料夾內的 CSV/state 並送 Discord 通知。
+目前尚未接到 `webhook_server.py`，不下單，也不影響其他 H 策略。
+
+進場/通知規則：
+- 只做多方順勢觀察訊號。
+- 價格必須在 MA_960 上方且距離 MA_960 不超過 60 點。
+- MA_960 的 15 根斜率必須向上。
+- `tx_bvav` 與 `mtx_bvav` 都必須為正，代表大資金偏多。
+- 若 `mtx_tbta` 為負，標記為 `super_long`；若為正，標記為 `shakeout_long`。
+- 同類 setup 會套用 30 分鐘冷卻，避免連續通知。
+
+出場規則：
+- 這支目前只做順勢通知，沒有持倉狀態與出場訊號。
 """
 
 from __future__ import annotations

@@ -1,18 +1,19 @@
-"""H profit breakout add-on strategy.
+"""策略名稱：H 獲利突破加碼。
 
-This strategy emits add-on signals only. It does not place orders.
-Rules:
-- H bull must be at least +750 points before the first add-on long.
-- H bear must be at least +750 points before the first add-on short.
-- Bull add-on entry requires an MA_N200 upside breakout confirmed by two closes.
-- Bear add-on entry requires an MA_P200 downside breakout confirmed by two closes.
-- Add-on exits when price closes back through the same MA, or when H changes to
-  the opposite direction / a new H position.
-- Add-on quantity follows `h_position_size_state.json` `a_core_quantity`, which
-  is maintained by `auto_trade.py`.
-- When flat, H profit >= 750 points is enough to allow a fresh add-on entry.
-- The add-on's own +750 point gate is reserved for future pyramiding logic; this
-  signal strategy currently holds at most one add-on at a time.
+用途：第二帳號實單策略，webhook 會把 enter/exit 訊號交給
+`execute_h_profit_breakout_add_signal()` 下單。
+
+進場規則：
+- H 主單必須已有浮盈至少 750 點。
+- H 是多單時，價格要由 MA_N200 下方突破到上方，並連續 2 根收在 MA_N200 上方。
+- H 是空單時，價格要由 MA_P200 上方跌破到下方，並連續 2 根收在 MA_P200 下方。
+- 每一筆 H 主單同時間最多只持有一筆加碼單。
+- 加碼口數讀取 `h_position_size_state.json` 的 `a_core_quantity`，最少 1 口。
+
+出場規則：
+- 多單加碼後，收盤跌回 MA_N200 下方出場。
+- 空單加碼後，收盤站回 MA_P200 上方出場。
+- H 主單出場、反向或換成新倉時，加碼單同步出場。
 """
 
 from __future__ import annotations

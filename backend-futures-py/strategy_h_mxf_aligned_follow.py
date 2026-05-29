@@ -1,13 +1,16 @@
-"""H/MXF aligned follow observation strategy.
+"""策略名稱：H/MXF 順勢觀察。
 
-This strategy emits Discord/CSV observation signals only. It does not place
-orders.
+用途：觀察策略，只送 Discord/CSV 通知，不下單，也不擋其他策略。
 
-Live rule:
-- Morning H entry with `mtx_bvav_avg` supporting the H direction.
-- Follow H with one contract.
-- Exit when H exits/changes, or when the follow position moves 250 points
-  against the entry.
+進場規則：
+- 只看早盤 H 新倉。
+- H 新倉後最多 3 分鐘內才允許觸發，避免很久以前的 H 倉被 webhook 重啟後補發。
+- `mtx_bvav_avg` 必須順著 H 方向：H 多單時為正，H 空單時為負。
+- 同一筆 H 倉最多只允許觀察進場一次；會用 state 與 alert CSV 防止重複進場。
+
+出場規則：
+- H 主單出場、反向或換倉時，觀察單同步出場。
+- 觀察單進場後若逆行 250 點，視為停損出場。
 """
 
 from __future__ import annotations
@@ -33,6 +36,8 @@ ALERT_PATH = STRATEGY_ALERT_DIR / "h_mxf_aligned_follow_alert.csv"
 
 FOLLOW_QUANTITY = 1
 STOP_LOSS_POINTS = 250.0
+MAX_ENTRY_LAG_MINUTES = 3
+MAX_TRACKED_H_KEYS = 100
 
 ALERT_HEADER = [
     "timestamp",
@@ -127,6 +132,10 @@ def _latest_1m_row() -> dict[str, str] | None:
     return rows[-1] if rows else None
 
 
+def _latest_1m_time(row: dict[str, str]) -> datetime | None:
+    return _parse_dt(row.get("TradingView Time")) or _parse_dt(row.get("Record Time"))
+
+
 def _position_key(position: dict | None) -> str:
     if not position:
         return ""
@@ -134,6 +143,31 @@ def _position_key(position: dict | None) -> str:
     if isinstance(timestamp, datetime):
         timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S")
     return f"{timestamp}|{position.get('side', '')}|{position.get('price', '')}"
+
+
+def _alert_row_h_key(row: dict[str, str]) -> str:
+    timestamp = str(row.get("h_position_timestamp") or "").strip()
+    side = str(row.get("side") or "").strip().lower()
+    price = to_float(row.get("h_entry_price"))
+    if not timestamp or side not in {"bull", "bear"} or price is None:
+        return ""
+    return f"{timestamp}|{side}|{price}"
+
+
+def _alert_has_enter_for_h_key(h_key: str) -> bool:
+    if not h_key:
+        return False
+    for row in _read_csv_rows(ALERT_PATH):
+        if str(row.get("action") or "").strip() == "enter" and _alert_row_h_key(row) == h_key:
+            return True
+    return False
+
+
+def _remember_entered_h_key(state: dict, h_key: str) -> None:
+    entered_keys = list(state.get("entered_h_keys") or [])
+    entered_keys = [key for key in entered_keys if key != h_key]
+    entered_keys.append(h_key)
+    state["entered_h_keys"] = entered_keys[-MAX_TRACKED_H_KEYS:]
 
 
 def _mxf_at_or_before(value: datetime) -> dict[str, str] | None:
@@ -324,6 +358,37 @@ def evaluate_h_mxf_aligned_follow() -> dict | None:
         if state.get("last_checked_h_key") == h_key:
             return None
 
+        if h_key in set(state.get("entered_h_keys") or []) or _alert_has_enter_for_h_key(h_key):
+            state["last_checked_h_key"] = h_key
+            state["last_reject"] = {
+                "timestamp": now_str(),
+                "h_position_key": h_key,
+                "reason": "H/MXF aligned follow already entered for this H position",
+            }
+            _remember_entered_h_key(state, h_key)
+            _write_state(state)
+            return None
+
+        latest_1m_time = _latest_1m_time(latest_1m)
+        if latest_1m_time is None:
+            return None
+
+        entry_lag_minutes = (latest_1m_time - position["timestamp"]).total_seconds() / 60
+        if entry_lag_minutes < -1 or entry_lag_minutes > MAX_ENTRY_LAG_MINUTES:
+            state["last_checked_h_key"] = h_key
+            state["last_reject"] = {
+                "timestamp": now_str(),
+                "h_position_key": h_key,
+                "latest_1m_time": latest_1m_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "entry_lag_minutes": round(entry_lag_minutes, 2),
+                "reason": (
+                    "H/MXF aligned follow only observes fresh H entries; "
+                    f"latest 1m is more than {MAX_ENTRY_LAG_MINUTES} minutes after H entry"
+                ),
+            }
+            _write_state(state)
+            return None
+
         mxf = _mxf_at_or_before(position["timestamp"])
         if mxf is None:
             return None
@@ -360,6 +425,7 @@ def evaluate_h_mxf_aligned_follow() -> dict | None:
                 "rule": rule,
                 "max_follow_points": 0,
             }
+            _remember_entered_h_key(state, h_key)
             state["last_checked_h_key"] = h_key
             state["last_signal"] = signal
             _write_state(state)

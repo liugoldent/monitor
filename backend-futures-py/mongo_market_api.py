@@ -56,7 +56,6 @@ PRICE_UP_JSON_PATH = Path(__file__).resolve().parent / "tv_doc" / "priceUp.json"
 mongo_client = MongoClient(MONGO_URI)
 
 from openai import OpenAI
-from auto_trade_IntradayOdd import place_intraday_odd_lot
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 

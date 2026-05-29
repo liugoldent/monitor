@@ -1,13 +1,18 @@
-"""Unified H weakness reverse-guard strategy.
+"""策略名稱：H 轉弱反向護欄。
 
-This replaces the separate reverse-guard and profit-retrace observation modules
-in the webhook flow. It only emits Discord/CSV observation signals. It does not
-place orders.
+用途：觀察策略，只送 Discord/CSV 通知，不下單，也不擋其他策略。
+這支合併原本的「H 反向護欄」與「H 浮盈回吐」。
 
-Trigger kinds:
-- loss_guard: H is already losing and MXF/TF context confirms reverse pressure.
-- profit_retrace: H had a large open profit, gave back enough of it, and MXF
-  confirms reverse pressure.
+進場規則：
+- loss_guard：H 主單已虧損至少 100 點，且 MXF 籌碼與多週期狀態確認有 H 反向壓力。
+- profit_retrace：H 主單最高浮盈曾達 750 點，之後回吐至少 500 點，且回吐比例至少 50%，
+  同時 MXF 籌碼確認轉向 H 反向。
+- 進場方向永遠是 H 主單的反向，用來觀察是否該做保護。
+
+出場規則：
+- H 主單出場、反向或換倉時，護欄觀察單同步出場。
+- loss_guard 進場後，若保護單獲利達 160 點，或 `mtx_bvav_avg` 反向壓力消失，則出場。
+- profit_retrace 進場後，若 H 浮盈重新創高，或保護單虧損達 300 點，則出場。
 """
 
 from __future__ import annotations

@@ -1,14 +1,17 @@
-"""H morning open short-to-long turn strategy.
+"""策略名稱：H 早盤原空轉多開盤策略。
 
-This strategy emits signals only. It does not place orders.
+用途：觀察策略，只送 Discord/CSV 通知，不下單，也不擋其他策略。
 
-Rules:
-- Only reacts to H bear -> bull direction changes at the morning opening
-  window: 08:46/08:47.
-- The opening minute must be below MA_960 and mtx_bvav must be positive.
-- Initial stop is 250 points against the entry.
-- Once unrealized profit reaches 1000 points, exit on 600-point giveback.
-- If H changes/exits before either rule, exit with H.
+進場規則：
+- 只看早盤開盤附近 08:46/08:47 的 H 方向轉換。
+- 前一筆 H 是空單，新的 H 轉成多單。
+- 對應開盤分鐘的 1 分 K 收盤價在 MA_960 下方。
+- 同一分鐘 `mtx_bvav` 為正。
+
+出場規則：
+- 進場後先用逆行 250 點作為停損。
+- 浮盈曾達 1000 點後，若自最高浮盈回吐 600 點則出場。
+- 若 H 主單先出場、反向或換倉，觀察單同步出場。
 """
 
 from __future__ import annotations

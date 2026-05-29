@@ -1,7 +1,12 @@
-"""Shared helpers for strategy modules.
+"""模組名稱：策略共用工具。
 
-Keep strategy-specific business logic out of `webhook_server.py`.
-This module contains only reusable parsing, CSV, and Discord helpers.
+用途：這不是交易策略，不負責進出場，也不產生下單訊號。
+
+主要功能：
+- 共用數值轉換、CSV 讀寫、目前台北時間格式。
+- 讀取最新 MXF 快照，並附加到 Discord 訊息。
+- 建立短線帳號策略用的 Discord 發送 helper。
+- 讓 `webhook_server.py` 與各策略檔不要重複寫相同工具函式。
 """
 
 from __future__ import annotations
