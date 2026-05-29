@@ -1,0 +1,14 @@
+.git
+.DS_Store
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+**/.venv
+**/node_modules
+**/.env
+**/*.pfx
+**/*.log
+**/*.session
+**/*.session-journal
+backend-futures-py/tv_doc/backups
+backend-futures-py/tv_doc/research_outputs

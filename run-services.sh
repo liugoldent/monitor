@@ -1,6 +1,11 @@
 #!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [[ "${RUN_SERVICES_DOCKER:-}" == "1" || -f /.dockerenv ]]; then
+  exec bash "$SCRIPT_DIR/scripts/run-services-docker.sh"
+fi
+
 bash "$SCRIPT_DIR/run-trade-services.sh"
 
 osascript <<'EOF2'
