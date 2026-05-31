@@ -42,7 +42,7 @@ MAX_POSITION_DRAWDOWN_POINTS = 2000
 DEEP_DRAWDOWN_POINTS = 3000
 EXIT_ADD_POSITION_DRAWDOWN_POINTS = 0
 MDD_RESET_TOLERANCE_POINTS = 5
-B_OVERLAY_START_LOSS_STREAK = 2
+B_OVERLAY_START_LOSS_STREAK = 4
 
 # A 是常駐核心部位：MDD 到 1000/2000 點時，把核心口數提高到 2/3 口；
 # 達標後維持該口數，直到 MDD 歸 0 或連贏 3 次才回 1 口。
@@ -50,7 +50,7 @@ BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
 MAX_POSITION_ENTRY_QUANTITY = 3
 
-# B 是修復段加碼部位：連輸 2 次或 MDD 達 2000 點啟動，MDD 到 2000/3000 點時提高到 2/3 口。
+# B 是修復段加碼部位：連輸 4 次或 MDD 達 2000 點啟動，MDD 到 2000/3000 點時提高到 2/3 口。
 B_OVERLAY_BASE_QUANTITY = 1
 B_OVERLAY_ADD_QUANTITY = 2
 B_OVERLAY_DEEP_DRAWDOWN_QUANTITY = 3
@@ -357,7 +357,7 @@ def _get_entry_quantity() -> int:
     pnls = _get_all_exiting_pnls()
     # 目前單口回撤金額：只用已寫入 h_trade.csv 的 exiting pnl 重算，
     current_drawdown_pnl = _get_current_drawdown_pnl()
-    # 從最近一筆 exiting 往前數，連續 pnl < 0 的筆數；B overlay 可由連輸 2 次或 MDD 達 2000 點啟動。
+    # 從最近一筆 exiting 往前數，連續 pnl < 0 的筆數；B overlay 可由連輸 4 次或 MDD 達 2000 點啟動。
     consecutive_loss_count = _get_consecutive_loss_count(pnls)
     # 讀取 h_position_size_state.json，延續上一輪是否已經啟動 B overlay 的狀態。
     state = _load_position_size_state()
