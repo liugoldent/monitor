@@ -40,3 +40,5 @@
 # Misc runtime files
 *.session
 *.session-journal
+private-runtime-files.zip
+*.zip
