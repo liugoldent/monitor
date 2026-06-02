@@ -1,7 +1,7 @@
 """Webhook ingestion server.
 
 This module receives webhook payloads, persists candle rows, and runs the active
-H reverse guard strategy for the second account.
+one-minute H strategy package.
 """
 
 from __future__ import annotations
@@ -16,21 +16,16 @@ import threading
 from datetime import datetime
 
 PORT = 8080
-ONE_MINUTE_STRATEGY_DELAY_SECONDS = 15
+ONE_MINUTE_STRATEGY_DELAY_SECONDS = 2
 BASE_DIR = os.path.dirname(__file__)
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
-from auto_trade_shortCycle import (
-    execute_h_loss_streak_follow_signal,
-    execute_h_profit_breakout_add_signal,
-)
-from strategy_h_loss_streak_follow import evaluate_h_loss_streak_follow
+from auto_trade_nextMonth import execute_h_reverse_loss_guard_signal
 from strategy_h_mxf_aligned_follow import evaluate_h_mxf_aligned_follow
 from strategy_h_open_turn import evaluate_h_open_turn
-from strategy_h_profit_breakout_add import evaluate_h_profit_breakout_add
-from strategy_h_weakness_reverse_guard import evaluate_h_weakness_reverse_guard
+from strategy_h_reverse_loss_guard import clear_active_guard_after_order_failure, evaluate_h_reverse_loss_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
 
@@ -77,12 +72,10 @@ def _append_webhook_row(path: str, row: list[object]) -> None:
 
 def _run_one_minute_strategies(symbol: str, close_price: object, current_time: str) -> None:
     try:
-        # 第二帳號策略優先順序：
+        # 主帳號遠月策略順序：
         # 1. 先跑只通知的早盤開盤策略。
         # 2. H/MXF 順勢觀察目前只做 Discord/CSV 紀錄，不下單、不擋其他策略。
-        # 3. H 連輸 2 次一次性跟單仍是一般 H 新倉跟單裡的高優先策略。
-        # 4. H 轉弱反向護欄目前只做 Discord 觀察通知，不下單、不擋 H 獲利突破加碼。
-        # 5. H 獲利突破加碼維持可實際下單。
+        # 3. 遠月帳號只做 H 175 點反向保護，每筆 H 持倉獨立判斷。
         print(
             f"⏱️ Running 1m strategies after {ONE_MINUTE_STRATEGY_DELAY_SECONDS}s delay: "
             f"{symbol} @ {close_price} (received={current_time})"
@@ -97,26 +90,14 @@ def _run_one_minute_strategies(symbol: str, close_price: object, current_time: s
         if mxf_aligned_signal:
             print(f"🧭 H/MXF aligned follow signal: {mxf_aligned_signal}")
 
-        # ❗ ❗ ❗ H 連輸 2 次後，第二帳號下一筆 H 新倉一次性同向跟單。
-        loss_streak_signal = evaluate_h_loss_streak_follow()
-        if loss_streak_signal:
-            print(f"🔁 H loss-streak follow signal: {loss_streak_signal}")
-            order_sent = execute_h_loss_streak_follow_signal(loss_streak_signal)
-            print(f"🔁 H loss-streak follow order sent: {order_sent}")
-
-        # 連輸跟單如果已經進場，這根 K 不再讓其他第二帳號策略進場。
-        if not loss_streak_signal or loss_streak_signal.get("action") != "enter":
-            # H 轉弱反向護欄：合併「已虧損轉弱」與「浮盈回吐轉弱」；目前只通知不下單。
-            weakness_guard_signal = evaluate_h_weakness_reverse_guard()
-            if weakness_guard_signal:
-                print(f"🛡️ H weakness reverse guard signal: {weakness_guard_signal}")
-
-            # ❗ ❗ ❗ H 主單浮盈達標且突破 MA 時，第二帳號同向加碼；出場訊號也在這裡處理。
-            profit_breakout_signal = evaluate_h_profit_breakout_add()
-            if profit_breakout_signal:
-                print(f"📈 H profit breakout add signal: {profit_breakout_signal}")
-                order_sent = execute_h_profit_breakout_add_signal(profit_breakout_signal)
-                print(f"📈 H profit breakout add order sent: {order_sent}")
+        # H 175 點反向保護：遠月帳號同 H 口數反向進場，H 出場/反手時同步出場。
+        reverse_loss_guard_signal = evaluate_h_reverse_loss_guard()
+        if reverse_loss_guard_signal:
+            print(f"🛡️ H reverse-loss guard signal: {reverse_loss_guard_signal}")
+            order_sent = execute_h_reverse_loss_guard_signal(reverse_loss_guard_signal)
+            print(f"🛡️ H reverse-loss guard order sent: {order_sent}")
+            if not order_sent:
+                clear_active_guard_after_order_failure(reverse_loss_guard_signal)
         sys.stdout.flush()
     except Exception as exc:
         print(f"❌ Delayed 1m strategy error: {exc}")

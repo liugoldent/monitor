@@ -1,0 +1,9 @@
+{
+  "active_guard": null,
+  "tracked_h_position_key": "2026-06-02 09:27:01|bear|45614.0",
+  "last_h_unrealized_points": -756.0,
+  "skipped_stale_h_key": "2026-06-02 09:27:01|bear|45614.0",
+  "last_entry_h_key": "2026-06-02 09:27:01|bear|45614.0",
+  "stale_skip_reason": "manual clear: guard order was not actually placed for the already-stale 2026-06-02 H position; wait for next H position",
+  "updated_at": "2026-06-02 20:27:02"
+}

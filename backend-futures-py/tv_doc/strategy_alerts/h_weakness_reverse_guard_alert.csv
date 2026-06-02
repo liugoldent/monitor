@@ -1,4 +1,0 @@
-timestamp,action,trigger_kind,side,quantity,entry_price,close,h_position_timestamp,h_side,h_entry_price,h_unrealized_points,max_h_unrealized_points,giveback_points,mtx_bvav,mtx_bvav_avg,mxf_signal,mxf_trend,tf_score,reason
-2026-05-29 22:27:14,enter,loss_guard,bear,1,45074.0,45074.0,2026-05-29 10:16:07,bull,45212.0,-138.0,250.0,388.0,-1497.0,-288.0,bear,death,0,H 已轉為虧損且 MXF/多週期確認 H 反向壓力，進反向保護
-2026-05-29 22:43:13,exit,loss_guard,bear,1,45074.0,44907.0,2026-05-29 10:16:07,bull,45212.0,-305.0,250.0,555.0,-1985.0,-1202.0,bear,death,1,loss_guard reached 160 points
-2026-05-29 22:44:14,enter,loss_guard,bear,1,44927.0,44927.0,2026-05-29 10:16:07,bull,45212.0,-285.0,250.0,535.0,-1722.0,-1269.0,bear,death,1,H 已轉為虧損且 MXF/多週期確認 H 反向壓力，進反向保護

@@ -19,7 +19,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 try:
-    from auto_trade_shortCycle import send_discord_message as _base_shortcycle_send_discord_message
+    from auto_trade_nextMonth import send_discord_message as _base_shortcycle_send_discord_message
 except Exception:  # pragma: no cover - fallback for environments without optional trade deps
     _base_shortcycle_send_discord_message = None
 

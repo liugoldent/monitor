@@ -1,0 +1,2 @@
+timestamp,action,side,quantity,entry_price,close,guard_points,h_position_timestamp,h_side,h_entry_price,h_unrealized_points,consecutive_loss_count,reason
+2026-06-02 17:49:15,enter,bull,1,46370.0,46370.0,0,2026-06-02 09:27:01,bear,45614.0,-756.0,0,H 浮虧達 756.0 點，超過 175 點；連輸2次跟單未啟動，保護帳號反向進場

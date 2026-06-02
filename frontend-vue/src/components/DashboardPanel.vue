@@ -149,6 +149,8 @@ const formatPriceUpSuffix = (value?: string) => {
 
 const formatEtfLabel = (value: string) => value.replace('etf_', '')
 const allowedEtfValues = new Set(ETF_OPTIONS.map((item) => item.value))
+const sortByStockCode = <T extends { code: string }>(a: T, b: T) =>
+    a.code.localeCompare(b.code, undefined, { numeric: true })
 
 const normalizeEtfDetails = (rawDetails: any[]): EtfHoldingDetail[] => {
     const detailMap = new Map<string, EtfHoldingDetail>()
@@ -206,9 +208,8 @@ const formatShareMessage = () => {
     lines.push(`股票數: ${visibleEtfChanges.value.length}`)
     lines.push('清單:')
 
-    visibleEtfChanges.value.forEach((item, index) => {
-        const delta = formatDelta(item.delta)
-        lines.push(`${index + 1}. ${item.code} ${item.name} 差異 ${delta}${formatPriceUpSuffix(item.price_up_date)}`)
+    visibleEtfChanges.value.forEach((item) => {
+        lines.push(`${item.code} ${item.name} - ${formatHoldingStrength(item.holding_etf_count)}`)
     })
 
     return lines.join('\n')
@@ -335,6 +336,13 @@ const listHoldingEtfs = (item: EtfHoldingChangeItem, field: 'latest_holding_coun
         .map((detail) => formatEtfLabel(detail.etf))
 }
 
+const formatHoldingStrength = (holdingCount: number) => {
+    if (holdingCount >= 5) return '🔥 [5檔] >20MA'
+    if (holdingCount === 4) return '[4檔] >10 & 20MA'
+    if (holdingCount === 3) return '[3檔] >5 & 10 & 20MA'
+    return `${holdingCount}檔擁有`
+}
+
 const commonMembershipChanges = computed(() => {
     const added: EtfCommonMembershipChangeItem[] = []
     const removed: EtfCommonMembershipChangeItem[] = []
@@ -378,6 +386,7 @@ const hasCommonMembershipChanges = computed(() => {
 
 const visibleEtfChanges = computed<EtfHoldingDisplayItem[]>(() => {
     const source = allEtfChanges.value.filter((item) => {
+        if (String(item.code).trim() === 'C_NTD') return false
         const holdingCount = countHoldingEtfs(item, 'latest_holding_count')
         return holdingCount >= commonMinCount.value
     })
@@ -387,12 +396,7 @@ const visibleEtfChanges = computed<EtfHoldingDisplayItem[]>(() => {
             ...item,
             holding_etf_count: countHoldingEtfs(item, 'latest_holding_count'),
         }))
-        .sort((a, b) => {
-            if (b.holding_etf_count !== a.holding_etf_count) {
-                return b.holding_etf_count - a.holding_etf_count
-            }
-            return Math.abs(b.delta) - Math.abs(a.delta)
-        })
+        .sort(sortByStockCode)
 })
 
 const currentIntersectionLabel = computed(() => {

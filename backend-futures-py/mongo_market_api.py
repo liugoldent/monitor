@@ -334,7 +334,6 @@ def _annotate_price_up_in_message(message: str) -> str:
         if "（報價：" in line:
             annotated_lines.append(line)
             continue
-
         match = line_pattern.match(line)
         if not match:
             annotated_lines.append(line)
