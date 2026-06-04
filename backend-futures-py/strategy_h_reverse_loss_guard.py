@@ -1,15 +1,17 @@
-"""策略名稱：H 175 點反向保護。
+"""策略名稱：H 175 點遠月鎖損。
 
-用途：產生遠月帳號反向保護訊號；webhook 會交給
+用途：產生遠月帳號鎖損訊號；webhook 會交給
 `execute_h_reverse_loss_guard_signal()` 下單，也會寫 CSV/Discord 紀錄。
 
 進場規則：
-- H 最新持倉浮虧達 175 點。
+- H 最新持倉單口浮虧達 175 點。
 - 每筆 H 持倉都獨立判斷。
-- 同一筆 H 持倉最多只進一次反向保護。
+- 同一筆 H 持倉最多只進一次遠月鎖損。
+- 遠月鎖損單同 H 口數反向進場。
 
 出場規則：
-- H 主單出場、反向或換倉時，保護單同步出場。
+- 不做浮盈出場。
+- H 主單出場、反向或換倉時，遠月鎖損單同步出場。
 """
 
 from __future__ import annotations
@@ -163,7 +165,12 @@ def _points(side: str, entry_price: float, close: float) -> float:
 def _position_quantity(position: dict | None) -> int:
     if not position:
         return DEFAULT_GUARD_QUANTITY
-    return _coerce_quantity(position.get("quantity", DEFAULT_GUARD_QUANTITY))
+    h_quantity = _coerce_quantity(position.get("quantity", DEFAULT_GUARD_QUANTITY))
+    return h_quantity
+
+
+def _guard_quantity(position: dict | None) -> int:
+    return _position_quantity(position)
 
 
 def _build_signal(
@@ -199,13 +206,14 @@ def _build_signal(
 
 
 def _send_signal_message(signal: dict) -> None:
-    action_text = "進場" if signal.get("action") == "enter" else "出場"
+    action = str(signal.get("action") or "")
+    action_text = {"enter": "進場", "exit": "出場"}.get(action, action)
     message = (
-        "策略=H 175點反向保護(strategy_h_reverse_loss_guard，遠月帳號送單)；"
-        f"保護單{action_text}：{_side_text(str(signal.get('side') or ''))} "
+        "策略=H 175點遠月鎖損(strategy_h_reverse_loss_guard，遠月帳號送單)；"
+        f"鎖損單{action_text}：{_side_text(str(signal.get('side') or ''))} "
         f"{signal.get('quantity', DEFAULT_GUARD_QUANTITY)}口，"
         f"價格={signal.get('close', signal.get('entry_price', ''))}，"
-        f"保護浮動={signal.get('guard_points', '')}點，"
+        f"鎖損單浮動={signal.get('guard_points', '')}點，"
         f"H方向={_side_text(str(signal.get('h_side') or ''))}，"
         f"H進場={signal.get('h_entry_price', '')}，"
         f"H浮動={signal.get('h_unrealized_points', '')}點，"
@@ -216,7 +224,7 @@ def _send_signal_message(signal: dict) -> None:
 
 
 def evaluate_h_reverse_loss_guard() -> dict | None:
-    """Evaluate the 175-point reverse guard and return an enter/exit signal."""
+    """Evaluate the 175-point far-month loss lock and return an enter/exit signal."""
     with LOCK:
         latest_1m = _latest_csv_row(WEBHOOK_1M_CSV_PATH)
         close = to_float(latest_1m.get("Close")) if latest_1m else None
@@ -254,7 +262,7 @@ def evaluate_h_reverse_loss_guard() -> dict | None:
                 position=position,
                 h_unrealized=h_unrealized,
                 loss_count=loss_count,
-                reason="H 主單已出場/反向/換倉，175點反向保護同步出場",
+                reason="H 主單已出場/反向/換倉，175點遠月鎖損同步出場",
                 entry_price="" if entry_price is None else entry_price,
                 guard_points="" if guard_points == "" else round(float(guard_points), 1),
             )
@@ -307,10 +315,10 @@ def evaluate_h_reverse_loss_guard() -> dict | None:
             return None
 
         guard_side = _reverse_side(h_side)
-        guard_quantity = _position_quantity(position)
+        guard_quantity = _guard_quantity(position)
         reason = (
             f"H 浮虧達 {abs(h_unrealized):.1f} 點，超過 {LOSS_TRIGGER_POINTS:g} 點；"
-            f"每筆 H 持倉獨立保護，同 H 口數 {guard_quantity} 口反向進場"
+            f"每筆 H 持倉獨立鎖損，同 H 口數 {guard_quantity} 口遠月反向進場"
         )
         signal = _build_signal(
             action="enter",
@@ -345,7 +353,8 @@ def evaluate_h_reverse_loss_guard() -> dict | None:
 
 def clear_active_guard_after_order_failure(signal: dict) -> None:
     """Clear a just-created guard state when the broker order was not placed."""
-    if str(signal.get("action") or "").strip().lower() != "enter":
+    action = str(signal.get("action") or "").strip().lower()
+    if action != "enter":
         return
 
     signal_key = (

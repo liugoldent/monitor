@@ -2,6 +2,7 @@ import shioaji as sj # 載入永豐金Python API
 import os
 import requests
 import json
+import csv
 import threading
 import atexit
 import time as pytime
@@ -31,13 +32,96 @@ load_env_file()
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
+ORDER_EVENT_CSV_PATH = Path(base_dir) / "tv_doc" / "h_reverse_loss_guard_order_events.csv"
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
 API_LOCK = threading.RLock()
 API_CLIENT = None
 
+ORDER_EVENT_HEADER = [
+    "timestamp",
+    "strategy",
+    "result",
+    "signal_action",
+    "order_action",
+    "side",
+    "quantity",
+    "contract_code",
+    "h_position_timestamp",
+    "h_side",
+    "h_entry_price",
+    "h_unrealized_points",
+    "signal_reason",
+    "broker_status",
+    "broker_order_id",
+    "broker_message",
+    "broker_trade",
+    "error",
+]
+
 def _get_contract(api):
     # Use the far-month TMF contract for the webhook-driven add-on strategies.
     return api.Contracts.Futures.TMF.TMFR2
+
+
+def _safe_text(value) -> str:
+    if value is None:
+        return ""
+    try:
+        if isinstance(value, (str, int, float, bool)):
+            return str(value)
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return repr(value)
+
+
+def _trade_attr_text(trade, path: tuple[str, ...]) -> str:
+    value = trade
+    for name in path:
+        value = getattr(value, name, None)
+        if value is None:
+            return ""
+    return _safe_text(value)
+
+
+def _append_order_event(
+    *,
+    signal: dict,
+    result: str,
+    order_action: str = "",
+    contract=None,
+    trade=None,
+    error: object = "",
+) -> None:
+    try:
+        ORDER_EVENT_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+        exists = ORDER_EVENT_CSV_PATH.exists()
+        row = {
+            "timestamp": datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S"),
+            "strategy": "h_reverse_loss_guard",
+            "result": result,
+            "signal_action": signal.get("action", ""),
+            "order_action": order_action,
+            "side": signal.get("side", ""),
+            "quantity": signal.get("quantity", ""),
+            "contract_code": _safe_text(getattr(contract, "code", "")),
+            "h_position_timestamp": signal.get("h_position_timestamp", ""),
+            "h_side": signal.get("h_side", ""),
+            "h_entry_price": signal.get("h_entry_price", ""),
+            "h_unrealized_points": signal.get("h_unrealized_points", ""),
+            "signal_reason": signal.get("reason", ""),
+            "broker_status": _trade_attr_text(trade, ("status", "status")),
+            "broker_order_id": _trade_attr_text(trade, ("status", "id")),
+            "broker_message": _trade_attr_text(trade, ("status", "msg")),
+            "broker_trade": _safe_text(trade),
+            "error": _safe_text(error),
+        }
+        with ORDER_EVENT_CSV_PATH.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=ORDER_EVENT_HEADER)
+            if not exists:
+                writer.writeheader()
+            writer.writerow(row)
+    except Exception as e:
+        print("遠月鎖損下單紀錄寫入錯誤", e)
 
 def _normalize_trade_status(value) -> str:
     text = str(value).strip().lower().replace("_", "").replace("-", "")
@@ -109,8 +193,8 @@ def get_latest_open_trade(api, side: str | None = None):
 
 
 def _build_api_client():
-    api_key = os.getenv("API_KEY2")
-    secret_key = os.getenv("SECRET_KEY2")
+    api_key = os.getenv("API_KEY")
+    secret_key = os.getenv("SECRET_KEY")
     if not api_key or not secret_key:
         raise RuntimeError("Missing API_KEY or SECRET_KEY")
     if not os.path.exists(ca_path):
@@ -165,43 +249,55 @@ def _close_position_with_api(api, test_now: datetime):
     if len(positions) > 0:
         pos = positions[0]
         pos_qty = int(pos['quantity'])
-        direction = pos['direction']
-        if direction == 'Buy':
+        side = _position_direction_to_side(pos['direction'])
+        if side == 'bull':
             sellOne(api, contract, pos_qty)
             send_discord_message(f'[{test_now:%H:%M:%S}]：主帳號遠月。丟空單平倉')
 
-        if direction == 'Sell':
+        if side == 'bear':
             buyOne(api, contract, pos_qty)
             send_discord_message(f'[{test_now:%H:%M:%S}]：主帳號遠月。丟多單平倉')
 
 
+def _position_direction_to_side(direction: object) -> str | None:
+    direction_text = str(direction).strip().lower()
+    if direction_text == "buy":
+        return "bull"
+    if direction_text == "sell":
+        return "bear"
+    return None
+
+
 def _get_current_position(api) -> tuple[str | None, int]:
+    """Read the current broker position the same way auto_trade.py does."""
     positions = api.list_positions(api.futopt_account)
     if not positions:
         return None, 0
 
     pos = positions[0]
-    side = None
-    direction = str(pos["direction"]).strip().lower()
-    if direction == "buy":
-        side = "bull"
-    elif direction == "sell":
-        side = "bear"
+    side = _position_direction_to_side(pos["direction"])
     return side, int(pos["quantity"])
 
 
 def execute_h_reverse_loss_guard_signal(signal: dict) -> bool:
-    """Place far-month account orders for H 175-point reverse guard signals."""
+    """Place far-month account orders for H 175-point loss-lock signals."""
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
-    action = str(signal.get("action") or "").strip().lower()
-    side = str(signal.get("side") or "").strip().lower()
+    signal_for_log = dict(signal or {})
+    action = str(signal_for_log.get("action") or "").strip().lower()
+    side = str(signal_for_log.get("side") or "").strip().lower()
     if action not in {"enter", "exit"} or side not in {"bull", "bear"}:
+        signal_for_log["action"] = action
+        signal_for_log["side"] = side
+        _append_order_event(signal=signal_for_log, result="invalid_signal")
         return False
 
     try:
-        quantity = max(1, int(float(signal.get("quantity", 1))))
+        quantity = max(1, int(float(signal_for_log.get("quantity", 1))))
     except (TypeError, ValueError):
         quantity = 1
+    signal_for_log["action"] = action
+    signal_for_log["side"] = side
+    signal_for_log["quantity"] = quantity
 
     try:
         with API_LOCK:
@@ -216,39 +312,70 @@ def execute_h_reverse_loss_guard_signal(signal: dict) -> bool:
             if action == "enter":
                 if current_side is not None:
                     send_discord_message(
-                        f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點反向護欄進場略過，'
+                        f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損進場略過，'
                         f'帳戶目前已有 {current_side} {current_qty} 口，訊號為 {side} {quantity} 口'
+                    )
+                    _append_order_event(
+                        signal=signal_for_log,
+                        result="skipped_existing_position",
+                        contract=contract,
                     )
                     return False
 
                 if side == "bull":
-                    buyOne(api, contract, quantity)
+                    trade = buyOne(api, contract, quantity)
+                    order_action = "buy"
                 else:
-                    sellOne(api, contract, quantity)
+                    trade = sellOne(api, contract, quantity)
+                    order_action = "sell"
+                _append_order_event(
+                    signal=signal_for_log,
+                    result="sent",
+                    order_action=order_action,
+                    contract=contract,
+                    trade=trade,
+                )
                 send_discord_message(
-                    f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點反向護欄進場 {side} {quantity} 口'
+                    f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損進場 {side} {quantity} 口'
                 )
                 return True
 
             if current_side != side or current_qty <= 0:
                 send_discord_message(
-                    f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點反向護欄出場略過，'
-                    f'帳戶沒有可退的 {side} 護欄部位'
+                    f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損出場略過，'
+                    f'帳戶沒有可退的 {side} 鎖損部位'
+                )
+                _append_order_event(
+                    signal=signal_for_log,
+                    result="skipped_no_position",
+                    contract=contract,
                 )
                 return False
 
             exit_quantity = min(quantity, current_qty)
+            exit_signal_for_log = dict(signal_for_log)
+            exit_signal_for_log["quantity"] = exit_quantity
             if side == "bull":
-                sellOne(api, contract, exit_quantity)
+                trade = sellOne(api, contract, exit_quantity)
+                order_action = "sell"
             else:
-                buyOne(api, contract, exit_quantity)
+                trade = buyOne(api, contract, exit_quantity)
+                order_action = "buy"
+            _append_order_event(
+                signal=exit_signal_for_log,
+                result="sent",
+                order_action=order_action,
+                contract=contract,
+                trade=trade,
+            )
             send_discord_message(
-                f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點反向護欄出場 {side} {exit_quantity} 口'
+                f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損出場 {side} {exit_quantity} 口'
             )
             return True
     except Exception as e:
-        print('H 175點反向護欄送單錯誤', e)
-        send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點反向護欄送單錯誤：{e}')
+        print('H 175點遠月鎖損送單錯誤', e)
+        _append_order_event(signal=signal_for_log, result="error", error=e)
+        send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損送單錯誤：{e}')
     return False
 
 

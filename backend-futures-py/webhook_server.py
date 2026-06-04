@@ -1,7 +1,7 @@
 """Webhook ingestion server.
 
-This module receives webhook payloads, persists candle rows, and runs the active
-one-minute H strategy package.
+This module receives webhook payloads, persists candle rows, and runs the
+one-minute far-month H loss lock.
 """
 
 from __future__ import annotations
@@ -23,8 +23,6 @@ if BASE_DIR not in sys.path:
 
 from strategy_common import TZ, ensure_csv_header
 from auto_trade_nextMonth import execute_h_reverse_loss_guard_signal
-from strategy_h_mxf_aligned_follow import evaluate_h_mxf_aligned_follow
-from strategy_h_open_turn import evaluate_h_open_turn
 from strategy_h_reverse_loss_guard import clear_active_guard_after_order_failure, evaluate_h_reverse_loss_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
@@ -72,30 +70,19 @@ def _append_webhook_row(path: str, row: list[object]) -> None:
 
 def _run_one_minute_strategies(symbol: str, close_price: object, current_time: str) -> None:
     try:
-        # 主帳號遠月策略順序：
-        # 1. 先跑只通知的早盤開盤策略。
-        # 2. H/MXF 順勢觀察目前只做 Discord/CSV 紀錄，不下單、不擋其他策略。
-        # 3. 遠月帳號只做 H 175 點反向保護，每筆 H 持倉獨立判斷。
+        # 1m webhook only runs the far-month H loss lock.
         print(
-            f"⏱️ Running 1m strategies after {ONE_MINUTE_STRATEGY_DELAY_SECONDS}s delay: "
+            f"⏱️ Running 1m far-month loss lock after {ONE_MINUTE_STRATEGY_DELAY_SECONDS}s delay: "
             f"{symbol} @ {close_price} (received={current_time})"
         )
-        # H 早盤原空轉多開盤策略：目前只做 Discord 通知與 CSV 紀錄，不下單、不擋其他策略。
-        open_turn_signal = evaluate_h_open_turn()
-        if open_turn_signal:
-            print(f"🌅 H open-turn signal: {open_turn_signal}")
 
-        # H/MXF 順勢觀察：早盤 H 新倉且 mtx_bvav_avg 順 H；目前只通知，不下單。
-        mxf_aligned_signal = evaluate_h_mxf_aligned_follow()
-        if mxf_aligned_signal:
-            print(f"🧭 H/MXF aligned follow signal: {mxf_aligned_signal}")
-
-        # H 175 點反向保護：遠月帳號同 H 口數反向進場，H 出場/反手時同步出場。
+        # H 175-point loss lock: enter far-month reverse same-quantity,
+        # then hold the lock until the H position exits or reverses.
         reverse_loss_guard_signal = evaluate_h_reverse_loss_guard()
         if reverse_loss_guard_signal:
-            print(f"🛡️ H reverse-loss guard signal: {reverse_loss_guard_signal}")
+            print(f"🛡️ H far-month loss-lock signal: {reverse_loss_guard_signal}")
             order_sent = execute_h_reverse_loss_guard_signal(reverse_loss_guard_signal)
-            print(f"🛡️ H reverse-loss guard order sent: {order_sent}")
+            print(f"🛡️ H far-month loss-lock order sent: {order_sent}")
             if not order_sent:
                 clear_active_guard_after_order_failure(reverse_loss_guard_signal)
         sys.stdout.flush()
@@ -116,7 +103,7 @@ def _schedule_one_minute_strategies(symbol: str, close_price: object, current_ti
 
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        """Receive webhook data, persist it, and run the H reverse guard."""
+        """Receive webhook data, persist it, and run the H far-month loss lock."""
         if self.path != "/webhook":
             self.send_error(404, "Not Found")
             return
