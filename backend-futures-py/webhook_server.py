@@ -1,7 +1,7 @@
 """Webhook ingestion server.
 
 This module receives webhook payloads, persists candle rows, and runs the
-one-minute far-month H loss lock.
+one-minute far-month H loss-lock notifier.
 """
 
 from __future__ import annotations
@@ -22,8 +22,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
-from auto_trade_nextMonth import execute_h_reverse_loss_guard_signal
-from strategy_h_reverse_loss_guard import clear_active_guard_after_order_failure, evaluate_h_reverse_loss_guard
+from strategy_h_reverse_loss_guard import evaluate_h_reverse_loss_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
 
@@ -70,21 +69,18 @@ def _append_webhook_row(path: str, row: list[object]) -> None:
 
 def _run_one_minute_strategies(symbol: str, close_price: object, current_time: str) -> None:
     try:
-        # 1m webhook only runs the far-month H loss lock.
+        # 1m webhook only runs the far-month H loss-lock notifier.
         print(
             f"⏱️ Running 1m far-month loss lock after {ONE_MINUTE_STRATEGY_DELAY_SECONDS}s delay: "
             f"{symbol} @ {close_price} (received={current_time})"
         )
 
-        # H 175-point loss lock: enter far-month reverse same-quantity,
-        # then hold the lock until the H position exits or reverses.
+        # H 175-point loss lock: only write alert/state and send Discord.
+        # Far-month orders are intentionally disabled here.
         reverse_loss_guard_signal = evaluate_h_reverse_loss_guard()
         if reverse_loss_guard_signal:
             print(f"🛡️ H far-month loss-lock signal: {reverse_loss_guard_signal}")
-            order_sent = execute_h_reverse_loss_guard_signal(reverse_loss_guard_signal)
-            print(f"🛡️ H far-month loss-lock order sent: {order_sent}")
-            if not order_sent:
-                clear_active_guard_after_order_failure(reverse_loss_guard_signal)
+            print("🛡️ H far-month loss-lock notification only; no broker order sent")
         sys.stdout.flush()
     except Exception as exc:
         print(f"❌ Delayed 1m strategy error: {exc}")

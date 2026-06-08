@@ -1,7 +1,6 @@
 """策略名稱：H 175 點遠月鎖損。
 
-用途：產生遠月帳號鎖損訊號；webhook 會交給
-`execute_h_reverse_loss_guard_signal()` 下單，也會寫 CSV/Discord 紀錄。
+用途：產生遠月帳號鎖損通知；webhook 只寫 CSV/Discord 紀錄，不自動送單。
 
 進場規則：
 - H 最新持倉單口浮虧達 175 點。
@@ -209,7 +208,7 @@ def _send_signal_message(signal: dict) -> None:
     action = str(signal.get("action") or "")
     action_text = {"enter": "進場", "exit": "出場"}.get(action, action)
     message = (
-        "策略=H 175點遠月鎖損(strategy_h_reverse_loss_guard，遠月帳號送單)；"
+        "策略=H 175點遠月鎖損(strategy_h_reverse_loss_guard，僅通知不送單)；"
         f"鎖損單{action_text}：{_side_text(str(signal.get('side') or ''))} "
         f"{signal.get('quantity', DEFAULT_GUARD_QUANTITY)}口，"
         f"價格={signal.get('close', signal.get('entry_price', ''))}，"

@@ -39,21 +39,15 @@ POINT_VALUE = 10
 # 下列門檻都用「點數」設定；實際比較時會乘上 POINT_VALUE 轉成單口 pnl。
 ADD_POSITION_DRAWDOWN_POINTS = 1000
 MAX_POSITION_DRAWDOWN_POINTS = 2000
-DEEP_DRAWDOWN_POINTS = 3000
+PROPORTIONAL_POSITION_SIZE_REFERENCE_PRICE = 22910
 EXIT_ADD_POSITION_DRAWDOWN_POINTS = 0
 MDD_RESET_TOLERANCE_POINTS = 5
-B_OVERLAY_START_LOSS_STREAK = 4
 
 # A 是常駐核心部位：MDD 到 1000/2000 點時，把核心口數提高到 2/3 口；
 # 達標後維持該口數，直到 MDD 歸 0 或連贏 3 次才回 1 口。
 BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
 MAX_POSITION_ENTRY_QUANTITY = 3
-
-# B 是修復段加碼部位：連輸 4 次或 MDD 達 2000 點啟動，MDD 到 2000/3000 點時提高到 2/3 口。
-B_OVERLAY_BASE_QUANTITY = 1
-B_OVERLAY_ADD_QUANTITY = 2
-B_OVERLAY_DEEP_DRAWDOWN_QUANTITY = 3
 
 
 def _ensure_trade_log() -> None:
@@ -232,6 +226,186 @@ def _get_current_drawdown_pnl() -> float:
     return peak_equity - equity
 
 
+def _parse_trade_price(raw_value: object) -> float | None:
+    raw = str(raw_value).replace(",", "").strip()
+    if raw == "":
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _get_completed_h_trades_after_start() -> list[dict[str, float]]:
+    completed_trades: list[dict[str, float]] = []
+    current_entry_price: float | None = None
+
+    for row in _iter_trade_rows_after_start():
+        if len(row) < 5:
+            continue
+
+        action = str(row[1]).strip().lower()
+        price = _parse_trade_price(row[3])
+
+        if action == "enter":
+            current_entry_price = price
+            continue
+
+        if action != "exiting":
+            continue
+
+        pnl = _parse_pnl_value(row[4])
+        if pnl is None:
+            current_entry_price = None
+            continue
+
+        # If the configured start row begins after the matching enter row, use exit price as
+        # a conservative fallback so proportional sizing can still continue.
+        entry_price = current_entry_price if current_entry_price is not None else price
+        if entry_price is not None:
+            completed_trades.append({"entry_price": entry_price, "pnl": pnl})
+        current_entry_price = None
+
+    return completed_trades
+
+
+def _get_proportional_drawdown_threshold_points(entry_price: float | None) -> tuple[float, float]:
+    reference_price = float(PROPORTIONAL_POSITION_SIZE_REFERENCE_PRICE)
+    if entry_price is None or entry_price <= 0:
+        entry_price = reference_price
+
+    add_threshold_points = entry_price * ADD_POSITION_DRAWDOWN_POINTS / reference_price
+    max_threshold_points = entry_price * MAX_POSITION_DRAWDOWN_POINTS / reference_price
+    return add_threshold_points, max_threshold_points
+
+
+def _apply_proportional_add_threshold(
+    quantity: int,
+    activated_level: int,
+    current_drawdown_pnl: float,
+    entry_price: float | None,
+) -> tuple[int, int]:
+    add_threshold_points, max_threshold_points = _get_proportional_drawdown_threshold_points(entry_price)
+    current_drawdown_points = current_drawdown_pnl / POINT_VALUE
+
+    if activated_level < MAX_POSITION_ENTRY_QUANTITY and current_drawdown_points >= max_threshold_points:
+        return MAX_POSITION_ENTRY_QUANTITY, MAX_POSITION_ENTRY_QUANTITY
+    if activated_level < ADD_POSITION_ENTRY_QUANTITY and current_drawdown_points >= add_threshold_points:
+        return max(quantity, ADD_POSITION_ENTRY_QUANTITY), ADD_POSITION_ENTRY_QUANTITY
+    return quantity, activated_level
+
+
+def _get_proportional_a_core_state(
+    completed_trades: list[dict[str, float]],
+    next_entry_price: float | None = None,
+) -> tuple[int, int, float, float]:
+    # Future switch-over helper only: proportional thresholds keep 1000/2000 points
+    # equivalent to the original 22910 price level, and reduce only one contract on reset.
+    equity = -_get_initial_drawdown_pnl()
+    peak_equity = 0.0
+    current_drawdown_pnl = peak_equity - equity
+    consecutive_win_count = 0
+    a_core_qty = BASE_ENTRY_QUANTITY
+    activated_level = BASE_ENTRY_QUANTITY
+
+    for trade in completed_trades:
+        a_core_qty, activated_level = _apply_proportional_add_threshold(
+            a_core_qty,
+            activated_level,
+            current_drawdown_pnl,
+            trade.get("entry_price"),
+        )
+
+        previous_drawdown_pnl = current_drawdown_pnl
+        pnl = float(trade["pnl"])
+        equity += pnl
+        peak_equity = max(peak_equity, equity)
+        current_drawdown_pnl = peak_equity - equity
+
+        if pnl > 0:
+            consecutive_win_count += 1
+        else:
+            consecutive_win_count = 0
+
+        if (
+            previous_drawdown_pnl > EXIT_ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE
+            and current_drawdown_pnl <= MDD_RESET_TOLERANCE_POINTS * POINT_VALUE
+        ):
+            a_core_qty = max(BASE_ENTRY_QUANTITY, a_core_qty - 1)
+            activated_level = BASE_ENTRY_QUANTITY
+            consecutive_win_count = 0
+        elif consecutive_win_count >= 3:
+            a_core_qty = max(BASE_ENTRY_QUANTITY, a_core_qty - 1)
+            consecutive_win_count = 0
+
+    a_core_qty, activated_level = _apply_proportional_add_threshold(
+        a_core_qty,
+        activated_level,
+        current_drawdown_pnl,
+        next_entry_price,
+    )
+    add_threshold_points, max_threshold_points = _get_proportional_drawdown_threshold_points(next_entry_price)
+    return a_core_qty, consecutive_win_count, add_threshold_points, max_threshold_points
+
+
+def _update_proportional_position_size_detail_state(
+    current_drawdown_pnl: float,
+    consecutive_loss_count: int,
+    consecutive_win_count: int,
+    a_core_qty: int,
+    add_threshold_points: float,
+    max_threshold_points: float,
+) -> None:
+    state = _load_position_size_state()
+    state["current_mdd_points"] = round(current_drawdown_pnl / POINT_VALUE, 2)
+    state["current_mdd_pnl"] = round(current_drawdown_pnl, 2)
+    state.pop("current_drawdown_points", None)
+    state.pop("current_drawdown_pnl", None)
+    state["consecutive_loss_count"] = consecutive_loss_count
+    state["consecutive_win_count"] = consecutive_win_count
+    state["position_size_mode"] = "proportional"
+    state["position_size_reference_price"] = PROPORTIONAL_POSITION_SIZE_REFERENCE_PRICE
+    state["proportional_add_threshold_points"] = round(add_threshold_points, 2)
+    state["proportional_max_threshold_points"] = round(max_threshold_points, 2)
+    state["b_overlay_active"] = False
+    state["b_overlay_entry_rule"] = "disabled"
+    state["b_overlay_exit_rule"] = "disabled"
+    state["a_core_quantity"] = a_core_qty
+    state["a_core_exit_rule"] = "A 達 2/3 口後維持；單口 MDD 歸 0 或連贏 3 次時減 1 口"
+    state["b_overlay_quantity"] = 0
+    state["target_entry_quantity"] = a_core_qty
+    state["position_size_rule"] = (
+        "A proportional: 以 22910 價位的 1000/2000 點換算為 4.36%/8.73%; "
+        "下一筆依進場價換算門檻加到2/3口, MDD歸0或連贏3次時減1口; "
+        "B overlay disabled; 總口數=A"
+    )
+    state["add_position_active"] = False
+    state["current_drawdown_calculated_at"] = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
+    _save_position_size_state(state)
+
+
+def _get_proportional_entry_quantity(next_entry_price: float | None = None) -> int:
+    # Not wired into auto_trade() yet. Call this instead of _get_entry_quantity() after
+    # the current MDD cycle is reset and you are ready to switch to proportional sizing.
+    completed_trades = _get_completed_h_trades_after_start()
+    pnls = [trade["pnl"] for trade in completed_trades]
+    current_drawdown_pnl = _get_current_drawdown_pnl()
+    consecutive_loss_count = _get_consecutive_loss_count(pnls)
+    a_core_qty, consecutive_win_count, add_threshold_points, max_threshold_points = _get_proportional_a_core_state(
+        completed_trades,
+        next_entry_price,
+    )
+    _update_proportional_position_size_detail_state(
+        current_drawdown_pnl,
+        consecutive_loss_count,
+        consecutive_win_count,
+        a_core_qty,
+        add_threshold_points,
+        max_threshold_points,
+    )
+    return a_core_qty
+
+
 def _sync_current_drawdown_state(
     current_drawdown_pnl: float | None = None,
     consecutive_loss_count: int | None = None,
@@ -249,13 +423,6 @@ def _sync_current_drawdown_state(
     state["consecutive_loss_count"] = consecutive_loss_count
     state["current_drawdown_calculated_at"] = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
     _save_position_size_state(state)
-
-
-def _is_b_overlay_active(state: dict | None = None) -> bool:
-    if state is None:
-        state = _load_position_size_state()
-    # 舊版只記 add_position_active；讀取時保留相容，避免既有 state 檔升級後漏接狀態。
-    return bool(state.get("b_overlay_active", state.get("add_position_active", False)))
 
 
 def _get_a_core_state(pnls: list[float]) -> tuple[int, int, bool]:
@@ -304,25 +471,11 @@ def _get_a_core_state(pnls: list[float]) -> tuple[int, int, bool]:
     return a_core_qty, consecutive_win_count, reset_by_three_wins
 
 
-def _get_b_overlay_quantity(current_drawdown_pnl: float, b_overlay_active: bool) -> int:
-    # B 未啟動時完全不下單；啟動後只負責回撤修復段的額外口數。
-    if not b_overlay_active:
-        return 0
-    # 3000 點以上是少見深回撤，只讓 B 多加 1 口，A 不再提高。
-    if current_drawdown_pnl >= DEEP_DRAWDOWN_POINTS * POINT_VALUE:
-        return B_OVERLAY_DEEP_DRAWDOWN_QUANTITY
-    if current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        return B_OVERLAY_ADD_QUANTITY
-    return B_OVERLAY_BASE_QUANTITY
-
-
 def _update_position_size_detail_state(
     current_drawdown_pnl: float,
     consecutive_loss_count: int,
     consecutive_win_count: int,
-    b_overlay_active: bool,
     a_core_qty: int,
-    b_overlay_qty: int,
 ) -> None:
     state = _load_position_size_state()
     state["current_mdd_points"] = round(current_drawdown_pnl / POINT_VALUE, 2)
@@ -331,23 +484,19 @@ def _update_position_size_detail_state(
     state.pop("current_drawdown_pnl", None)
     state["consecutive_loss_count"] = consecutive_loss_count
     state["consecutive_win_count"] = consecutive_win_count
-    state["b_overlay_active"] = b_overlay_active
-    state["b_overlay_entry_rule"] = (
-        f"連輸 {B_OVERLAY_START_LOSS_STREAK} 次且單口 MDD > 0，或單口 MDD >= {MAX_POSITION_DRAWDOWN_POINTS} 點時啟動"
-    )
-    state["b_overlay_exit_rule"] = "單口 MDD 歸 0 或連贏 3 次時停止"
+    state["b_overlay_active"] = False
+    state["b_overlay_entry_rule"] = "disabled"
+    state["b_overlay_exit_rule"] = "disabled"
     state["a_core_quantity"] = a_core_qty
     state["a_core_exit_rule"] = "A 達 2/3 口後維持；單口 MDD 歸 0 或連贏 3 次時回 1 口"
-    state["b_overlay_quantity"] = b_overlay_qty
-    state["target_entry_quantity"] = a_core_qty + b_overlay_qty
+    state["b_overlay_quantity"] = 0
+    state["target_entry_quantity"] = a_core_qty
     state["position_size_rule"] = (
         "A: MDD達1000點加到2口並維持, 達2000點加到3口並維持, MDD歸0或連贏3次回1口; "
-        f"B: 連輸{B_OVERLAY_START_LOSS_STREAK}次或MDD>={MAX_POSITION_DRAWDOWN_POINTS}點啟動, "
-        "MDD<2000點=1口, >=2000點=2口, >=3000點=3口, MDD歸0或連贏3次停止; "
-        "總口數=A+B"
+        "B overlay disabled; 總口數=A"
     )
-    # 舊欄位保留給既有人工檢查，但語意改為 B overlay 是否啟動。
-    state["add_position_active"] = b_overlay_active
+    # 舊欄位保留給既有人工檢查；目前 B overlay 停用。
+    state["add_position_active"] = False
     state["current_drawdown_calculated_at"] = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
     _save_position_size_state(state)
 
@@ -357,50 +506,27 @@ def _get_entry_quantity() -> int:
     pnls = _get_all_exiting_pnls()
     # 目前單口回撤金額：只用已寫入 h_trade.csv 的 exiting pnl 重算，
     current_drawdown_pnl = _get_current_drawdown_pnl()
-    # 從最近一筆 exiting 往前數，連續 pnl < 0 的筆數；B overlay 可由連輸 4 次或 MDD 達 2000 點啟動。
+    # 從最近一筆 exiting 往前數，連續 pnl < 0 的筆數，只保留在 state/Discord 中供檢查。
     consecutive_loss_count = _get_consecutive_loss_count(pnls)
-    # 讀取 h_position_size_state.json，延續上一輪是否已經啟動 B overlay 的狀態。
-    state = _load_position_size_state()
-    a_core_qty, consecutive_win_count, a_core_reset_by_three_wins = _get_a_core_state(pnls)
-
-    # B overlay 啟動後要一路維持到 MDD 歸 0 或連贏 3 次；
-    # 不能只看當下是否仍達連輸啟動門檻。
-    b_overlay_active = _is_b_overlay_active(state)
-
-    # MDD 接近歸 0 或連贏 3 次代表這輪修復結束，B 必須退場，下一輪重新等啟動條件成立。
-    if current_drawdown_pnl <= MDD_RESET_TOLERANCE_POINTS * POINT_VALUE or a_core_reset_by_three_wins:
-        b_overlay_active = False
-    # B 只用啟動條件啟動一次；啟動後維持到 MDD 歸 0 或連贏 3 次才停止。
-    elif (
-        consecutive_loss_count >= B_OVERLAY_START_LOSS_STREAK
-        or current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE
-    ):
-        b_overlay_active = True
-
-    b_overlay_qty = _get_b_overlay_quantity(current_drawdown_pnl, b_overlay_active)
+    a_core_qty, consecutive_win_count, _ = _get_a_core_state(pnls)
     _update_position_size_detail_state(
         current_drawdown_pnl,
         consecutive_loss_count,
         consecutive_win_count,
-        b_overlay_active,
         a_core_qty,
-        b_overlay_qty,
     )
-    return a_core_qty + b_overlay_qty
+    return a_core_qty
 
 
 def _get_position_size_message_detail() -> str:
     state = _load_position_size_state()
 
     a_core_qty = state.get("a_core_quantity", "?")
-    b_overlay_qty = state.get("b_overlay_quantity", "?")
-    b_overlay_active = "啟動" if state.get("b_overlay_active") else "未啟動"
     drawdown_points = state.get("current_mdd_points", state.get("current_drawdown_points", "?"))
     consecutive_loss_count = state.get("consecutive_loss_count", "?")
 
     return (
-        f"A {a_core_qty} 口、B {b_overlay_qty} 口"
-        f"（B {b_overlay_active}，MDD {drawdown_points} 點，連輸 {consecutive_loss_count} 次）"
+        f"A {a_core_qty} 口（B overlay 停用，MDD {drawdown_points} 點，連輸 {consecutive_loss_count} 次）"
     )
 
 
