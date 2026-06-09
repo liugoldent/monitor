@@ -36,6 +36,7 @@ ORDER_EVENT_CSV_PATH = Path(base_dir) / "tv_doc" / "h_reverse_loss_guard_order_e
 WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
 API_LOCK = threading.RLock()
 API_CLIENT = None
+NEXT_MONTH_ENTRY_QUANTITY = 1
 
 ORDER_EVENT_HEADER = [
     "timestamp",
@@ -60,7 +61,7 @@ ORDER_EVENT_HEADER = [
 
 def _get_contract(api):
     # Use the far-month TMF contract for the webhook-driven add-on strategies.
-    return api.Contracts.Futures.TMF.TMFR2
+    return api.Contracts.Futures.TMF.TMFR1
 
 
 def _safe_text(value) -> str:
@@ -97,7 +98,7 @@ def _append_order_event(
         exists = ORDER_EVENT_CSV_PATH.exists()
         row = {
             "timestamp": datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S"),
-            "strategy": "h_reverse_loss_guard",
+            "strategy": signal.get("strategy", "h_reverse_loss_guard"),
             "result": result,
             "signal_action": signal.get("action", ""),
             "order_action": order_action,
@@ -122,6 +123,28 @@ def _append_order_event(
             writer.writerow(row)
     except Exception as e:
         print("遠月鎖損下單紀錄寫入錯誤", e)
+
+
+def _signal_label(signal: dict) -> str:
+    return str(signal.get("strategy_label") or "H 175點遠月鎖損")
+
+
+def _mark_next_month_guard_entry(side: str, reason: str = "H1 同步進場") -> None:
+    try:
+        from strategy_h_next_month_loss_guard import mark_h_next_month_guard_entry
+
+        mark_h_next_month_guard_entry(side, reason=reason)
+    except Exception as exc:
+        print("遠月一口護欄進場狀態紀錄錯誤", exc)
+
+
+def _mark_next_month_guard_exit(reason: str = "遠月護欄出場") -> None:
+    try:
+        from strategy_h_next_month_loss_guard import mark_h_next_month_guard_exit
+
+        mark_h_next_month_guard_exit(reason)
+    except Exception as exc:
+        print("遠月一口護欄出場狀態紀錄錯誤", exc)
 
 def _normalize_trade_status(value) -> str:
     text = str(value).strip().lower().replace("_", "").replace("-", "")
@@ -193,10 +216,10 @@ def get_latest_open_trade(api, side: str | None = None):
 
 
 def _build_api_client():
-    api_key = os.getenv("API_KEY")
-    secret_key = os.getenv("SECRET_KEY")
+    api_key = os.getenv("API_KEY2")
+    secret_key = os.getenv("SECRET_KEY2")
     if not api_key or not secret_key:
-        raise RuntimeError("Missing API_KEY or SECRET_KEY")
+        raise RuntimeError("Missing API_KEY2 or SECRET_KEY2")
     if not os.path.exists(ca_path):
         raise FileNotFoundError(f"找不到憑證檔案: {ca_path}")
 
@@ -242,9 +265,10 @@ def _shutdown_api_client():
 atexit.register(_shutdown_api_client)
 
 
-def _close_position_with_api(api, test_now: datetime):
+def _close_position_with_api(api, test_now: datetime) -> bool:
     positions = api.list_positions(api.futopt_account)
     contract = _get_contract(api)
+    closed_position = False
 
     if len(positions) > 0:
         pos = positions[0]
@@ -253,10 +277,16 @@ def _close_position_with_api(api, test_now: datetime):
         if side == 'bull':
             sellOne(api, contract, pos_qty)
             send_discord_message(f'[{test_now:%H:%M:%S}]：主帳號遠月。丟空單平倉')
+            closed_position = True
 
         if side == 'bear':
             buyOne(api, contract, pos_qty)
             send_discord_message(f'[{test_now:%H:%M:%S}]：主帳號遠月。丟多單平倉')
+            closed_position = True
+
+    if closed_position:
+        _mark_next_month_guard_exit("遠月帳號反手前/手動平倉，同步清除一口護欄狀態")
+    return closed_position
 
 
 def _position_direction_to_side(direction: object) -> str | None:
@@ -283,6 +313,7 @@ def execute_h_reverse_loss_guard_signal(signal: dict) -> bool:
     """Place far-month account orders for H 175-point loss-lock signals."""
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
     signal_for_log = dict(signal or {})
+    strategy_label = _signal_label(signal_for_log)
     action = str(signal_for_log.get("action") or "").strip().lower()
     side = str(signal_for_log.get("side") or "").strip().lower()
     if action not in {"enter", "exit"} or side not in {"bull", "bear"}:
@@ -312,7 +343,7 @@ def execute_h_reverse_loss_guard_signal(signal: dict) -> bool:
             if action == "enter":
                 if current_side is not None:
                     send_discord_message(
-                        f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損進場略過，'
+                        f'[{testNow:%H:%M:%S}]：主帳號遠月。{strategy_label}進場略過，'
                         f'帳戶目前已有 {current_side} {current_qty} 口，訊號為 {side} {quantity} 口'
                     )
                     _append_order_event(
@@ -336,13 +367,13 @@ def execute_h_reverse_loss_guard_signal(signal: dict) -> bool:
                     trade=trade,
                 )
                 send_discord_message(
-                    f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損進場 {side} {quantity} 口'
+                    f'[{testNow:%H:%M:%S}]：主帳號遠月。{strategy_label}進場 {side} {quantity} 口'
                 )
                 return True
 
             if current_side != side or current_qty <= 0:
                 send_discord_message(
-                    f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損出場略過，'
+                    f'[{testNow:%H:%M:%S}]：主帳號遠月。{strategy_label}出場略過，'
                     f'帳戶沒有可退的 {side} 鎖損部位'
                 )
                 _append_order_event(
@@ -369,37 +400,66 @@ def execute_h_reverse_loss_guard_signal(signal: dict) -> bool:
                 trade=trade,
             )
             send_discord_message(
-                f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損出場 {side} {exit_quantity} 口'
+                f'[{testNow:%H:%M:%S}]：主帳號遠月。{strategy_label}出場 {side} {exit_quantity} 口'
             )
             return True
     except Exception as e:
-        print('H 175點遠月鎖損送單錯誤', e)
+        print(f'{strategy_label}送單錯誤', e)
         _append_order_event(signal=signal_for_log, result="error", error=e)
-        send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。H 175點遠月鎖損送單錯誤：{e}')
+        send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。{strategy_label}送單錯誤：{e}')
     return False
+
+
+def execute_h_next_month_guard_signal(signal: dict) -> bool:
+    """Place exit orders for the H far-month same-direction 1-lot loss guard."""
+    signal_for_order = dict(signal or {})
+    signal_for_order.setdefault("strategy", "h_next_month_loss_guard")
+    signal_for_order.setdefault("strategy_label", "H遠月一口護欄")
+    signal_for_order["quantity"] = NEXT_MONTH_ENTRY_QUANTITY
+
+    sent = execute_h_reverse_loss_guard_signal(signal_for_order)
+    if sent and str(signal_for_order.get("action") or "").strip().lower() == "exit":
+        _mark_next_month_guard_exit(str(signal_for_order.get("reason") or "H遠月一口護欄出場"))
+    return sent
 
 
 # 純下單func
 def auto_trade(type):
     testNow = datetime.now(ZoneInfo("Asia/Taipei"))
+    target_side = str(type or "").strip().lower()
+    if target_side not in {"bull", "bear"}:
+        print("遠月下單方向錯誤", type)
+        return
 
     try:
         with API_LOCK:
             api = _get_api_client()
             contract = _get_contract(api)
             api.update_status()
+            current_side, current_qty = _get_current_position(api)
+
+            if current_side == target_side and current_qty == NEXT_MONTH_ENTRY_QUANTITY:
+                _mark_next_month_guard_entry(target_side, reason="H1 同方向訊號，遠月已持有固定1口，補同步護欄狀態")
+                send_discord_message(
+                    f'[{testNow:%H:%M:%S}]：主帳號遠月。忽略重複訊號，'
+                    f'目前已是 {target_side} {current_qty} 口'
+                )
+                print(f'略過遠月重複訊號: 已持有同方向倉位 {target_side} {current_qty} 口')
+                return
 
             # 先平倉
             _close_position_with_api(api, testNow)
 
-            # 平倉後進新倉 (預設 1 口)
-            if type == 'bull':
-                buyOne(api, contract)
-                send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。多單進場 go bull')
+            # 平倉後進新倉，遠月護欄策略固定 1 口，不加碼。
+            if target_side == 'bull':
+                buyOne(api, contract, NEXT_MONTH_ENTRY_QUANTITY)
+                _mark_next_month_guard_entry(target_side)
+                send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。固定1口多單進場 go bull')
 
-            if type == 'bear':
-                sellOne(api, contract)
-                send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。空單進場 go bear')
+            if target_side == 'bear':
+                sellOne(api, contract, NEXT_MONTH_ENTRY_QUANTITY)
+                _mark_next_month_guard_entry(target_side)
+                send_discord_message(f'[{testNow:%H:%M:%S}]：主帳號遠月。固定1口空單進場 go bear')
         print('送單完成')
     except Exception as e:
         print('送單錯誤',e)

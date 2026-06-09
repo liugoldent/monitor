@@ -1,7 +1,7 @@
 """Webhook ingestion server.
 
 This module receives webhook payloads, persists candle rows, and runs the
-one-minute far-month H loss-lock notifier.
+one-minute far-month H same-direction loss guard.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
-from strategy_h_reverse_loss_guard import evaluate_h_reverse_loss_guard
+from strategy_h_next_month_loss_guard import evaluate_h_next_month_loss_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
 
@@ -69,18 +69,22 @@ def _append_webhook_row(path: str, row: list[object]) -> None:
 
 def _run_one_minute_strategies(symbol: str, close_price: object, current_time: str) -> None:
     try:
-        # 1m webhook only runs the far-month H loss-lock notifier.
+        # 1m webhook runs the far-month H same-direction 175-point loss guard.
         print(
-            f"⏱️ Running 1m far-month loss lock after {ONE_MINUTE_STRATEGY_DELAY_SECONDS}s delay: "
+            f"⏱️ Running 1m far-month one-lot loss guard after {ONE_MINUTE_STRATEGY_DELAY_SECONDS}s delay: "
             f"{symbol} @ {close_price} (received={current_time})"
         )
 
-        # H 175-point loss lock: only write alert/state and send Discord.
-        # Far-month orders are intentionally disabled here.
-        reverse_loss_guard_signal = evaluate_h_reverse_loss_guard()
-        if reverse_loss_guard_signal:
-            print(f"🛡️ H far-month loss-lock signal: {reverse_loss_guard_signal}")
-            print("🛡️ H far-month loss-lock notification only; no broker order sent")
+        guard_signal = evaluate_h_next_month_loss_guard()
+        if guard_signal:
+            print(f"🛡️ H far-month one-lot loss guard signal: {guard_signal}")
+            from auto_trade_nextMonth import execute_h_next_month_guard_signal
+
+            order_sent = execute_h_next_month_guard_signal(guard_signal)
+            if order_sent:
+                print("🛡️ H far-month one-lot loss guard order sent")
+            else:
+                print("🛡️ H far-month one-lot loss guard order was not sent")
         sys.stdout.flush()
     except Exception as exc:
         print(f"❌ Delayed 1m strategy error: {exc}")
@@ -99,7 +103,7 @@ def _schedule_one_minute_strategies(symbol: str, close_price: object, current_ti
 
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        """Receive webhook data, persist it, and run the H far-month loss lock."""
+        """Receive webhook data, persist it, and run the H far-month loss guard."""
         if self.path != "/webhook":
             self.send_error(404, "Not Found")
             return

@@ -167,11 +167,11 @@ async def bot_message_handler(event):
         if position == "多":
             recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bull")
-            run_auto_trade("ichih", auto_trade_ichih, "bull")
+            # run_auto_trade("ichih", auto_trade_ichih, "bull")
         elif position == "空":
             recent_signals[position] = now
             run_auto_trade("shane", auto_trade_shane, "bear")
-            run_auto_trade("ichih", auto_trade_ichih, "bear")
+            # run_auto_trade("ichih", auto_trade_ichih, "bear")
         else:
             print("──────────────")
             return

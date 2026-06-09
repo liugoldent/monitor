@@ -43,11 +43,17 @@ PROPORTIONAL_POSITION_SIZE_REFERENCE_PRICE = 22910
 EXIT_ADD_POSITION_DRAWDOWN_POINTS = 0
 MDD_RESET_TOLERANCE_POINTS = 5
 
-# A 是常駐核心部位：MDD 到 1000/2000 點時，把核心口數提高到 2/3 口；
-# 達標後維持該口數，直到 MDD 歸 0 或連贏 3 次才回 1 口。
+# _get_entry_quantity() 仍是目前接線中的舊 1/2/3 口數邏輯。
+# 雙帳號 B2 + 等比例相加策略先獨立在 _get_dual_account_hybrid_entry_quantity()，未接線。
 BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
 MAX_POSITION_ENTRY_QUANTITY = 3
+KGI_FIXED_ENTRY_QUANTITY = 1
+DUAL_ACCOUNT_BASE_TOTAL_QUANTITY = KGI_FIXED_ENTRY_QUANTITY + BASE_ENTRY_QUANTITY
+DUAL_ACCOUNT_MAX_TOTAL_QUANTITY = 6
+DUAL_ACCOUNT_RECOVERY_MAX_TOTAL_QUANTITY = 4
+B2_DRAWDOWN_ADD_POINTS = 2000
+B2_CONSECUTIVE_LOSS_ADD_COUNT = 4
 
 
 def _ensure_trade_log() -> None:
@@ -211,12 +217,20 @@ def _get_consecutive_loss_count(pnls: list[float] | None = None) -> int:
     return loss_count
 
 
-def _get_current_drawdown_pnl() -> float:
-    # 只從 h_trade.csv 已寫入的 exiting 紀錄重算單口 MDD。
-    # 進場前會先 closePosition() 或 _sync_virtual_position_for_signal() 寫入 exiting，
-    # 然後 _get_entry_quantity() 才讀這些已落檔的 pnl 來決定下一筆口數。
-    pnls = _get_all_exiting_pnls()
+def _get_consecutive_win_count(pnls: list[float] | None = None) -> int:
+    if pnls is None:
+        pnls = _get_all_exiting_pnls()
 
+    win_count = 0
+    for pnl in reversed(pnls):
+        if pnl > 0:
+            win_count += 1
+            continue
+        break
+    return win_count
+
+
+def _get_drawdown_pnl_from_pnls(pnls: list[float]) -> float:
     equity = -_get_initial_drawdown_pnl()
     peak_equity = 0.0
 
@@ -224,6 +238,14 @@ def _get_current_drawdown_pnl() -> float:
         equity += pnl
         peak_equity = max(peak_equity, equity)
     return peak_equity - equity
+
+
+def _get_current_drawdown_pnl() -> float:
+    # 只從 h_trade.csv 已寫入的 exiting 紀錄重算單口 MDD。
+    # 進場前會先 closePosition() 或 _sync_virtual_position_for_signal() 寫入 exiting，
+    # 然後 _get_entry_quantity() 才讀這些已落檔的 pnl 來決定下一筆口數。
+    pnls = _get_all_exiting_pnls()
+    return _get_drawdown_pnl_from_pnls(pnls)
 
 
 def _parse_trade_price(raw_value: object) -> float | None:
@@ -406,6 +428,193 @@ def _get_proportional_entry_quantity(next_entry_price: float | None = None) -> i
     return a_core_qty
 
 
+def _get_legacy_entry_quantity_by_drawdown(current_drawdown_pnl: float) -> int:
+    current_drawdown_points = current_drawdown_pnl / POINT_VALUE
+    if current_drawdown_points >= MAX_POSITION_DRAWDOWN_POINTS:
+        return MAX_POSITION_ENTRY_QUANTITY
+    if current_drawdown_points >= ADD_POSITION_DRAWDOWN_POINTS:
+        return ADD_POSITION_ENTRY_QUANTITY
+    return BASE_ENTRY_QUANTITY
+
+
+def _get_b2_overlay_add_quantity(current_drawdown_pnl: float, consecutive_loss_count: int) -> int:
+    add_quantity = 0
+    if current_drawdown_pnl / POINT_VALUE >= B2_DRAWDOWN_ADD_POINTS:
+        add_quantity += 1
+    if consecutive_loss_count >= B2_CONSECUTIVE_LOSS_ADD_COUNT:
+        add_quantity += 1
+    return add_quantity
+
+
+def _get_proportional_overlay_add_quantity(
+    current_drawdown_pnl: float,
+    next_entry_price: float | None,
+) -> tuple[int, float, float]:
+    add_threshold_points, max_threshold_points = _get_proportional_drawdown_threshold_points(next_entry_price)
+    current_drawdown_points = current_drawdown_pnl / POINT_VALUE
+
+    if current_drawdown_points >= max_threshold_points:
+        return 2, add_threshold_points, max_threshold_points
+    if current_drawdown_points >= add_threshold_points:
+        return 1, add_threshold_points, max_threshold_points
+    return 0, add_threshold_points, max_threshold_points
+
+
+def _get_dual_account_total_quantity(b2_add_quantity: int, proportional_add_quantity: int) -> int:
+    total_quantity = DUAL_ACCOUNT_BASE_TOTAL_QUANTITY + b2_add_quantity + proportional_add_quantity
+    return min(DUAL_ACCOUNT_MAX_TOTAL_QUANTITY, total_quantity)
+
+
+def _update_dual_account_hybrid_position_size_detail_state(
+    current_drawdown_pnl: float,
+    consecutive_loss_count: int,
+    consecutive_win_count: int,
+    b2_add_quantity: int,
+    proportional_add_quantity: int,
+    proportional_add_threshold_points: float,
+    proportional_max_threshold_points: float,
+    proportional_recovery_threshold_points: float,
+    desired_total_quantity: int,
+    total_target_quantity: int,
+    sinopac_target_quantity: int,
+) -> None:
+    state = _load_position_size_state()
+    state["current_mdd_points"] = round(current_drawdown_pnl / POINT_VALUE, 2)
+    state["current_mdd_pnl"] = round(current_drawdown_pnl, 2)
+    state.pop("current_drawdown_points", None)
+    state.pop("current_drawdown_pnl", None)
+    state["consecutive_loss_count"] = consecutive_loss_count
+    state["consecutive_win_count"] = consecutive_win_count
+    state["position_size_mode"] = "dual_account_hybrid_b2_proportional"
+    state["kgi_fixed_quantity"] = KGI_FIXED_ENTRY_QUANTITY
+    state["sinopac_base_quantity"] = BASE_ENTRY_QUANTITY
+    state["sinopac_target_quantity"] = sinopac_target_quantity
+    state["target_entry_quantity"] = sinopac_target_quantity
+    state["total_target_quantity"] = total_target_quantity
+    state["desired_total_quantity"] = desired_total_quantity
+    state["dual_account_max_total_quantity"] = DUAL_ACCOUNT_MAX_TOTAL_QUANTITY
+    state["dual_account_recovery_max_total_quantity"] = DUAL_ACCOUNT_RECOVERY_MAX_TOTAL_QUANTITY
+    state["b2_overlay_quantity"] = b2_add_quantity
+    state["b2_overlay_entry_rule"] = (
+        f"MDD >= {B2_DRAWDOWN_ADD_POINTS} 點加 1；連輸 >= {B2_CONSECUTIVE_LOSS_ADD_COUNT} 次加 1"
+    )
+    state["proportional_overlay_quantity"] = proportional_add_quantity
+    state["position_size_reference_price"] = PROPORTIONAL_POSITION_SIZE_REFERENCE_PRICE
+    state["proportional_add_threshold_points"] = round(proportional_add_threshold_points, 2)
+    state["proportional_max_threshold_points"] = round(proportional_max_threshold_points, 2)
+    state["proportional_recovery_threshold_points"] = round(proportional_recovery_threshold_points, 2)
+    state["a_core_quantity"] = sinopac_target_quantity
+    state["a_core_exit_rule"] = "雙帳號混合策略: 永豐口數=總目標口數-康和固定1口"
+    state["b_overlay_quantity"] = total_target_quantity - DUAL_ACCOUNT_BASE_TOTAL_QUANTITY
+    state["b_overlay_active"] = state["b_overlay_quantity"] > 0
+    state["b_overlay_entry_rule"] = (
+        f"B2: MDD >= {B2_DRAWDOWN_ADD_POINTS} 點加1、連輸 >= {B2_CONSECUTIVE_LOSS_ADD_COUNT} 次加1；"
+        "等比例: MDD >= 進場價*4.36% 加1、MDD >= 進場價*8.73% 加2"
+    )
+    state["b_overlay_exit_rule"] = (
+        "加碼條件只往上增加總曝險；MDD <= 進場價*2.18% 時總曝險最多保留4口；"
+        "MDD歸0或連贏3次回基本2口"
+    )
+    state["position_size_rule"] = (
+        "康和固定1口; 永豐基本1口; B2與等比例各自計算加碼後相加; "
+        "總曝險=min(6, 2+B2加碼+等比例加碼), 只往上加; "
+        "MDD回進場價*2.18%時總曝險最多4口; MDD歸0或連贏3次回2口; "
+        "永豐實際下單=總曝險-1"
+    )
+    state["add_position_active"] = state["b_overlay_active"]
+    state["current_drawdown_calculated_at"] = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
+    _save_position_size_state(state)
+
+
+def _get_dual_account_hybrid_entry_quantity(next_entry_price: float | None = None) -> int:
+    completed_trades = _get_completed_h_trades_after_start()
+    pnls = [float(trade["pnl"]) for trade in completed_trades]
+    equity = -_get_initial_drawdown_pnl()
+    peak_equity = 0.0
+    current_drawdown_pnl = peak_equity - equity
+    consecutive_win_count = 0
+    total_target_quantity = DUAL_ACCOUNT_BASE_TOTAL_QUANTITY
+    b2_add_quantity = 0
+    proportional_add_quantity = 0
+    proportional_add_threshold_points, proportional_max_threshold_points = _get_proportional_drawdown_threshold_points(
+        next_entry_price
+    )
+    proportional_recovery_threshold_points = proportional_add_threshold_points / 2
+
+    for index, trade in enumerate(completed_trades):
+        previous_drawdown_pnl = current_drawdown_pnl
+        pnl = float(trade["pnl"])
+        equity += pnl
+        peak_equity = max(peak_equity, equity)
+        current_drawdown_pnl = peak_equity - equity
+
+        if pnl > 0:
+            consecutive_win_count += 1
+        else:
+            consecutive_win_count = 0
+
+        next_price = (
+            completed_trades[index + 1].get("entry_price")
+            if index + 1 < len(completed_trades)
+            else next_entry_price
+        )
+        consecutive_loss_count_for_trade = _get_consecutive_loss_count(
+            [float(item["pnl"]) for item in completed_trades[: index + 1]]
+        )
+        b2_add_quantity = _get_b2_overlay_add_quantity(current_drawdown_pnl, consecutive_loss_count_for_trade)
+        (
+            proportional_add_quantity,
+            proportional_add_threshold_points,
+            proportional_max_threshold_points,
+        ) = _get_proportional_overlay_add_quantity(current_drawdown_pnl, next_price)
+        proportional_recovery_threshold_points = proportional_add_threshold_points / 2
+        desired_total_quantity = _get_dual_account_total_quantity(b2_add_quantity, proportional_add_quantity)
+        total_target_quantity = max(total_target_quantity, desired_total_quantity)
+
+        current_drawdown_points = current_drawdown_pnl / POINT_VALUE
+        previous_drawdown_points = previous_drawdown_pnl / POINT_VALUE
+        if previous_drawdown_points > EXIT_ADD_POSITION_DRAWDOWN_POINTS and current_drawdown_points <= MDD_RESET_TOLERANCE_POINTS:
+            total_target_quantity = DUAL_ACCOUNT_BASE_TOTAL_QUANTITY
+            consecutive_win_count = 0
+        elif consecutive_win_count >= 3:
+            total_target_quantity = DUAL_ACCOUNT_BASE_TOTAL_QUANTITY
+            consecutive_win_count = 0
+        elif (
+            previous_drawdown_points > proportional_recovery_threshold_points
+            and current_drawdown_points <= proportional_recovery_threshold_points
+        ):
+            total_target_quantity = min(total_target_quantity, DUAL_ACCOUNT_RECOVERY_MAX_TOTAL_QUANTITY)
+            consecutive_win_count = 0
+
+    consecutive_loss_count = _get_consecutive_loss_count(pnls)
+    if not completed_trades:
+        b2_add_quantity = _get_b2_overlay_add_quantity(current_drawdown_pnl, consecutive_loss_count)
+        (
+            proportional_add_quantity,
+            proportional_add_threshold_points,
+            proportional_max_threshold_points,
+        ) = _get_proportional_overlay_add_quantity(current_drawdown_pnl, next_entry_price)
+        proportional_recovery_threshold_points = proportional_add_threshold_points / 2
+        desired_total_quantity = _get_dual_account_total_quantity(b2_add_quantity, proportional_add_quantity)
+        total_target_quantity = max(total_target_quantity, desired_total_quantity)
+    sinopac_target_quantity = max(BASE_ENTRY_QUANTITY, total_target_quantity - KGI_FIXED_ENTRY_QUANTITY)
+
+    _update_dual_account_hybrid_position_size_detail_state(
+        current_drawdown_pnl,
+        consecutive_loss_count,
+        consecutive_win_count,
+        b2_add_quantity,
+        proportional_add_quantity,
+        proportional_add_threshold_points,
+        proportional_max_threshold_points,
+        proportional_recovery_threshold_points,
+        desired_total_quantity,
+        total_target_quantity,
+        sinopac_target_quantity,
+    )
+    return sinopac_target_quantity
+
+
 def _sync_current_drawdown_state(
     current_drawdown_pnl: float | None = None,
     consecutive_loss_count: int | None = None,
@@ -426,19 +635,14 @@ def _sync_current_drawdown_state(
 
 
 def _get_a_core_state(pnls: list[float]) -> tuple[int, int, bool]:
-    # A 核心口數用單口 MDD 加碼；達 1000/2000 點後維持 2/3 口，
-    # 只在 MDD 歸零或連贏 3 次後直接回 1 口。
+    # Current wired legacy sizing: 1000/2000 point drawdown maps to 2/3 contracts.
+    # The dual-account hybrid helper above is intentionally not wired yet.
     equity = -_get_initial_drawdown_pnl()
     peak_equity = 0.0
     current_drawdown_pnl = peak_equity - equity
     consecutive_win_count = 0
-    a_core_qty = BASE_ENTRY_QUANTITY
+    a_core_qty = _get_legacy_entry_quantity_by_drawdown(current_drawdown_pnl)
     reset_by_three_wins = False
-
-    if current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        a_core_qty = MAX_POSITION_ENTRY_QUANTITY
-    elif current_drawdown_pnl >= ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-        a_core_qty = ADD_POSITION_ENTRY_QUANTITY
 
     for pnl in pnls:
         reset_by_three_wins = False
@@ -452,10 +656,7 @@ def _get_a_core_state(pnls: list[float]) -> tuple[int, int, bool]:
         else:
             consecutive_win_count = 0
 
-        if current_drawdown_pnl >= MAX_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-            a_core_qty = MAX_POSITION_ENTRY_QUANTITY
-        elif current_drawdown_pnl >= ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE:
-            a_core_qty = max(a_core_qty, ADD_POSITION_ENTRY_QUANTITY)
+        a_core_qty = max(a_core_qty, _get_legacy_entry_quantity_by_drawdown(current_drawdown_pnl))
 
         if (
             previous_drawdown_pnl > EXIT_ADD_POSITION_DRAWDOWN_POINTS * POINT_VALUE
@@ -484,16 +685,18 @@ def _update_position_size_detail_state(
     state.pop("current_drawdown_pnl", None)
     state["consecutive_loss_count"] = consecutive_loss_count
     state["consecutive_win_count"] = consecutive_win_count
+    state["position_size_mode"] = "legacy_fixed_1000_2000"
     state["b_overlay_active"] = False
     state["b_overlay_entry_rule"] = "disabled"
     state["b_overlay_exit_rule"] = "disabled"
     state["a_core_quantity"] = a_core_qty
-    state["a_core_exit_rule"] = "A 達 2/3 口後維持；單口 MDD 歸 0 或連贏 3 次時回 1 口"
+    state["a_core_exit_rule"] = "舊接線: A 達 2/3 口後維持；單口 MDD 歸 0 或連贏 3 次時回 1 口"
     state["b_overlay_quantity"] = 0
     state["target_entry_quantity"] = a_core_qty
     state["position_size_rule"] = (
-        "A: MDD達1000點加到2口並維持, 達2000點加到3口並維持, MDD歸0或連贏3次回1口; "
-        "B overlay disabled; 總口數=A"
+        "舊接線: A: MDD達1000點加到2口, 達2000點加到3口並維持, "
+        "MDD歸0或連贏3次回1口; "
+        "B overlay disabled; 新雙帳號混合策略尚未接線"
     )
     # 舊欄位保留給既有人工檢查；目前 B overlay 停用。
     state["add_position_active"] = False
@@ -520,6 +723,20 @@ def _get_entry_quantity() -> int:
 
 def _get_position_size_message_detail() -> str:
     state = _load_position_size_state()
+
+    if state.get("position_size_mode") == "dual_account_hybrid_b2_proportional":
+        sinopac_qty = state.get("sinopac_target_quantity", state.get("target_entry_quantity", "?"))
+        kgi_qty = state.get("kgi_fixed_quantity", "?")
+        total_qty = state.get("total_target_quantity", "?")
+        drawdown_points = state.get("current_mdd_points", state.get("current_drawdown_points", "?"))
+        consecutive_loss_count = state.get("consecutive_loss_count", "?")
+        b2_add_quantity = state.get("b2_overlay_quantity", "?")
+        proportional_add_quantity = state.get("proportional_overlay_quantity", "?")
+        return (
+            f"康和固定 {kgi_qty} 口，永豐 {sinopac_qty} 口，總曝險 {total_qty} 口"
+            f"（MDD {drawdown_points} 點，連輸 {consecutive_loss_count} 次，"
+            f"B2加碼 {b2_add_quantity}，等比例加碼 {proportional_add_quantity}）"
+        )
 
     a_core_qty = state.get("a_core_quantity", "?")
     drawdown_points = state.get("current_mdd_points", state.get("current_drawdown_points", "?"))
@@ -628,7 +845,7 @@ def auto_trade(type):
         # 口數計算若因 state/json/csv 異常失敗，仍至少用 1 口進場，避免策略訊號完全漏單。
         entry_qty = BASE_ENTRY_QUANTITY
         try:
-            entry_qty = _get_entry_quantity()
+            entry_qty = _get_dual_account_hybrid_entry_quantity(latest_close)
         except Exception as exc:
             message = f'[{testNow:%H:%M:%S}]：長線。口數計算失敗，改用預設 1 口進場：{exc}'
             print(message)

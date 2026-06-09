@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient, events
 from auto_trade import auto_trade
+from auto_trade_nextMonth import auto_trade as auto_trade_next_month
 
 recent_signals = {}
 SIGNAL_TTL = 10 
@@ -59,6 +60,19 @@ TARGET_SIGNAL_MARKER = "小H1"
 AUTO_TRADE_START = "開始自動交易"
 AUTO_TRADE_STOP = "停止自動交易"
 
+
+def run_account_orders(side: str) -> None:
+    try:
+        auto_trade(side)
+    except Exception as exc:
+        print(f"H1 主帳號下單發生未處理錯誤: {exc}")
+
+    try:
+        auto_trade_next_month(side)
+    except Exception as exc:
+        print(f"遠月帳號下單發生未處理錯誤: {exc}")
+
+
 # ======================
 # Handler ①：台指期下單 Bot 監控
 # ======================
@@ -106,16 +120,10 @@ async def bot_message_handler(event):
         # h 長週期單API下單 / 短週期平倉
         if position == "多":
             recent_signals[position] = now
-            try:
-                auto_trade("bull")
-            except Exception as exc:
-                print(f"自動下單發生未處理錯誤: {exc}")
+            run_account_orders("bull")
         elif position == "空":
             recent_signals[position] = now
-            try:
-                auto_trade("bear")
-            except Exception as exc:
-                print(f"自動下單發生未處理錯誤: {exc}")
+            run_account_orders("bear")
         else:
             print("──────────────")
             return
