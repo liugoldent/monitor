@@ -50,10 +50,11 @@ ADD_POSITION_ENTRY_QUANTITY = 2
 MAX_POSITION_ENTRY_QUANTITY = 3
 KGI_FIXED_ENTRY_QUANTITY = 1
 DUAL_ACCOUNT_BASE_TOTAL_QUANTITY = KGI_FIXED_ENTRY_QUANTITY + BASE_ENTRY_QUANTITY
-DUAL_ACCOUNT_MAX_TOTAL_QUANTITY = 6
+DUAL_ACCOUNT_MAX_TOTAL_QUANTITY = 7
 DUAL_ACCOUNT_RECOVERY_MAX_TOTAL_QUANTITY = 4
 B2_DRAWDOWN_ADD_POINTS = 2000
 B2_CONSECUTIVE_LOSS_ADD_COUNT = 4
+B2_CONSECUTIVE_LOSS_ADD_QUANTITY = 2
 
 
 def _ensure_trade_log() -> None:
@@ -442,7 +443,7 @@ def _get_b2_overlay_add_quantity(current_drawdown_pnl: float, consecutive_loss_c
     if current_drawdown_pnl / POINT_VALUE >= B2_DRAWDOWN_ADD_POINTS:
         add_quantity += 1
     if consecutive_loss_count >= B2_CONSECUTIVE_LOSS_ADD_COUNT:
-        add_quantity += 1
+        add_quantity += B2_CONSECUTIVE_LOSS_ADD_QUANTITY
     return add_quantity
 
 
@@ -496,7 +497,8 @@ def _update_dual_account_hybrid_position_size_detail_state(
     state["dual_account_recovery_max_total_quantity"] = DUAL_ACCOUNT_RECOVERY_MAX_TOTAL_QUANTITY
     state["b2_overlay_quantity"] = b2_add_quantity
     state["b2_overlay_entry_rule"] = (
-        f"MDD >= {B2_DRAWDOWN_ADD_POINTS} 點加 1；連輸 >= {B2_CONSECUTIVE_LOSS_ADD_COUNT} 次加 1"
+        f"MDD >= {B2_DRAWDOWN_ADD_POINTS} 點加 1；"
+        f"連輸 >= {B2_CONSECUTIVE_LOSS_ADD_COUNT} 次加 {B2_CONSECUTIVE_LOSS_ADD_QUANTITY}"
     )
     state["proportional_overlay_quantity"] = proportional_add_quantity
     state["position_size_reference_price"] = PROPORTIONAL_POSITION_SIZE_REFERENCE_PRICE
@@ -508,7 +510,8 @@ def _update_dual_account_hybrid_position_size_detail_state(
     state["b_overlay_quantity"] = total_target_quantity - DUAL_ACCOUNT_BASE_TOTAL_QUANTITY
     state["b_overlay_active"] = state["b_overlay_quantity"] > 0
     state["b_overlay_entry_rule"] = (
-        f"B2: MDD >= {B2_DRAWDOWN_ADD_POINTS} 點加1、連輸 >= {B2_CONSECUTIVE_LOSS_ADD_COUNT} 次加1；"
+        f"B2: MDD >= {B2_DRAWDOWN_ADD_POINTS} 點加1、"
+        f"連輸 >= {B2_CONSECUTIVE_LOSS_ADD_COUNT} 次加{B2_CONSECUTIVE_LOSS_ADD_QUANTITY}；"
         "等比例: MDD >= 進場價*4.36% 加1、MDD >= 進場價*8.73% 加2"
     )
     state["b_overlay_exit_rule"] = (
@@ -517,7 +520,7 @@ def _update_dual_account_hybrid_position_size_detail_state(
     )
     state["position_size_rule"] = (
         "康和固定1口; 永豐基本1口; B2與等比例各自計算加碼後相加; "
-        "總曝險=min(6, 2+B2加碼+等比例加碼), 只往上加; "
+        "總曝險=min(7, 2+B2加碼+等比例加碼), 只往上加; "
         "MDD回進場價*2.18%時總曝險最多4口; MDD歸0或連贏3次回2口; "
         "永豐實際下單=總曝險-1"
     )
