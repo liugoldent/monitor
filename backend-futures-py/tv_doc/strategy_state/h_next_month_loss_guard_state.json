@@ -26,20 +26,20 @@
     "reason": "H1 同步進場"
   },
   "last_signal": {
-    "timestamp": "2026-06-10 19:26:03",
+    "timestamp": "2026-06-10 20:14:03",
     "strategy": "h_next_month_loss_guard",
     "strategy_label": "H遠月一口護欄",
     "action": "exit",
     "side": "bull",
     "quantity": 1,
     "entry_price": 43609.0,
-    "close": 42601.0,
+    "close": 42660.0,
     "guard_points": "",
     "h_position_timestamp": "2026-06-10 15:01:24",
     "h_side": "bull",
     "h_entry_price": 43606.0,
-    "h_unrealized_points": -1005.0,
+    "h_unrealized_points": -946.0,
     "reason": "H 主單已出場/反向/換倉，遠月一口同步出場"
   },
-  "updated_at": "2026-06-10 19:26:03"
+  "updated_at": "2026-06-10 20:14:03"
 }

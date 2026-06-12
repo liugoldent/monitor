@@ -1,7 +1,6 @@
 """Webhook ingestion server.
 
-This module receives webhook payloads, persists candle rows, and runs the
-one-minute far-month H same-direction loss guard.
+This module receives webhook payloads and persists candle rows.
 """
 
 from __future__ import annotations
@@ -12,17 +11,14 @@ import json
 import os
 import socketserver
 import sys
-import threading
 from datetime import datetime
 
 PORT = 8080
-ONE_MINUTE_STRATEGY_DELAY_SECONDS = 2
 BASE_DIR = os.path.dirname(__file__)
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
-from strategy_h_next_month_loss_guard import evaluate_h_next_month_loss_guard
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
 
@@ -67,43 +63,9 @@ def _append_webhook_row(path: str, row: list[object]) -> None:
         csv.writer(handle).writerow(row)
 
 
-def _run_one_minute_strategies(symbol: str, close_price: object, current_time: str) -> None:
-    try:
-        # 1m webhook runs the far-month H same-direction 175-point loss guard.
-        print(
-            f"⏱️ Running 1m far-month one-lot loss guard after {ONE_MINUTE_STRATEGY_DELAY_SECONDS}s delay: "
-            f"{symbol} @ {close_price} (received={current_time})"
-        )
-
-        guard_signal = evaluate_h_next_month_loss_guard()
-        if guard_signal:
-            print(f"🛡️ H far-month one-lot loss guard signal: {guard_signal}")
-            from auto_trade_nextMonth import execute_h_next_month_guard_signal
-
-            order_sent = execute_h_next_month_guard_signal(guard_signal)
-            if order_sent:
-                print("🛡️ H far-month one-lot loss guard order sent")
-            else:
-                print("🛡️ H far-month one-lot loss guard order was not sent")
-        sys.stdout.flush()
-    except Exception as exc:
-        print(f"❌ Delayed 1m strategy error: {exc}")
-        sys.stdout.flush()
-
-
-def _schedule_one_minute_strategies(symbol: str, close_price: object, current_time: str) -> None:
-    timer = threading.Timer(
-        ONE_MINUTE_STRATEGY_DELAY_SECONDS,
-        _run_one_minute_strategies,
-        args=(symbol, close_price, current_time),
-    )
-    timer.daemon = True
-    timer.start()
-
-
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        """Receive webhook data, persist it, and run the H far-month loss guard."""
+        """Receive webhook data and persist it."""
         if self.path != "/webhook":
             self.send_error(404, "Not Found")
             return
@@ -167,9 +129,6 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                 bbr,
             ]
             _append_webhook_row(target_csv, webhook_row)
-
-            if timeframe == "1":
-                _schedule_one_minute_strategies(symbol, close_price, current_time)
 
             print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
             sys.stdout.flush()

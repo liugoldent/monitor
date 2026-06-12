@@ -40,11 +40,16 @@ POINT_VALUE = 10
 ADD_POSITION_DRAWDOWN_POINTS = 1000
 MAX_POSITION_DRAWDOWN_POINTS = 2000
 PROPORTIONAL_POSITION_SIZE_REFERENCE_PRICE = 22910
+PROPORTIONAL_RECOVERY_THRESHOLD_POINTS = 500
 EXIT_ADD_POSITION_DRAWDOWN_POINTS = 0
 MDD_RESET_TOLERANCE_POINTS = 5
 
-# _get_entry_quantity() 仍是目前接線中的舊 1/2/3 口數邏輯。
-# 雙帳號 B2 + 等比例相加策略先獨立在 _get_dual_account_hybrid_entry_quantity()，未接線。
+# 出場口數不走下列規則：closePosition() 會直接讀 broker positions，
+# 有幾口就平幾口。下列設定只決定「下一筆新倉要進幾口」。
+#
+# 目前 auto_trade() 接線使用 _get_dual_account_hybrid_entry_quantity()。
+# 它重放 h_trade.csv 的已完成單口 pnl 來算 MDD/連輸/連贏，再回推下一筆
+# 永豐實際下單口數。_get_entry_quantity() 是舊 1/2/3 口邏輯，保留供對照。
 BASE_ENTRY_QUANTITY = 1
 ADD_POSITION_ENTRY_QUANTITY = 2
 MAX_POSITION_ENTRY_QUANTITY = 3
@@ -55,6 +60,7 @@ DUAL_ACCOUNT_RECOVERY_MAX_TOTAL_QUANTITY = 4
 B2_DRAWDOWN_ADD_POINTS = 2000
 B2_CONSECUTIVE_LOSS_ADD_COUNT = 4
 B2_CONSECUTIVE_LOSS_ADD_QUANTITY = 2
+SKIP_ENTRY_AFTER_EXACT_WIN_STREAK = 3
 
 
 def _ensure_trade_log() -> None:
@@ -118,7 +124,7 @@ def _get_initial_drawdown_pnl() -> float:
         return 0.0
 
 
-def _get_virtual_position() -> tuple[str, float] | None:
+def _get_virtual_position() -> tuple[str, float, int] | None:
     state = _load_position_size_state()
     side = str(state.get("virtual_position_side", "")).strip().lower()
     if side not in {"bull", "bear"}:
@@ -127,15 +133,20 @@ def _get_virtual_position() -> tuple[str, float] | None:
         entry_price = float(state.get("virtual_position_entry_price"))
     except (TypeError, ValueError):
         return None
-    return side, entry_price
+    try:
+        quantity = int(float(state.get("virtual_position_quantity", BASE_ENTRY_QUANTITY)))
+    except (TypeError, ValueError):
+        quantity = BASE_ENTRY_QUANTITY
+    return side, entry_price, quantity
 
 
-def _set_virtual_position(side: str, entry_price: float | None) -> None:
+def _set_virtual_position(side: str, entry_price: float | None, quantity: int | None = None) -> None:
     if entry_price is None:
         return
     state = _load_position_size_state()
     state["virtual_position_side"] = side
     state["virtual_position_entry_price"] = entry_price
+    state["virtual_position_quantity"] = BASE_ENTRY_QUANTITY if quantity is None else int(quantity)
     state["virtual_position_since"] = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
     _save_position_size_state(state)
 
@@ -145,12 +156,37 @@ def _sync_virtual_position_for_signal(signal_side: str, close_price: float | Non
     if not virtual_position or close_price is None:
         return
 
-    virtual_side, virtual_entry_price = virtual_position
+    virtual_side, virtual_entry_price, virtual_quantity = virtual_position
     if virtual_side == signal_side:
         return
 
     pnl = _get_exit_pnl(virtual_side, close_price, virtual_entry_price)
-    _append_trade("exiting", virtual_side, close_price, pnl, quantity=BASE_ENTRY_QUANTITY)
+    _append_trade("exiting", virtual_side, close_price, pnl, quantity=virtual_quantity)
+    _sync_current_drawdown_state()
+
+
+def _is_tracking_skipped_virtual_position(signal_side: str) -> bool:
+    virtual_position = _get_virtual_position()
+    if not virtual_position:
+        return False
+    virtual_side, _, virtual_quantity = virtual_position
+    return virtual_side == signal_side and virtual_quantity == 0
+
+
+def _should_skip_entry_after_three_wins() -> bool:
+    pnls = _get_all_exiting_pnls()
+    required_rows = SKIP_ENTRY_AFTER_EXACT_WIN_STREAK + 1
+    if len(pnls) < required_rows:
+        return False
+
+    last_reset_pnl = pnls[-required_rows]
+    recent_pnls = pnls[-SKIP_ENTRY_AFTER_EXACT_WIN_STREAK:]
+    return last_reset_pnl < 0 and all(pnl > 0 for pnl in recent_pnls)
+
+
+def _record_skipped_entry_after_three_wins(signal_side: str, entry_price: float | None) -> None:
+    _append_trade("enter", signal_side, entry_price, quantity=0)
+    _set_virtual_position(signal_side, entry_price, quantity=0)
     _sync_current_drawdown_state()
 
 
@@ -515,13 +551,13 @@ def _update_dual_account_hybrid_position_size_detail_state(
         "等比例: MDD >= 進場價*4.36% 加1、MDD >= 進場價*8.73% 加2"
     )
     state["b_overlay_exit_rule"] = (
-        "加碼條件只往上增加總曝險；MDD <= 進場價*2.18% 時總曝險最多保留4口；"
+        f"加碼條件只往上增加總曝險；MDD <= {PROPORTIONAL_RECOVERY_THRESHOLD_POINTS:g} 點時總曝險最多保留4口；"
         "MDD歸0或連贏3次回基本2口"
     )
     state["position_size_rule"] = (
         "康和固定1口; 永豐基本1口; B2與等比例各自計算加碼後相加; "
         "總曝險=min(7, 2+B2加碼+等比例加碼), 只往上加; "
-        "MDD回進場價*2.18%時總曝險最多4口; MDD歸0或連贏3次回2口; "
+        f"MDD回到{PROPORTIONAL_RECOVERY_THRESHOLD_POINTS:g}點內時總曝險最多4口; MDD歸0或連贏3次回2口; "
         "永豐實際下單=總曝險-1"
     )
     state["add_position_active"] = state["b_overlay_active"]
@@ -530,21 +566,37 @@ def _update_dual_account_hybrid_position_size_detail_state(
 
 
 def _get_dual_account_hybrid_entry_quantity(next_entry_price: float | None = None) -> int:
+    """計算下一筆 H 訊號永豐帳號要進幾口。
+
+    這裡不是讀 broker 目前倉位，而是重放 h_trade 已完成交易。
+    quantity=0 的跳過虛擬單也會納入，因為它仍代表 H 策略原始損益曲線，
+    後續 MDD 與加碼口數要照這條曲線走。
+    """
     completed_trades = _get_completed_h_trades_after_start()
     pnls = [float(trade["pnl"]) for trade in completed_trades]
+
+    # h_trade 的 pnl 是單口台幣損益。這裡重建「單口」資金曲線與高水位，
+    # 所以 MDD 門檻不會被實際下單口數放大或縮小。
     equity = -_get_initial_drawdown_pnl()
     peak_equity = 0.0
     current_drawdown_pnl = peak_equity - equity
     consecutive_win_count = 0
+
+    # total_target_quantity 是雙帳號模型裡的總曝險概念：
+    # 康和固定 1 口 + 永豐基本 1 口，再加上 B2 / 等比例加碼。
+    # 但本檔案只負責永豐下單，所以最後會扣掉康和固定 1 口。
     total_target_quantity = DUAL_ACCOUNT_BASE_TOTAL_QUANTITY
     b2_add_quantity = 0
     proportional_add_quantity = 0
     proportional_add_threshold_points, proportional_max_threshold_points = _get_proportional_drawdown_threshold_points(
         next_entry_price
     )
-    proportional_recovery_threshold_points = proportional_add_threshold_points / 2
+    proportional_recovery_threshold_points = PROPORTIONAL_RECOVERY_THRESHOLD_POINTS
 
     for index, trade in enumerate(completed_trades):
+        # 依序重放每一筆已完成 H 交易，並在每個歷史節點推算「下一筆」
+        # 原本應該使用的口數。這樣即使 h_trade 裡有跳過實單的虛擬紀錄，
+        # state 仍會跟 H 原始策略曲線一致。
         previous_drawdown_pnl = current_drawdown_pnl
         pnl = float(trade["pnl"])
         equity += pnl
@@ -561,6 +613,9 @@ def _get_dual_account_hybrid_entry_quantity(next_entry_price: float | None = Non
             if index + 1 < len(completed_trades)
             else next_entry_price
         )
+
+        # B2 加碼看固定 MDD 與目前連輸次數。
+        # 等比例加碼會用下一筆進場價，把 1000 / 2000 點門檻按價格比例換算。
         consecutive_loss_count_for_trade = _get_consecutive_loss_count(
             [float(item["pnl"]) for item in completed_trades[: index + 1]]
         )
@@ -570,12 +625,14 @@ def _get_dual_account_hybrid_entry_quantity(next_entry_price: float | None = Non
             proportional_add_threshold_points,
             proportional_max_threshold_points,
         ) = _get_proportional_overlay_add_quantity(current_drawdown_pnl, next_price)
-        proportional_recovery_threshold_points = proportional_add_threshold_points / 2
+        proportional_recovery_threshold_points = PROPORTIONAL_RECOVERY_THRESHOLD_POINTS
         desired_total_quantity = _get_dual_account_total_quantity(b2_add_quantity, proportional_add_quantity)
         total_target_quantity = max(total_target_quantity, desired_total_quantity)
 
         current_drawdown_points = current_drawdown_pnl / POINT_VALUE
         previous_drawdown_points = previous_drawdown_pnl / POINT_VALUE
+        # 重置 / 降口數規則也是看重放後的 H 單口資金曲線，不看 broker 實際曝險。
+        # MDD 歸零或連贏 3 次會回基本總曝險；MDD 回到 500 點內時最多保留 recovery max。
         if previous_drawdown_points > EXIT_ADD_POSITION_DRAWDOWN_POINTS and current_drawdown_points <= MDD_RESET_TOLERANCE_POINTS:
             total_target_quantity = DUAL_ACCOUNT_BASE_TOTAL_QUANTITY
             consecutive_win_count = 0
@@ -597,9 +654,12 @@ def _get_dual_account_hybrid_entry_quantity(next_entry_price: float | None = Non
             proportional_add_threshold_points,
             proportional_max_threshold_points,
         ) = _get_proportional_overlay_add_quantity(current_drawdown_pnl, next_entry_price)
-        proportional_recovery_threshold_points = proportional_add_threshold_points / 2
+        proportional_recovery_threshold_points = PROPORTIONAL_RECOVERY_THRESHOLD_POINTS
         desired_total_quantity = _get_dual_account_total_quantity(b2_add_quantity, proportional_add_quantity)
         total_target_quantity = max(total_target_quantity, desired_total_quantity)
+
+    # 本檔案實際送出的 broker order 只代表永豐這一腿。
+    # 康和固定 1 口只存在於口數模型裡，所以要從總曝險扣掉。
     sinopac_target_quantity = max(BASE_ENTRY_QUANTITY, total_target_quantity - KGI_FIXED_ENTRY_QUANTITY)
 
     _update_dual_account_hybrid_position_size_detail_state(
@@ -638,8 +698,8 @@ def _sync_current_drawdown_state(
 
 
 def _get_a_core_state(pnls: list[float]) -> tuple[int, int, bool]:
-    # Current wired legacy sizing: 1000/2000 point drawdown maps to 2/3 contracts.
-    # The dual-account hybrid helper above is intentionally not wired yet.
+    # 舊版 1/2/3 口邏輯，保留給 _get_entry_quantity() 與歷史比較用。
+    # 目前 auto_trade() 實際使用 _get_dual_account_hybrid_entry_quantity()。
     equity = -_get_initial_drawdown_pnl()
     peak_equity = 0.0
     current_drawdown_pnl = peak_equity - equity
@@ -841,11 +901,30 @@ def auto_trade(type):
             return
 
         latest_close = _get_latest_webhook_close()
-        # 先平實際部位，再用外部 H1 虛擬部位更新單口 MDD，最後才決定新倉口數。
+        # 出場口數很單純：closePosition() 直接讀 broker positions，
+        # 有幾口就平幾口，並把單口 pnl 寫回 h_trade.csv。
+        #
+        # 進場口數比較複雜，所以順序不能反過來：
+        # 1. 先平舊實倉，讓 h_trade 落下上一筆 exiting。
+        # 2. 如果沒有實倉，仍用 virtual_position 補寫 H 策略的虛擬 exiting。
+        # 3. 再重放最新 h_trade 單口曲線，決定下一筆新倉口數。
         closed_actual_position = closePosition(api, latest_close)
         if not closed_actual_position:
             _sync_virtual_position_for_signal(type, latest_close)
-        # 口數計算若因 state/json/csv 異常失敗，仍至少用 1 口進場，避免策略訊號完全漏單。
+
+        if not closed_actual_position and _is_tracking_skipped_virtual_position(type):
+            send_discord_message(
+                f'[{testNow:%H:%M:%S}]：長線。忽略重複訊號，'
+                f'目前已在 h_trade 追蹤跳過的 {type} 虛擬部位'
+            )
+            api.logout()
+            print(f'略過重複虛擬訊號: 已追蹤跳過的 {type}')
+            return
+
+        # 新倉口數不是從 broker positions 來，而是由 h_trade 的已完成 pnl
+        # 重建 MDD/連輸/連贏後計算。latest_close 會當作下一筆進場價，用來換算
+        # 等比例加碼門檻。計算同時會更新 h_position_size_state.json 供 Discord/人工檢查。
+        # 若 state/json/csv 異常，仍至少用 1 口進場，避免策略訊號完全漏單。
         entry_qty = BASE_ENTRY_QUANTITY
         try:
             entry_qty = _get_dual_account_hybrid_entry_quantity(latest_close)
@@ -853,13 +932,27 @@ def auto_trade(type):
             message = f'[{testNow:%H:%M:%S}]：長線。口數計算失敗，改用預設 1 口進場：{exc}'
             print(message)
             send_discord_message(message)
+
+        if _should_skip_entry_after_three_wins():
+            # 只跳過「虧 + 贏 + 贏 + 贏」後的下一筆實單。仍寫 h_trade
+            # quantity=0 的虛擬 enter，讓後續 MDD/加碼邏輯繼續跟 H 原始曲線走。
+            entry_price = latest_close
+            _record_skipped_entry_after_three_wins(type, entry_price)
+            position_size_detail = _get_position_size_message_detail()
+            send_discord_message(
+                f'[{testNow:%H:%M:%S}]：長線。連贏 3 次後第 4 筆 {type} 訊號跳過實單，'
+                f'僅寫入 h_trade 虛擬進場，原目標口數 {entry_qty}，{position_size_detail}'
+            )
+            api.logout()
+            print(f'連贏 3 次後第 4 筆跳過實單: {type}，h_trade quantity=0')
+            return
         
         # 平倉後進新倉
         if type == 'bull':
             buyOne(api, contract, entry_qty)
             entry_price = latest_close
             _append_trade("enter", "bull", entry_price, quantity=entry_qty)
-            _set_virtual_position("bull", entry_price)
+            _set_virtual_position("bull", entry_price, quantity=entry_qty)
             _sync_current_drawdown_state()
             position_size_detail = _get_position_size_message_detail()
             send_discord_message(
@@ -871,7 +964,7 @@ def auto_trade(type):
             sellOne(api, contract, entry_qty)
             entry_price = latest_close
             _append_trade("enter", "bear", entry_price, quantity=entry_qty)
-            _set_virtual_position("bear", entry_price)
+            _set_virtual_position("bear", entry_price, quantity=entry_qty)
             _sync_current_drawdown_state()
             position_size_detail = _get_position_size_message_detail()
             send_discord_message(
