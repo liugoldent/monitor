@@ -61,6 +61,11 @@ B2_DRAWDOWN_ADD_POINTS = 2000
 B2_CONSECUTIVE_LOSS_ADD_COUNT = 4
 B2_CONSECUTIVE_LOSS_ADD_QUANTITY = 2
 SKIP_ENTRY_AFTER_EXACT_WIN_STREAK = 3
+SINOPAC_TEMP_ENTRY_LOSS_GUARD_ENABLED = True
+SINOPAC_TEMP_ENTRY_LOSS_GUARD_REQUIRED_LOSSES = 4
+SINOPAC_TEMP_ENTRY_LOSS_GUARD_START_AFTER_TRADE_ROW = 1219
+SINOPAC_TEMP_ENTRY_LOSS_GUARD_START_AT = datetime(2026, 6, 12, 0, 0, tzinfo=ZoneInfo("Asia/Taipei"))
+SINOPAC_TEMP_ENTRY_LOSS_GUARD_END_AT = datetime(2026, 6, 19, 0, 0, tzinfo=ZoneInfo("Asia/Taipei"))
 
 
 def _ensure_trade_log() -> None:
@@ -184,10 +189,14 @@ def _should_skip_entry_after_three_wins() -> bool:
     return last_reset_pnl < 0 and all(pnl > 0 for pnl in recent_pnls)
 
 
-def _record_skipped_entry_after_three_wins(signal_side: str, entry_price: float | None) -> None:
+def _record_skipped_virtual_entry(signal_side: str, entry_price: float | None) -> None:
     _append_trade("enter", signal_side, entry_price, quantity=0)
     _set_virtual_position(signal_side, entry_price, quantity=0)
     _sync_current_drawdown_state()
+
+
+def _record_skipped_entry_after_three_wins(signal_side: str, entry_price: float | None) -> None:
+    _record_skipped_virtual_entry(signal_side, entry_price)
 
 
 def _iter_trade_rows_after_start() -> list[list[str]]:
@@ -252,6 +261,92 @@ def _get_consecutive_loss_count(pnls: list[float] | None = None) -> int:
             continue
         break
     return loss_count
+
+
+def _iter_trade_rows_after_trade_row(start_after_trade_row: int) -> list[list[str]]:
+    if not TRADE_LOG_PATH.exists():
+        return []
+
+    with TRADE_LOG_PATH.open("r", newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+
+    try:
+        start_row = max(0, int(start_after_trade_row))
+    except (TypeError, ValueError):
+        start_row = 0
+
+    return [
+        row
+        for trade_row, row in enumerate(rows[1:], start=1)
+        if trade_row > start_row
+    ]
+
+
+def _get_exiting_pnls_after_trade_row(start_after_trade_row: int) -> list[float]:
+    pnls: list[float] = []
+    for row in _iter_trade_rows_after_trade_row(start_after_trade_row):
+        if len(row) < 5:
+            continue
+        action = str(row[1]).strip().lower()
+        if action != "exiting":
+            continue
+        pnl = _parse_pnl_value(row[4])
+        if pnl is None:
+            continue
+        pnls.append(pnl)
+    return pnls
+
+
+def should_skip_entry_until_consecutive_losses(
+    required_loss_count: int,
+    start_after_trade_row: int,
+    *,
+    active_from: datetime | None = None,
+    active_until: datetime | None = None,
+    enabled: bool = True,
+    now: datetime | None = None,
+    pnls: list[float] | None = None,
+) -> tuple[bool, str, int]:
+    if not enabled:
+        return False, "連輸進場護欄未啟用", 0
+
+    now = now or datetime.now(ZoneInfo("Asia/Taipei"))
+    if active_from is not None and now < active_from:
+        return False, f"連輸進場護欄尚未開始，開始時間 {active_from:%Y-%m-%d %H:%M:%S}", 0
+    if active_until is not None and now >= active_until:
+        return False, f"連輸進場護欄已結束，結束時間 {active_until:%Y-%m-%d %H:%M:%S}", 0
+
+    if pnls is None:
+        pnls = _get_exiting_pnls_after_trade_row(start_after_trade_row)
+
+    consecutive_loss_count = _get_consecutive_loss_count(pnls)
+    if consecutive_loss_count >= required_loss_count:
+        return (
+            False,
+            f"連輸進場護欄放行：h_trade row {start_after_trade_row} 後已連輸 "
+            f"{consecutive_loss_count}/{required_loss_count} 筆，這次可作為第 {required_loss_count + 1} 次進場",
+            consecutive_loss_count,
+        )
+
+    return (
+        True,
+        f"連輸進場護欄啟動中：h_trade row {start_after_trade_row} 後目前連輸 "
+        f"{consecutive_loss_count}/{required_loss_count} 筆，未達第 {required_loss_count + 1} 次進場門檻",
+        consecutive_loss_count,
+    )
+
+
+def _should_skip_sinopac_temporary_entry_loss_guard(
+    now: datetime | None = None,
+) -> tuple[bool, str, int]:
+    return should_skip_entry_until_consecutive_losses(
+        SINOPAC_TEMP_ENTRY_LOSS_GUARD_REQUIRED_LOSSES,
+        SINOPAC_TEMP_ENTRY_LOSS_GUARD_START_AFTER_TRADE_ROW,
+        active_from=SINOPAC_TEMP_ENTRY_LOSS_GUARD_START_AT,
+        active_until=SINOPAC_TEMP_ENTRY_LOSS_GUARD_END_AT,
+        enabled=SINOPAC_TEMP_ENTRY_LOSS_GUARD_ENABLED,
+        now=now,
+    )
 
 
 def _get_consecutive_win_count(pnls: list[float] | None = None) -> int:
@@ -932,6 +1027,20 @@ def auto_trade(type):
             message = f'[{testNow:%H:%M:%S}]：長線。口數計算失敗，改用預設 1 口進場：{exc}'
             print(message)
             send_discord_message(message)
+
+        should_skip_by_loss_guard, loss_guard_reason, _ = _should_skip_sinopac_temporary_entry_loss_guard(testNow)
+        if should_skip_by_loss_guard:
+            entry_price = latest_close
+            _record_skipped_virtual_entry(type, entry_price)
+            position_size_detail = _get_position_size_message_detail()
+            send_discord_message(
+                f'[{testNow:%H:%M:%S}]：長線。暫時連輸護欄擋單：{loss_guard_reason}。'
+                f'僅寫入 h_trade 虛擬進場，原目標口數 {entry_qty}，{position_size_detail}'
+            )
+            api.logout()
+            print(f'暫時連輸護欄擋單: {loss_guard_reason}')
+            return
+        print(loss_guard_reason)
 
         if _should_skip_entry_after_three_wins():
             # 只跳過「虧 + 贏 + 贏 + 贏」後的下一筆實單。仍寫 h_trade

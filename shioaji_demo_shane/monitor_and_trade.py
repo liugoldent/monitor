@@ -23,6 +23,7 @@ RECONNECT_DELAY_SECONDS = 5
 last_position = ""
 TZ = ZoneInfo("Asia/Taipei")
 MXF_VALUE_CSV_PATH = MONITOR_ROOT / "backend-futures-py" / "tv_doc" / "mxf_value.csv"
+H_TRADE_CSV_PATH = MONITOR_ROOT / "backend-futures-py" / "tv_doc" / "h_trade.csv"
 
 def load_env_file(path: str = ".env") -> None:
     env_path = Path(path)
@@ -119,6 +120,117 @@ POSITION_REQUIRED_MARKER = "訊號通知"
 TARGET_SIGNAL_MARKER = "小H1"
 AUTO_TRADE_START = "開始自動交易"
 AUTO_TRADE_STOP = "停止自動交易"
+SHANE_TEMP_ENTRY_LOSS_GUARD_ENABLED = True
+SHANE_TEMP_ENTRY_LOSS_GUARD_REQUIRED_LOSSES = 4
+SHANE_TEMP_ENTRY_LOSS_GUARD_START_AFTER_TRADE_ROW = 1219
+SHANE_TEMP_ENTRY_LOSS_GUARD_START_AT = datetime(2026, 6, 12, 0, 0, tzinfo=TZ)
+SHANE_TEMP_ENTRY_LOSS_GUARD_END_AT = datetime(2026, 6, 19, 0, 0, tzinfo=TZ)
+
+
+def _parse_pnl_value(raw_value: object) -> float | None:
+    raw = str(raw_value).strip()
+    if raw == "":
+        return None
+    raw = raw.replace(",", "")
+    raw = raw.replace("－", "-").replace("−", "-").replace("﹣", "-")
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _get_consecutive_loss_count(pnls: list[float]) -> int:
+    loss_count = 0
+    for pnl in reversed(pnls):
+        if pnl < 0:
+            loss_count += 1
+            continue
+        break
+    return loss_count
+
+
+def _get_exiting_pnls_after_trade_row(
+    trade_csv_path: Path,
+    start_after_trade_row: int,
+) -> list[float]:
+    if not trade_csv_path.exists():
+        return []
+
+    try:
+        with trade_csv_path.open("r", newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+    except OSError as exc:
+        print(f"連輸護欄讀取 trade csv 失敗: {exc}")
+        return []
+
+    try:
+        start_row = max(0, int(start_after_trade_row))
+    except (TypeError, ValueError):
+        start_row = 0
+
+    pnls: list[float] = []
+    for trade_row, row in enumerate(rows[1:], start=1):
+        if trade_row <= start_row or len(row) < 5:
+            continue
+        action = str(row[1]).strip().lower()
+        if action != "exiting":
+            continue
+        pnl = _parse_pnl_value(row[4])
+        if pnl is None:
+            continue
+        pnls.append(pnl)
+    return pnls
+
+
+def should_skip_entry_until_consecutive_losses(
+    trade_csv_path: Path,
+    required_loss_count: int,
+    start_after_trade_row: int,
+    *,
+    active_from: datetime | None = None,
+    active_until: datetime | None = None,
+    enabled: bool = True,
+    now: datetime | None = None,
+) -> tuple[bool, str, int]:
+    if not enabled:
+        return False, "連輸進場護欄未啟用", 0
+
+    now = now or datetime.now(TZ)
+    if active_from is not None and now < active_from:
+        return False, f"連輸進場護欄尚未開始，開始時間 {active_from:%Y-%m-%d %H:%M:%S}", 0
+    if active_until is not None and now >= active_until:
+        return False, f"連輸進場護欄已結束，結束時間 {active_until:%Y-%m-%d %H:%M:%S}", 0
+
+    pnls = _get_exiting_pnls_after_trade_row(trade_csv_path, start_after_trade_row)
+    consecutive_loss_count = _get_consecutive_loss_count(pnls)
+    if consecutive_loss_count >= required_loss_count:
+        return (
+            False,
+            f"連輸進場護欄放行：h_trade row {start_after_trade_row} 後已連輸 "
+            f"{consecutive_loss_count}/{required_loss_count} 筆，這次可作為第 {required_loss_count + 1} 次進場",
+            consecutive_loss_count,
+        )
+
+    return (
+        True,
+        f"連輸進場護欄啟動中：h_trade row {start_after_trade_row} 後目前連輸 "
+        f"{consecutive_loss_count}/{required_loss_count} 筆，未達第 {required_loss_count + 1} 次進場門檻",
+        consecutive_loss_count,
+    )
+
+
+def should_skip_shane_temporary_entry_loss_guard(
+    now: datetime | None = None,
+) -> tuple[bool, str, int]:
+    return should_skip_entry_until_consecutive_losses(
+        H_TRADE_CSV_PATH,
+        SHANE_TEMP_ENTRY_LOSS_GUARD_REQUIRED_LOSSES,
+        SHANE_TEMP_ENTRY_LOSS_GUARD_START_AFTER_TRADE_ROW,
+        active_from=SHANE_TEMP_ENTRY_LOSS_GUARD_START_AT,
+        active_until=SHANE_TEMP_ENTRY_LOSS_GUARD_END_AT,
+        enabled=SHANE_TEMP_ENTRY_LOSS_GUARD_ENABLED,
+        now=now,
+    )
 
 # ======================
 # Handler ①：台指期下單 Bot 監控
@@ -165,16 +277,22 @@ async def bot_message_handler(event):
 
         # h 長週期單API下單 / 短週期平倉
         if position == "多":
-            recent_signals[position] = now
-            run_auto_trade("shane", auto_trade_shane, "bull")
-            # run_auto_trade("ichih", auto_trade_ichih, "bull")
+            target_side = "bull"
         elif position == "空":
-            recent_signals[position] = now
-            run_auto_trade("shane", auto_trade_shane, "bear")
-            # run_auto_trade("ichih", auto_trade_ichih, "bear")
+            target_side = "bear"
         else:
             print("──────────────")
             return
+
+        should_skip, guard_reason, _ = should_skip_shane_temporary_entry_loss_guard(datetime.now(TZ))
+        recent_signals[position] = now
+        if should_skip:
+            print(f"略過 shane 進場：{guard_reason}")
+            print("──────────────")
+            return
+
+        print(guard_reason)
+        run_auto_trade("shane", auto_trade_shane, target_side)
 
         print(f"解析結果: 目前倉位 {position}{quantity} 口")
 
