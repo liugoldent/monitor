@@ -284,14 +284,15 @@ async def bot_message_handler(event):
             print("──────────────")
             return
 
-        should_skip, guard_reason, _ = should_skip_shane_temporary_entry_loss_guard(datetime.now(TZ))
         recent_signals[position] = now
-        if should_skip:
-            print(f"略過 shane 進場：{guard_reason}")
-            print("──────────────")
-            return
 
-        print(guard_reason)
+        # 暫停連輸四次進場護欄，收到訊號後正常下單。
+        # should_skip, guard_reason, _ = should_skip_shane_temporary_entry_loss_guard(datetime.now(TZ))
+        # if should_skip:
+        #     print(f"略過 shane 進場：{guard_reason}")
+        #     print("──────────────")
+        #     return
+        # print(guard_reason)
         run_auto_trade("shane", auto_trade_shane, target_side)
 
         print(f"解析結果: 目前倉位 {position}{quantity} 口")

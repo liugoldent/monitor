@@ -200,19 +200,19 @@ async def bot_message_handler(event):
             print("──────────────")
             return
 
-        should_block, guard_reason = should_block_by_mtx_bvav_guard(target_side)
-        if should_block:
-            recent_signals[position] = now
-            message = f"長線。游擊防呆擋單：{guard_reason}"
-            print(message)
-            try:
-                send_discord_message(f"[{datetime.now(TZ):%H:%M:%S}]：{message}")
-            except Exception as exc:
-                print(f"游擊防呆 Discord 通知失敗: {exc}")
-            print("──────────────")
-            return
-
-        print(guard_reason)
+        # 暫停游擊防呆，收到訊號後正常下單。
+        # should_block, guard_reason = should_block_by_mtx_bvav_guard(target_side)
+        # if should_block:
+        #     recent_signals[position] = now
+        #     message = f"長線。游擊防呆擋單：{guard_reason}"
+        #     print(message)
+        #     try:
+        #         send_discord_message(f"[{datetime.now(TZ):%H:%M:%S}]：{message}")
+        #     except Exception as exc:
+        #         print(f"游擊防呆 Discord 通知失敗: {exc}")
+        #     print("──────────────")
+        #     return
+        # print(guard_reason)
         recent_signals[position] = now
         run_account_orders(target_side)
 

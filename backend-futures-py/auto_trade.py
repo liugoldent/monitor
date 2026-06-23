@@ -1028,19 +1028,20 @@ def auto_trade(type):
             print(message)
             send_discord_message(message)
 
-        should_skip_by_loss_guard, loss_guard_reason, _ = _should_skip_sinopac_temporary_entry_loss_guard(testNow)
-        if should_skip_by_loss_guard:
-            entry_price = latest_close
-            _record_skipped_virtual_entry(type, entry_price)
-            position_size_detail = _get_position_size_message_detail()
-            send_discord_message(
-                f'[{testNow:%H:%M:%S}]：長線。暫時連輸護欄擋單：{loss_guard_reason}。'
-                f'僅寫入 h_trade 虛擬進場，原目標口數 {entry_qty}，{position_size_detail}'
-            )
-            api.logout()
-            print(f'暫時連輸護欄擋單: {loss_guard_reason}')
-            return
-        print(loss_guard_reason)
+        # 暫停連輸四次進場護欄，收到訊號後正常下單。
+        # should_skip_by_loss_guard, loss_guard_reason, _ = _should_skip_sinopac_temporary_entry_loss_guard(testNow)
+        # if should_skip_by_loss_guard:
+        #     entry_price = latest_close
+        #     _record_skipped_virtual_entry(type, entry_price)
+        #     position_size_detail = _get_position_size_message_detail()
+        #     send_discord_message(
+        #         f'[{testNow:%H:%M:%S}]：長線。暫時連輸護欄擋單：{loss_guard_reason}。'
+        #         f'僅寫入 h_trade 虛擬進場，原目標口數 {entry_qty}，{position_size_detail}'
+        #     )
+        #     api.logout()
+        #     print(f'暫時連輸護欄擋單: {loss_guard_reason}')
+        #     return
+        # print(loss_guard_reason)
 
         if _should_skip_entry_after_three_wins():
             # 只跳過「虧 + 贏 + 贏 + 贏」後的下一筆實單。仍寫 h_trade
