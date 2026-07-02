@@ -7,8 +7,8 @@ from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1519139177109651629/YrjKS0Nw3TqYNJEzUZdzJb3EmJNA9FPwbdFZxmscyo8ersRbagBzvNxhsJGX796hvGiM"
-MXF_VALUE_WEBHOOK_URL = "https://discord.com/api/webhooks/1502132188592865312/fQS_XgKuFiJC1ZbaZhtV1hPDDiWTTxcgLxLeFLzkdhsh1BW48qHAAtWcSEi_4Zee4Zxd"
+DISCORD_MXF_ALERT_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
+DISCORD_MXF_VALUE_WEBHOOK_ENV = "DISCORD_MXF_VALUE_WEBHOOK_URL"
 LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
@@ -39,6 +39,8 @@ def require_env(name: str) -> str:
 
 load_env_file()
 
+WEBHOOK_URL = os.getenv(DISCORD_MXF_ALERT_WEBHOOK_ENV, "").strip()
+MXF_VALUE_WEBHOOK_URL = os.getenv(DISCORD_MXF_VALUE_WEBHOOK_ENV, "").strip()
 MONGO_URI = require_env("MONGO_URI")
 API_URL = "https://market-data-api.futures-ai.com/chip960_tradeinfo/"
 DB_NAME = "mxf_futures"
@@ -270,8 +272,15 @@ def build_mxf_value_discord_message(snapshot: dict[str, object], now: datetime) 
     ])
 
 
-def send_discord_message(message: str, webhook_url: str = WEBHOOK_URL) -> None:
-    response = requests.post(webhook_url, json={"content": message}, timeout=20)
+def send_discord_message(message: str, webhook_url: str | None = None) -> None:
+    target_url = WEBHOOK_URL if webhook_url is None else webhook_url.strip()
+    if not target_url:
+        raise RuntimeError(
+            f"Missing Discord webhook URL: {DISCORD_MXF_ALERT_WEBHOOK_ENV}"
+            f" or {DISCORD_MXF_VALUE_WEBHOOK_ENV}"
+        )
+
+    response = requests.post(target_url, json={"content": message}, timeout=20)
     response.raise_for_status()
 
 

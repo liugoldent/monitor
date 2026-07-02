@@ -28,9 +28,12 @@ def load_env_file(path: str = ".env") -> None:
 load_env_file()
 
 ca_path = os.getenv("CA_PATH") or str(BASE_DIR / "Sinopac.pfx")
+DISCORD_WEBHOOK_ENV = "DISCORD_SIX_STRATEGY_WEBHOOK_URL"
 WEBHOOK_URL = (
-    "https://discord.com/api/webhooks/1519132297310372012/Y88yKLZQkqA7yh8ZjqRsRq5jxrVcJcVgyJZ80KvWHx5hBXB8FXxekB38DJfo81PdwYfS"
-)
+    os.getenv(DISCORD_WEBHOOK_ENV)
+    or os.getenv("DISCORD_H_TRADE_WEBHOOK_URL")
+    or ""
+).strip()
 ENTRY_QUANTITY = int(os.getenv("SIX_STRATEGY_ENTRY_QUANTITY", "1"))
 # Safety switch: keep this False while the six-strategy monitor is in observation mode.
 ENABLE_ORDERS = False
@@ -44,6 +47,10 @@ def require_env(name: str) -> str:
 
 
 def send_discord_message(content: str) -> None:
+    if not WEBHOOK_URL:
+        print(f"Discord webhook 未設定: {DISCORD_WEBHOOK_ENV} 或 DISCORD_H_TRADE_WEBHOOK_URL")
+        return
+
     payload = {
         "username": "NotifierBot",
         "content": content,

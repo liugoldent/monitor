@@ -31,7 +31,8 @@ load_env_file()
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
-WEBHOOK_URL = "https://discord.com/api/webhooks/1519132297310372012/Y88yKLZQkqA7yh8ZjqRsRq5jxrVcJcVgyJZ80KvWHx5hBXB8FXxekB38DJfo81PdwYfS"
+DISCORD_WEBHOOK_ENV = "DISCORD_H_TRADE_WEBHOOK_URL"
+WEBHOOK_URL = os.getenv(DISCORD_WEBHOOK_ENV, "").strip()
 TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 POSITION_SIZE_STATE_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_position_size_state.json"
@@ -1167,6 +1168,10 @@ def sellOne(api, contract, quantity=1):
 
 
 def send_discord_message(content: str):
+    if not WEBHOOK_URL:
+        print(f"❌ Discord webhook 未設定: {DISCORD_WEBHOOK_ENV}")
+        return
+
     payload = {
         "username": "NotifierBot",
         "content": content,
