@@ -40,12 +40,12 @@ tell application "iTerm"
   end tell
   delay 2
 
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/backend-futures-py"
-    write text "source .venv/bin/activate"
-    write text "python monitor_stock_futures.py"
-  end tell
-  delay 2
+  # tell current session of mainWindow
+  #   write text "cd ~/Desktop/self/monitor/backend-futures-py"
+  #   write text "source .venv/bin/activate"
+  #   write text "python monitor_stock_futures.py"
+  # end tell
+  # delay 2
 
   tell mainWindow
     create tab with default profile
@@ -115,6 +115,11 @@ tell application "iTerm"
     write text "cd ~/Desktop/self/monitor/backend-futures-py"
     write text "source .venv/bin/activate"
     write text "python mongo_market_api.py"
+  end tell
+  delay 2
+
+  tell mainWindow
+    create tab with default profile
   end tell
   delay 2
 

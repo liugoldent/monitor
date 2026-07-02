@@ -1,0 +1,12 @@
+rule,trades,total_points,total_twd_x10,avg_points,win_rate,profit_factor,max_drawdown_points,best,worst
+baseline_all,9,-224.0,-2240.0,-24.88888888888889,0.4444444444444444,0.9001782531194296,-1203.0,1199.0,-1196.0
+mxf_available,1,31.0,310.0,31.0,1.0,inf,0.0,31.0,31.0
+signal_align,0,0.0,0.0,,,,0.0,,
+trend_align,1,31.0,310.0,31.0,1.0,inf,0.0,31.0,31.0
+both_align,0,0.0,0.0,,,,0.0,,
+signal_or_trend_align,1,31.0,310.0,31.0,1.0,inf,0.0,31.0,31.0
+not_against_signal,1,31.0,310.0,31.0,1.0,inf,0.0,31.0,31.0
+mtx_bvav_sign_align,0,0.0,0.0,,,,0.0,,
+mtx_bvav_avg_sign_align,0,0.0,0.0,,,,0.0,,
+tx_bvav_sign_align,1,31.0,310.0,31.0,1.0,inf,0.0,31.0,31.0
+tbta_sign_align,1,31.0,310.0,31.0,1.0,inf,0.0,31.0,31.0

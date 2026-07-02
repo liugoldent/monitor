@@ -7,7 +7,7 @@ from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1519139177109651629/YrjKS0Nw3TqYNJEzUZdzJb3EmJNA9FPwbdFZxmscyo8ersRbagBzvNxhsJGX796hvGiM"
 MXF_VALUE_WEBHOOK_URL = "https://discord.com/api/webhooks/1502132188592865312/fQS_XgKuFiJC1ZbaZhtV1hPDDiWTTxcgLxLeFLzkdhsh1BW48qHAAtWcSEi_4Zee4Zxd"
 LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
@@ -275,11 +275,6 @@ def send_discord_message(message: str, webhook_url: str = WEBHOOK_URL) -> None:
     response.raise_for_status()
 
 
-def send_mxf_value_discord_message(snapshot: dict[str, object], now: datetime) -> None:
-    message = build_mxf_value_discord_message(snapshot, now)
-    send_discord_message(message, MXF_VALUE_WEBHOOK_URL)
-
-
 def read_latest_trade_side() -> str | None:
     if not H_TRADE_CSV_PATH.exists():
         return None
@@ -436,10 +431,6 @@ def main() -> None:
                 payload = fetch_tradeinfo()
                 collection_name = get_collection_name(now)
                 insert_tradeinfo(payload, collection_name, now)
-                snapshot = append_tradeinfo_csv(payload, now)
-                if snapshot is not None:
-                    send_mxf_value_discord_message(snapshot, now)
-                # check_mtx_bvav_alert()
                 check_service_alive_alert(now)
             except Exception as exc:
                 print(f"❌ 打 API 或寫入失敗: {exc}")

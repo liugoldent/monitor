@@ -31,7 +31,7 @@ load_env_file()
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 ca_path = os.getenv("CA_PATH") or os.path.join(base_dir, "Sinopac.pfx")
-WEBHOOK_URL = "https://discord.com/api/webhooks/1379030995348488212/4wjckp5NQhvB2v-YJ5RzUASN_H96RqOm2fzmuz9H26px6cLGcnNHfcBBLq7AKfychT5w"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1519132297310372012/Y88yKLZQkqA7yh8ZjqRsRq5jxrVcJcVgyJZ80KvWHx5hBXB8FXxekB38DJfo81PdwYfS"
 TRADE_LOG_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 POSITION_SIZE_STATE_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_position_size_state.json"

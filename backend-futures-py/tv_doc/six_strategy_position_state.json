@@ -1,0 +1,65 @@
+{
+  "strategies": {
+    "CFCPW3m": {
+      "name": "新財神列車3號",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-07-01 09:10:00",
+      "last_message_time": "2026-07-01 09:09:59",
+      "last_account": "6008770",
+      "last_raw_strategy_code": "CFCPW3m",
+      "last_raw_text": "【07.01 09:09:59】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCPW3m《倉位》1.0 -> 0.0"
+    },
+    "CFCTX16m": {
+      "name": "財神列車16號",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-07-02 04:00:01",
+      "last_message_time": "2026-07-02 04:00:00",
+      "last_account": "6008770",
+      "last_raw_strategy_code": "CFCTX16m",
+      "last_raw_text": "【07.02 04:00:00】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX16m《倉位》-1.0 -> 0.0"
+    },
+    "CFCTX22m": {
+      "name": "財神列車22號",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-07-01 21:15:02",
+      "last_message_time": "2026-07-01 21:15:01",
+      "last_account": "6008770",
+      "last_raw_strategy_code": "CFCTX22m",
+      "last_raw_text": "【07.01 21:15:01】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX22m《倉位》1.0 -> 0.0"
+    },
+    "CFCCPm": {
+      "name": "財神列車6號",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-07-01 09:08:20",
+      "last_message_time": "2026-07-01 09:08:19",
+      "last_account": "6008770",
+      "last_raw_strategy_code": "CFCCPm",
+      "last_raw_text": "【07.01 09:08:19】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCCPm《倉位》1.0 -> 0.0"
+    },
+    "CFCWIN01m": {
+      "name": "智能引擎1號",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-06-30 21:45:32",
+      "last_message_time": "2026-06-30 21:45:31",
+      "last_account": "6008770",
+      "last_raw_strategy_code": "CFCWN01m",
+      "last_raw_text": "【06.30 21:45:31】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCWN01m《倉位》-1.0 -> 0.0"
+    },
+    "CFCTX23m": {
+      "name": "財神列車23號",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-07-01 21:32:51",
+      "last_message_time": "2026-07-01 21:32:50",
+      "last_account": "6008770",
+      "last_raw_strategy_code": "CFCTX23m",
+      "last_raw_text": "【07.01 21:32:50】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX23m《倉位》1.0 -> 0.0"
+    }
+  },
+  "updated_at": "2026-07-02 04:00:01"
+}
