@@ -14,7 +14,6 @@ from auto_trade_six_strategy import (
     auto_trade,
     orders_enabled,
     send_discord_message,
-    send_observation_order_notice,
 )
 
 
@@ -44,13 +43,38 @@ POSITION_REQUIRED_MARKER = "訊號通知"
 AUTO_TRADE_START = "開始自動交易"
 AUTO_TRADE_STOP = "停止自動交易"
 
+PORTFOLIO_STRATEGIES = {
+    "贏家投組E": {
+        "CFC07m": "財神列車7號",
+        "CFCTX17m": "財神列車17號",
+        "CFCTX18m": "財神列車18號",
+        "CFCTX19m": "財神列車19號",
+        "CFCTX20m": "財神列車20號",
+        "CFCTX21m": "財神列車21號",
+    },
+    "贏家投組F": {
+        "CFCWIN01m": "智能引擎1號",
+        "CFCPW3m": "新財神列車3號",
+        "CFCCPm": "財神列車6號",
+        "CFCTX16m": "財神列車16號",
+        "CFCTX22m": "財神列車22號",
+        "CFCTX23m": "財神列車23號",
+    },
+}
+
 STRATEGIES = {
-    "CFCWIN01m": "智能引擎1號",
-    "CFCPW3m": "新財神列車3號",
-    "CFCCPm": "財神列車6號",
-    "CFCTX16m": "財神列車16號",
-    "CFCTX22m": "財神列車22號",
-    "CFCTX23m": "財神列車23號",
+    strategy_code: strategy_name
+    for strategies in PORTFOLIO_STRATEGIES.values()
+    for strategy_code, strategy_name in strategies.items()
+}
+STRATEGY_PORTFOLIOS = {
+    strategy_code: portfolio
+    for portfolio, strategies in PORTFOLIO_STRATEGIES.items()
+    for strategy_code in strategies
+}
+PORTFOLIO_NOTICE_LABELS = {
+    "贏家投組E": "贏家E投組",
+    "贏家投組F": "贏家F投組",
 }
 
 STRATEGY_ALIASES = {
@@ -78,6 +102,7 @@ class StrategySignal:
     strategy_code: str
     raw_strategy_code: str
     strategy_name: str
+    portfolio: str
     previous_position: int
     new_position: int
     action: str
@@ -224,6 +249,7 @@ def parse_signal(text: str) -> StrategySignal | None:
     strategy_name = STRATEGIES.get(strategy_code)
     if not strategy_name:
         return None
+    portfolio = STRATEGY_PORTFOLIOS[strategy_code]
 
     previous_position = _parse_position(match.group("old"))
     new_position = _parse_position(match.group("new"))
@@ -242,6 +268,7 @@ def parse_signal(text: str) -> StrategySignal | None:
         strategy_code=strategy_code,
         raw_strategy_code=raw_code,
         strategy_name=strategy_name,
+        portfolio=portfolio,
         previous_position=previous_position,
         new_position=new_position,
         action=signal_action,
@@ -300,6 +327,7 @@ def update_strategy_state(signal: StrategySignal) -> dict:
     strategies = state.setdefault("strategies", {})
     strategies[signal.strategy_code] = {
         "name": signal.strategy_name,
+        "portfolio": signal.portfolio,
         "position": signal.new_position,
         "side": _position_side(signal.new_position),
         "updated_at": signal.received_at,
@@ -320,13 +348,19 @@ def _safe_position(value: object) -> int:
     return position if position in {-1, 0, 1} else 0
 
 
-def get_net_position(state: dict) -> int:
+def _strategy_codes_for_portfolio(portfolio: str | None = None):
+    if not portfolio:
+        return STRATEGIES.keys()
+    return PORTFOLIO_STRATEGIES.get(portfolio, {}).keys()
+
+
+def get_net_position(state: dict, portfolio: str | None = None) -> int:
     strategies = state.get("strategies", {})
     if not isinstance(strategies, dict):
         return 0
 
     net_position = 0
-    for strategy_code in STRATEGIES:
+    for strategy_code in _strategy_codes_for_portfolio(portfolio):
         strategy_state = strategies.get(strategy_code, {})
         if isinstance(strategy_state, dict):
             net_position += _safe_position(strategy_state.get("position", 0))
@@ -352,6 +386,7 @@ def get_previous_net_position_for_signal(state: dict, signal: StrategySignal) ->
         current_strategy_state.update(
             {
                 "name": signal.strategy_name,
+                "portfolio": signal.portfolio,
                 "position": signal.previous_position,
                 "side": _position_side(signal.previous_position),
             }
@@ -433,13 +468,6 @@ def _action_text(signal: StrategySignal) -> str:
     return "未知動作"
 
 
-def _price_text(signal: StrategySignal) -> str:
-    if signal.reference_price is None:
-        return ""
-    label = "進場價位" if signal.action in {"enter", "reverse"} else "出場價位"
-    return f"，{label} {signal.reference_price:g}"
-
-
 def _target_action_text(target_action: str, target_quantity: int) -> str:
     if target_action == "bull":
         return f"帳戶目標多單 {target_quantity} 口"
@@ -448,22 +476,35 @@ def _target_action_text(target_action: str, target_quantity: int) -> str:
     return "帳戶目標平倉"
 
 
+def _order_price_value(signal: StrategySignal) -> str:
+    if signal.reference_price is None:
+        return "未知"
+    return f"{signal.reference_price:g}"
+
+
+def _net_position_notice_text(net_position: int) -> str:
+    if net_position > 0:
+        return f"多{net_position}口"
+    if net_position < 0:
+        return f"空{abs(net_position)}口"
+    return "空手"
+
+
+def _portfolio_notice_label(portfolio: str) -> str:
+    return PORTFOLIO_NOTICE_LABELS.get(portfolio, portfolio)
+
+
 def build_discord_signal_message(
     signal: StrategySignal,
     net_position: int,
-    target_action: str,
-    target_quantity: int,
 ) -> str:
     received_time = datetime.now(TZ).strftime("%H:%M:%S")
-    message_time = f"，訊號時間 {signal.message_time}" if signal.message_time else ""
-    account = f"，帳號 {signal.account}" if signal.account else ""
     return (
-        f"[{received_time}]：六策略訊號。"
+        f"[{received_time}]：{_portfolio_notice_label(signal.portfolio)}。"
         f"{signal.strategy_name}({signal.strategy_code}) "
-        f"{_position_text(signal.previous_position)} -> {_position_text(signal.new_position)}，"
-        f"{_action_text(signal)}{_price_text(signal)}，策略淨倉位 {net_position}，"
-        f"{_target_action_text(target_action, target_quantity)}，觀察模式不下單"
-        f"{message_time}{account}"
+        f"{_position_text(signal.previous_position)} -> {_position_text(signal.new_position)}。"
+        f"下單價位：{_order_price_value(signal)}，"
+        f"下單後策略倉位：{_net_position_notice_text(net_position)}"
     )
 
 
@@ -483,11 +524,7 @@ def run_account_orders(
     strategy_context["target_quantity"] = target_quantity
     try:
         if not orders_enabled():
-            send_observation_order_notice(
-                target_action,
-                strategy=strategy_context,
-                quantity=target_quantity,
-            )
+            print("觀察模式，不送出下單通知。")
             return
         auto_trade(target_action, strategy=strategy_context, quantity=target_quantity)
     except Exception as exc:
@@ -541,7 +578,7 @@ async def bot_message_handler(event):
     net_position = get_net_position(state)
     target_action = _target_action_for_net_position(net_position)
     target_quantity = abs(net_position)
-    message = build_discord_signal_message(signal, net_position, target_action, target_quantity)
+    message = build_discord_signal_message(signal, net_position)
     print(message)
     send_discord_message(message)
     run_account_orders(
@@ -555,9 +592,10 @@ async def bot_message_handler(event):
 
     print(
         "解析結果: "
-        f"{signal.strategy_name}({signal.strategy_code}) "
+        f"{signal.portfolio} {signal.strategy_name}({signal.strategy_code}) "
         f"{signal.previous_position} -> {signal.new_position} {_action_text(signal)}，"
-        f"策略淨倉位 {net_position}，{_target_action_text(target_action, target_quantity)}"
+        f"下單後策略倉位 {_net_position_notice_text(net_position)}，"
+        f"{_target_action_text(target_action, target_quantity)}"
     )
     print("──────────────")
 
