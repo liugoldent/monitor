@@ -1,0 +1,153 @@
+//@version=6
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// at https://mozilla.org/MPL/2.0/
+// Original concept © DonovanWall
+// Multi-length standard least-squares regression channel modification
+
+indicator("Multi Regression Channels 30/60/120/200", overlay=true, max_bars_back=5000, max_lines_count=100)
+
+// Explicit output anchor so TradingView always recognizes this as an indicator.
+plot(na, title="Output Anchor", display=display.none)
+
+// Calculates a standard least-squares regression line and the standard
+// deviation of its residuals. Index 0 is the current bar; length - 1 is the
+// oldest bar in the sampling window.
+calc_channel(series float source, int length, float deviation_multiplier) =>
+    float sum_x  = 0.0
+    float sum_y  = 0.0
+    float sum_xy = 0.0
+    float sum_x2 = 0.0
+
+    for i = 0 to length - 1
+        float x = i
+        float y = source[i]
+        sum_x  += x
+        sum_y  += y
+        sum_xy += x * y
+        sum_x2 += x * x
+
+    float denominator = length * sum_x2 - sum_x * sum_x
+    float slope       = denominator == 0.0 ? 0.0 : (length * sum_xy - sum_x * sum_y) / denominator
+    float intercept   = (sum_y - slope * sum_x) / length
+
+    float residual_sum = 0.0
+    for i = 0 to length - 1
+        float fitted   = intercept + slope * i
+        float residual = source[i] - fitted
+        residual_sum  += residual * residual
+
+    float deviation = math.sqrt(residual_sum / length) * deviation_multiplier
+    float oldest_y   = intercept + slope * (length - 1)
+    float current_y  = intercept
+    [oldest_y, current_y, deviation]
+
+upsert_line(line id, int x1, float y1, int x2, float y2, color line_color, int line_width, string style_name, string extension_name) =>
+    line_style = style_name == "Dashed" ? line.style_dashed : line.style_solid
+    extend_style = extension_name == "Right" ? extend.right : extend.none
+    line result = id
+
+    if na(result)
+        result := line.new(x1=x1, y1=y1, x2=x2, y2=y2, xloc=xloc.bar_index, extend=extend_style, color=line_color, style=line_style, width=line_width)
+    else
+        line.set_xy1(result, x1, y1)
+        line.set_xy2(result, x2, y2)
+        line.set_extend(result, extend_style)
+        line.set_color(result, line_color)
+        line.set_style(result, line_style)
+        line.set_width(result, line_width)
+    result
+
+delete_at(array<line> ids, int index) =>
+    line id = array.get(ids, index)
+    if not na(id)
+        line.delete(id)
+        array.set(ids, index, na)
+    true
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Global settings
+// ---------------------------------------------------------------------------------------------------------------------
+
+source_input = input.source(close, "Source", group="Global")
+width_mult   = input.float(1.0, "Channel width", minval=0.1, step=0.1, group="Global", tooltip="Multiplier applied only to residual standard deviation; it does not change regression slope.")
+show_inner   = input.bool(true, "Show half-deviation inner lines", group="Global")
+extend_right = input.bool(false, "Extend channels right", group="Global")
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Four independently configurable channels
+// ---------------------------------------------------------------------------------------------------------------------
+
+show_1 = input.bool(true, "Show", inline="c1", group="Channel 1")
+len_1  = input.int(30, "Length", minval=2, maxval=2000, inline="c1", group="Channel 1")
+col_1  = input.color(color.rgb(0, 188, 212), "Color", inline="c1", group="Channel 1")
+
+show_2 = input.bool(true, "Show", inline="c2", group="Channel 2")
+len_2  = input.int(60, "Length", minval=2, maxval=2000, inline="c2", group="Channel 2")
+col_2  = input.color(color.rgb(255, 235, 59), "Color", inline="c2", group="Channel 2")
+
+show_3 = input.bool(true, "Show", inline="c3", group="Channel 3")
+len_3  = input.int(120, "Length", minval=2, maxval=2000, inline="c3", group="Channel 3")
+col_3  = input.color(color.rgb(224, 64, 251), "Color", inline="c3", group="Channel 3")
+
+show_4 = input.bool(true, "Show", inline="c4", group="Channel 4")
+len_4  = input.int(200, "Length", minval=2, maxval=2000, inline="c4", group="Channel 4")
+col_4  = input.color(color.rgb(255, 152, 0), "Color", inline="c4", group="Channel 4")
+
+lengths = array.from(len_1, len_2, len_3, len_4)
+enabled = array.from(show_1, show_2, show_3, show_4)
+colors  = array.from(col_1, col_2, col_3, col_4)
+
+var array<line> center_lines      = array.new_line(4, na)
+var array<line> upper_outer_lines = array.new_line(4, na)
+var array<line> lower_outer_lines = array.new_line(4, na)
+var array<line> upper_inner_lines = array.new_line(4, na)
+var array<line> lower_inner_lines = array.new_line(4, na)
+
+// Updating only on the chart's last bar is faster and prevents flicker caused
+// by deleting/recreating every channel on every historical bar.
+if barstate.islast
+    string extension_name = extend_right ? "Right" : "None"
+
+    for slot = 0 to 3
+        int channel_length = array.get(lengths, slot)
+        bool channel_on    = array.get(enabled, slot)
+        color channel_col  = array.get(colors, slot)
+        bool enough_bars   = bar_index >= channel_length - 1
+
+        if channel_on and enough_bars
+            [oldest_y, current_y, deviation] = calc_channel(source_input, channel_length, width_mult)
+
+            int oldest_x = bar_index - channel_length + 1
+            int current_x = bar_index
+
+            line center_id = array.get(center_lines, slot)
+            center_id := upsert_line(center_id, oldest_x, oldest_y, current_x, current_y, channel_col, 4, "Solid", extension_name)
+            array.set(center_lines, slot, center_id)
+
+            line upper_outer_id = array.get(upper_outer_lines, slot)
+            upper_outer_id := upsert_line(upper_outer_id, oldest_x, oldest_y + deviation, current_x, current_y + deviation, channel_col, 2, "Solid", extension_name)
+            array.set(upper_outer_lines, slot, upper_outer_id)
+
+            line lower_outer_id = array.get(lower_outer_lines, slot)
+            lower_outer_id := upsert_line(lower_outer_id, oldest_x, oldest_y - deviation, current_x, current_y - deviation, channel_col, 2, "Solid", extension_name)
+            array.set(lower_outer_lines, slot, lower_outer_id)
+
+            if show_inner
+                color inner_color = color.new(channel_col, 20)
+
+                line upper_inner_id = array.get(upper_inner_lines, slot)
+                upper_inner_id := upsert_line(upper_inner_id, oldest_x, oldest_y + deviation / 2.0, current_x, current_y + deviation / 2.0, inner_color, 1, "Dashed", extension_name)
+                array.set(upper_inner_lines, slot, upper_inner_id)
+
+                line lower_inner_id = array.get(lower_inner_lines, slot)
+                lower_inner_id := upsert_line(lower_inner_id, oldest_x, oldest_y - deviation / 2.0, current_x, current_y - deviation / 2.0, inner_color, 1, "Dashed", extension_name)
+                array.set(lower_inner_lines, slot, lower_inner_id)
+            else
+                delete_at(upper_inner_lines, slot)
+                delete_at(lower_inner_lines, slot)
+        else
+            delete_at(center_lines, slot)
+            delete_at(upper_outer_lines, slot)
+            delete_at(lower_outer_lines, slot)
+            delete_at(upper_inner_lines, slot)
+            delete_at(lower_inner_lines, slot)
