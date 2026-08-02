@@ -15,6 +15,7 @@ from auto_trade_six_strategy import (
     orders_enabled,
     send_discord_message,
 )
+from strategy_common import format_mxf_number, get_latest_mxf_snapshot
 
 
 TZ = ZoneInfo("Asia/Taipei")
@@ -22,6 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent
 STATE_PATH = BASE_DIR / "tv_doc" / "six_strategy_position_state.json"
 SIGNAL_LOG_PATH = BASE_DIR / "tv_doc" / "six_strategy_signal_events.csv"
 WEBHOOK_DATA_1MIN_PATH = BASE_DIR / "tv_doc" / "webhook_data_1min.csv"
+MXF_VALUE_CSV_PATH = BASE_DIR / "tv_doc" / "mxf_value.csv"
 SIGNAL_TTL = 10
 RECONNECT_DELAY_SECONDS = 5
 SIGNAL_LOG_FIELDS = [
@@ -494,6 +496,13 @@ def _portfolio_notice_label(portfolio: str) -> str:
     return PORTFOLIO_NOTICE_LABELS.get(portfolio, portfolio)
 
 
+def _mxf_notice_text() -> str:
+    snapshot = get_latest_mxf_snapshot(str(MXF_VALUE_CSV_PATH))
+    tank = format_mxf_number(snapshot["tx_bvav"]) or "-"
+    guerrilla = format_mxf_number(snapshot["mtx_bvav"]) or "-"
+    return f"籌碼：坦克 {tank}，游擊 {guerrilla}"
+
+
 def build_discord_signal_message(
     signal: StrategySignal,
     net_position: int,
@@ -504,7 +513,8 @@ def build_discord_signal_message(
         f"{signal.strategy_name}({signal.strategy_code}) "
         f"{_position_text(signal.previous_position)} -> {_position_text(signal.new_position)}。"
         f"下單價位：{_order_price_value(signal)}，"
-        f"下單後策略倉位：{_net_position_notice_text(net_position)}"
+        f"下單後策略倉位：{_net_position_notice_text(net_position)}\n"
+        f"{_mxf_notice_text()}"
     )
 
 

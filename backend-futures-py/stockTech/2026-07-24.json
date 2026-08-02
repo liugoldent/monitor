@@ -1,0 +1,2002 @@
+{
+  "date": "2026-07-24",
+  "generated_at": "2026-07-24 21:48:28",
+  "source": "Yahoo Finance chart API",
+  "holdings_source": "Mongo ETF common holdings",
+  "etf_mode": "5 ETF 中至少 3 檔持有",
+  "etf_collections": [
+    "etf_00403A",
+    "etf_00981A",
+    "etf_00982A",
+    "etf_00991A",
+    "etf_00992A"
+  ],
+  "count": 38,
+  "data": [
+    {
+      "code": "2059",
+      "name": "川湖",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00982A",
+          "holding_count": "185,000",
+          "weight": "2.97%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "400,000",
+          "weight": "4.19%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "293,000",
+          "weight": "5.98%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2059.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 7735.0,
+        "open": 8005.0,
+        "high": 8150.0,
+        "low": 7635.0,
+        "volume": 576044,
+        "ma5": 7957.0,
+        "ma10": 8090.5,
+        "ma20": 7977.5,
+        "ma60": 6398.25,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "7519-7751",
+          "next": "6325-6635",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2303",
+      "name": "聯電",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "76,000,000",
+          "weight": "6.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "86,550,000",
+          "weight": "4.14%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "9,065,000",
+          "weight": "2.41%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "10,000,000",
+          "weight": "1.73%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "7,000,000",
+          "weight": "2.37%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2303.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 128.0,
+        "open": 135.0,
+        "high": 138.0,
+        "low": 128.0,
+        "volume": 151687114,
+        "ma5": 134.0,
+        "ma10": 144.45,
+        "ma20": 153.7,
+        "ma60": 134.61,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "126-130",
+          "next": "123-128",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2308",
+      "name": "台達電",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "3,040,000",
+          "weight": "3.35%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "5,567,000",
+          "weight": "3.72%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "660,000",
+          "weight": "1.59%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2308.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 1785.0,
+        "open": 1850.0,
+        "high": 1890.0,
+        "low": 1785.0,
+        "volume": 6982902,
+        "ma5": 1817.0,
+        "ma10": 1836.5,
+        "ma20": 1889.25,
+        "ma60": 2096.67,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "1810-1863",
+          "next": "1629-1701",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "3,200,000",
+          "weight": "0.50%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "9,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2317.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 252.5,
+        "open": 254.0,
+        "high": 256.0,
+        "low": 251.5,
+        "volume": 33520991,
+        "ma5": 248.4,
+        "ma10": 242.95,
+        "ma20": 242.3,
+        "ma60": 254.64,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "248-255",
+          "next": "225-235",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2327",
+      "name": "國巨*",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "6,000,000",
+          "weight": "2.38%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "25,098,000",
+          "weight": "6.03%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "844,000",
+          "weight": "1.13%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "7,500,000",
+          "weight": "6.51%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,927,000",
+          "weight": "3.27%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2327.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 642.0,
+        "open": 679.0,
+        "high": 685.0,
+        "low": 639.0,
+        "volume": 41691291,
+        "ma5": 668.2,
+        "ma10": 720.8,
+        "ma20": 861.45,
+        "ma60": 750.43,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "629-649",
+          "next": "595-621",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2330",
+      "name": "台積電",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "11,600,000",
+          "weight": "16.82%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "11,840,000",
+          "weight": "10.41%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,967,000",
+          "weight": "9.60%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "4,000,000",
+          "weight": "12.72%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,406,000",
+          "weight": "8.72%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2330.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 2350.0,
+        "open": 2355.0,
+        "high": 2365.0,
+        "low": 2345.0,
+        "volume": 24443212,
+        "ma5": 2377.0,
+        "ma10": 2394.5,
+        "ma20": 2416.75,
+        "ma60": 2345.83,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "2382-2452",
+          "next": "2299-2393",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2337",
+      "name": "旺宏",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "10,000,000",
+          "weight": "0.77%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "9,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,343,000",
+          "weight": "0.44%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2337.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 124.0,
+        "open": 126.5,
+        "high": 131.0,
+        "low": 123.5,
+        "volume": 39381181,
+        "ma5": 125.8,
+        "ma10": 131.65,
+        "ma20": 138.55,
+        "ma60": 151.72,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "122-125",
+          "next": "113-118",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2345",
+      "name": "智邦",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "2,260,000",
+          "weight": "3.10%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "6,334,000",
+          "weight": "5.26%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "812,000",
+          "weight": "3.74%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "1,500,000",
+          "weight": "4.50%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,080,000",
+          "weight": "6.33%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2345.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 2220.0,
+        "open": 2315.0,
+        "high": 2330.0,
+        "low": 2205.0,
+        "volume": 1604579,
+        "ma5": 2228.0,
+        "ma10": 2257.5,
+        "ma20": 2400.5,
+        "ma60": 2445.17,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "2224-2291",
+          "next": "1956-2044",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2360",
+      "name": "致茂",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "760,000",
+          "weight": "0.98%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "837,000",
+          "weight": "3.62%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2360.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 2080.0,
+        "open": 2140.0,
+        "high": 2190.0,
+        "low": 2075.0,
+        "volume": 2185499,
+        "ma5": 2042.0,
+        "ma10": 1962.5,
+        "ma20": 2012.5,
+        "ma60": 2223.17,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "2044-2106",
+          "next": "1688-1772",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2368",
+      "name": "金像電",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,800,000",
+          "weight": "1.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "7,478,000",
+          "weight": "2.52%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "9,000",
+          "weight": "0.01%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2368.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 901.0,
+        "open": 925.0,
+        "high": 941.0,
+        "low": 892.0,
+        "volume": 4062388,
+        "ma5": 937.8,
+        "ma10": 970.6,
+        "ma20": 1074.05,
+        "ma60": 1257.6,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "878-906",
+          "next": "857-893",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2383",
+      "name": "台光電",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,330,000",
+          "weight": "3.90%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "4,653,000",
+          "weight": "8.28%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "332,000",
+          "weight": "3.28%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "1,300,000",
+          "weight": "8.36%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "563,000",
+          "weight": "7.07%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2383.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 4755.0,
+        "open": 5055.0,
+        "high": 5055.0,
+        "low": 4720.0,
+        "volume": 1975177,
+        "ma5": 4840.0,
+        "ma10": 4886.0,
+        "ma20": 5178.5,
+        "ma60": 5067.08,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "4815-4957",
+          "next": "4085-4275",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,730,000",
+          "weight": "4.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "5,131,000",
+          "weight": "7.20%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "869,000",
+          "weight": "6.77%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "1,080,000",
+          "weight": "5.48%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "406,000",
+          "weight": "4.02%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "2454.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 3750.0,
+        "open": 3805.0,
+        "high": 4010.0,
+        "low": 3750.0,
+        "volume": 8948498,
+        "ma5": 3697.0,
+        "ma10": 3678.0,
+        "ma20": 3890.5,
+        "ma60": 3940.08,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "3694-3806",
+          "next": "3165-3315",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3008",
+      "name": "大立光",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "60,000",
+          "weight": "0.15%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "243,000",
+          "weight": "1.98%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "420,000",
+          "weight": "4.35%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3008.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 3920.0,
+        "open": 4070.0,
+        "high": 4150.0,
+        "low": 3915.0,
+        "volume": 1571788,
+        "ma5": 3984.0,
+        "ma10": 4084.0,
+        "ma20": 4112.0,
+        "ma60": 3843.67,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "3856-3974",
+          "next": "3765-3922",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3017",
+      "name": "奇鋐",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "3,450,000",
+          "weight": "5.07%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "5,423,000",
+          "weight": "4.83%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "407,000",
+          "weight": "2.01%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "860,000",
+          "weight": "2.77%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,002,000",
+          "weight": "6.30%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3017.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 2380.0,
+        "open": 2375.0,
+        "high": 2510.0,
+        "low": 2355.0,
+        "volume": 4507225,
+        "ma5": 2308.0,
+        "ma10": 2247.5,
+        "ma20": 2378.25,
+        "ma60": 2482.08,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "2343-2414",
+          "next": "1967-2063",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3037",
+      "name": "欣興",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "7,600,000",
+          "weight": "3.93%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "16,971,000",
+          "weight": "5.33%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "4,250,000",
+          "weight": "4.82%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "2,097,000",
+          "weight": "4.65%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3037.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 839.0,
+        "open": 880.0,
+        "high": 892.0,
+        "low": 825.0,
+        "volume": 19776999,
+        "ma5": 843.4,
+        "ma10": 860.6,
+        "ma20": 900.5,
+        "ma60": 923.78,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "848-873",
+          "next": "730-764",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "3,217,000",
+          "weight": "1.41%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "3,000,000",
+          "weight": "2.89%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "440,013",
+          "weight": "0.83%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3189.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 711.0,
+        "open": 766.0,
+        "high": 770.0,
+        "low": 707.0,
+        "volume": 14203883,
+        "ma5": 743.4,
+        "ma10": 764.9,
+        "ma20": 784.8,
+        "ma60": 682.39,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "696-718",
+          "next": "668-697",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3231",
+      "name": "緯創",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00982A",
+          "holding_count": "100,000",
+          "weight": "0.04%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "9,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "3,496,000",
+          "weight": "1.65%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3231.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 179.0,
+        "open": 175.0,
+        "high": 184.0,
+        "low": 173.0,
+        "volume": 179673699,
+        "ma5": 161.9,
+        "ma10": 152.65,
+        "ma20": 153.28,
+        "ma60": 153.05,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "170-176",
+          "next": "149-157",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3264",
+      "name": "欣銓",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "600,000",
+          "weight": "0.08%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,508,000",
+          "weight": "0.12%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "4,780,000",
+          "weight": "2.08%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "72,000",
+          "weight": "0.04%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "3264.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 209.5,
+        "open": 215.5,
+        "high": 216.0,
+        "low": 202.0,
+        "volume": 10172221,
+        "ma5": 210.4,
+        "ma10": 217.05,
+        "ma20": 226.32,
+        "ma60": 225.37,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "199-205",
+          "next": "190-199",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3443",
+      "name": "創意",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "510,000",
+          "weight": "1.28%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,000",
+          "weight": "0.01%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "211,000",
+          "weight": "2.27%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3443.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 4070.0,
+        "open": 4330.0,
+        "high": 4475.0,
+        "low": 4060.0,
+        "volume": 1933050,
+        "ma5": 4136.0,
+        "ma10": 4111.0,
+        "ma20": 4397.75,
+        "ma60": 4664.17,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "4050-4172",
+          "next": "3454-3616",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3583",
+      "name": "辛耘",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "900,000",
+          "weight": "0.40%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,130,000",
+          "weight": "1.68%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "147,000",
+          "weight": "0.28%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3583.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 715.0,
+        "open": 746.0,
+        "high": 757.0,
+        "low": 708.0,
+        "volume": 895511,
+        "ma5": 743.8,
+        "ma10": 769.8,
+        "ma20": 810.7,
+        "ma60": 838.68,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "697-719",
+          "next": "686-714",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3653",
+      "name": "健策",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "931,000",
+          "weight": "1.97%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "2,267,000",
+          "weight": "2.91%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "1,000",
+          "weight": "0.01%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3653.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 3430.0,
+        "open": 3650.0,
+        "high": 3690.0,
+        "low": 3365.0,
+        "volume": 1843821,
+        "ma5": 3472.0,
+        "ma10": 3351.0,
+        "ma20": 3334.0,
+        "ma60": 3640.67,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "3314-3416",
+          "next": "2921-3059",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3665",
+      "name": "貿聯-KY",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "680,000",
+          "weight": "0.93%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "4,833,848",
+          "weight": "3.99%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "590,000",
+          "weight": "1.76%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "955,000",
+          "weight": "5.56%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3665.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 2205.0,
+        "open": 2235.0,
+        "high": 2350.0,
+        "low": 2190.0,
+        "volume": 3041585,
+        "ma5": 2085.0,
+        "ma10": 1969.5,
+        "ma20": 1954.5,
+        "ma60": 2166.58,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "2157-2223",
+          "next": "1641-1729",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "6,400,000",
+          "weight": "2.42%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "16,327,000",
+          "weight": "3.74%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,011,000",
+          "weight": "1.29%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "4,200,000",
+          "weight": "3.48%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,629,000",
+          "weight": "2.64%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "3711.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 613.0,
+        "open": 633.0,
+        "high": 636.0,
+        "low": 609.0,
+        "volume": 17553457,
+        "ma5": 629.6,
+        "ma10": 643.8,
+        "ma20": 658.3,
+        "ma60": 600.9,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "600-618",
+          "next": "561-585",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "4958",
+      "name": "臻鼎-KY",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "6,154,000",
+          "weight": "1.83%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,682,000",
+          "weight": "0.30%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "3,178,000",
+          "weight": "3.18%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "9,000",
+          "weight": "0.01%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "4958.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 482.0,
+        "open": 500.0,
+        "high": 510.0,
+        "low": 478.0,
+        "volume": 33053700,
+        "ma5": 506.9,
+        "ma10": 552.65,
+        "ma20": 570.58,
+        "ma60": 525.69,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "471-485",
+          "next": "362-382",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "5274",
+      "name": "信驊",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "124,500",
+          "weight": "1.13%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "448,900",
+          "weight": "2.47%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "30,900",
+          "weight": "0.95%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "80,500",
+          "weight": "1.60%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "5274.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 14730.0,
+        "open": 15120.0,
+        "high": 15300.0,
+        "low": 14500.0,
+        "volume": 329304,
+        "ma5": 14559.0,
+        "ma10": 14005.5,
+        "ma20": 14340.34,
+        "ma60": 15492.39,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "14279-14721",
+          "next": "11585-12175",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "5347",
+      "name": "世界",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "9,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "5347.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 157.0,
+        "open": 164.5,
+        "high": 165.0,
+        "low": 157.0,
+        "volume": 18291416,
+        "ma5": 160.9,
+        "ma10": 170.0,
+        "ma20": 180.15,
+        "ma60": 173.34,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "155-159",
+          "next": "145-152",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6147",
+      "name": "頎邦",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "4,706,000",
+          "weight": "0.28%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,209,000",
+          "weight": "0.40%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "6147.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 158.0,
+        "open": 158.0,
+        "high": 158.0,
+        "low": 158.0,
+        "volume": 7170761,
+        "ma5": 172.1,
+        "ma10": 182.55,
+        "ma20": 197.22,
+        "ma60": 219.13,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "156-160",
+          "next": "152-158",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6187",
+      "name": "萬潤",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00981A",
+          "holding_count": "1,334,000",
+          "weight": "0.47%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "91,000",
+          "weight": "0.18%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,220,000",
+          "weight": "3.03%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "6187.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 942.0,
+        "open": 999.0,
+        "high": 1015.0,
+        "low": 940.0,
+        "volume": 2224280,
+        "ma5": 991.0,
+        "ma10": 1010.5,
+        "ma20": 1012.35,
+        "ma60": 1098.12,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "926-954",
+          "next": "891-929",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6223",
+      "name": "旺矽",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,000,000",
+          "weight": "3.52%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "2,443,000",
+          "weight": "5.21%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "307,000",
+          "weight": "3.64%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "600,000",
+          "weight": "4.63%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "326,000",
+          "weight": "4.91%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "6223.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 5705.0,
+        "open": 6085.0,
+        "high": 6290.0,
+        "low": 5650.0,
+        "volume": 725204,
+        "ma5": 5857.0,
+        "ma10": 6041.5,
+        "ma20": 6384.0,
+        "ma60": 6069.25,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "5564-5736",
+          "next": "5031-5259",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6274",
+      "name": "台燿",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,680,000",
+          "weight": "1.30%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "5,160,000",
+          "weight": "2.41%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "447,000",
+          "weight": "1.16%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "2,150,000",
+          "weight": "3.64%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "6274.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 1250.0,
+        "open": 1315.0,
+        "high": 1330.0,
+        "low": 1205.0,
+        "volume": 6039118,
+        "ma5": 1260.0,
+        "ma10": 1314.5,
+        "ma20": 1477.0,
+        "ma60": 1497.42,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "1186-1224",
+          "next": "1035-1085",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6488",
+      "name": "環球晶",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "2,350,000",
+          "weight": "1.49%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,146,000",
+          "weight": "2.45%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "394,000",
+          "weight": "1.07%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "6488.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 1030.0,
+        "open": 1070.0,
+        "high": 1100.0,
+        "low": 1020.0,
+        "volume": 12237870,
+        "ma5": 1172.0,
+        "ma10": 1295.0,
+        "ma20": 1245.25,
+        "ma60": 977.9,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "1005-1035",
+          "next": "957-998",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6515",
+      "name": "穎崴",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "149,000",
+          "weight": "0.58%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "93,000",
+          "weight": "0.22%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "210,000",
+          "weight": "1.79%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "42,000",
+          "weight": "0.70%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "6515.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 6295.0,
+        "open": 6480.0,
+        "high": 6575.0,
+        "low": 6265.0,
+        "volume": 296340,
+        "ma5": 6422.0,
+        "ma10": 6657.0,
+        "ma20": 7547.25,
+        "ma60": 8737.83,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "6171-6359",
+          "next": "5594-5846",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6669",
+      "name": "緯穎",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "600,000",
+          "weight": "2.12%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "2,417,000",
+          "weight": "5.18%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "304,000",
+          "weight": "3.62%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "450,000",
+          "weight": "3.49%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "77,000",
+          "weight": "1.16%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "6669.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 5730.0,
+        "open": 5395.0,
+        "high": 5835.0,
+        "low": 5375.0,
+        "volume": 3041509,
+        "ma5": 5277.0,
+        "ma10": 5108.0,
+        "ma20": 5048.75,
+        "ma60": 5097.58,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "5289-5461",
+          "next": "4983-5212",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "6805",
+      "name": "富世達",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "700,000",
+          "weight": "0.61%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,931,000",
+          "weight": "1.02%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "109,000",
+          "weight": "0.41%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "6805.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 1410.0,
+        "open": 1420.0,
+        "high": 1475.0,
+        "low": 1405.0,
+        "volume": 794518,
+        "ma5": 1396.0,
+        "ma10": 1386.5,
+        "ma20": 1477.25,
+        "ma60": 1730.08,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "1384-1426",
+          "next": "1242-1298",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "8046",
+      "name": "南電",
+      "holding_etf_count": 4,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,750,000",
+          "weight": "1.20%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "9,519,000",
+          "weight": "3.95%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "3,000,000",
+          "weight": "4.50%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "8046.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 1110.0,
+        "open": 1215.0,
+        "high": 1230.0,
+        "low": 1110.0,
+        "volume": 11170010,
+        "ma5": 1188.0,
+        "ma10": 1234.0,
+        "ma20": 1187.5,
+        "ma60": 991.07,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "1093-1127",
+          "next": "969-1013",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "8299",
+      "name": "群聯",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "1,100,000",
+          "weight": "2.72%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "445,000",
+          "weight": "2.14%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "8299.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 1825.0,
+        "open": 1900.0,
+        "high": 1970.0,
+        "low": 1820.0,
+        "volume": 5052873,
+        "ma5": 1850.0,
+        "ma10": 1934.0,
+        "ma20": 2094.25,
+        "ma60": 2329.17,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "1793-1847",
+          "next": "1648-1722",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "8358",
+      "name": "金居",
+      "holding_etf_count": 3,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,750,000",
+          "weight": "0.40%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "tpex",
+      "yahoo_symbol": "8358.TWO",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 367.0,
+        "open": 397.0,
+        "high": 397.5,
+        "low": 366.0,
+        "volume": 8393802,
+        "ma5": 390.3,
+        "ma10": 420.95,
+        "ma20": 488.88,
+        "ma60": 524.15,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "360-372",
+          "next": "352-366",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    },
+    {
+      "code": "8996",
+      "name": "高力",
+      "holding_etf_count": 5,
+      "etfs": [
+        {
+          "etf": "00403A",
+          "holding_count": "1,600,000",
+          "weight": "0.99%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00981A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00982A",
+          "holding_count": "382,000",
+          "weight": "0.80%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00991A",
+          "holding_count": "1,000",
+          "weight": "0.00%",
+          "source_time": "2026-07-24 21:30:10"
+        },
+        {
+          "etf": "00992A",
+          "holding_count": "1,630,000",
+          "weight": "4.33%",
+          "source_time": "2026-07-24 21:30:10"
+        }
+      ],
+      "market": "twse",
+      "yahoo_symbol": "8996.TW",
+      "technical": {
+        "date": "2026-07-24",
+        "close": 1005.0,
+        "open": 1055.0,
+        "high": 1105.0,
+        "low": 1000.0,
+        "volume": 2178854,
+        "ma5": 1022.8,
+        "ma10": 1085.4,
+        "ma20": 1238.45,
+        "ma60": 1209.13,
+        "market_time": "2026-07-24",
+        "bars_used": 118,
+        "support": {
+          "near": "985-1015",
+          "next": "894-934",
+          "note": "自動計算：近期低點、MA10/MA20 與 MA60/前低交叉推估；需用日線收盤確認。",
+          "basis": "Yahoo 6mo 1d OHLC + MA10/MA20/MA60"
+        }
+      }
+    }
+  ],
+  "errors": []
+}
