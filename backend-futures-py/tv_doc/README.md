@@ -65,3 +65,6 @@ inactive_strategy_state/
 ## archive_research_*
 
 較早期的研究、回測、手動匯出資料已封存在 `archive_research_2026-05-15/` 與 `archive_research_2026-05-19/`。
+
+# mxf value
+(坦克、游擊、炮灰、游擊平均）

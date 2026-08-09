@@ -83,7 +83,13 @@ def insert_tradeinfo(payload: object, collection_name: str, now: datetime) -> No
     if len(docs) == 1:
         collection.insert_one(docs[0])
         fetch_time = now.strftime("%y-%m-%d %H-%M")
-        print(f"{fetch_time} ✅ 成功插入 1 筆資料到集合 {collection_name}")
+        doc = docs[0]
+        print(
+            f"{fetch_time} ✅ 成功插入 1 筆資料到集合 {collection_name}"
+            f"｜游擊 {_format_display_int(doc.get('mtx_bvav'))}"
+            f"｜坦克 {_format_display_int(doc.get('tx_bvav'))}"
+            f"｜炮灰 {_format_display_int(doc.get('mtx_tbta'))}"
+        )
     else:
         collection.insert_many(docs)
         print(f"✅ 成功插入 {len(docs)} 筆資料到集合 {collection_name}")

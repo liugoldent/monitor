@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "lastSuccessfulSend": {
+    "dataDate": "2026-08-07",
+    "timezone": "Asia/Taipei",
+    "criteria": "(zone == 4 && close > SMA20) || zone == 1",
+    "zone1Codes": [
+      "2059",
+      "2408",
+      "3017",
+      "3037",
+      "3231",
+      "3653",
+      "5274",
+      "6669",
+      "7769"
+    ],
+    "zone4AboveSma20Codes": [
+      "2317",
+      "2360",
+      "2383",
+      "2454",
+      "3008",
+      "3443",
+      "3661",
+      "3665",
+      "6515"
+    ],
+    "watchlistCounts": {
+      "etf交集3檔": 10,
+      "etf交集4檔": 11,
+      "etf交集5檔": 20
+    },
+    "verifiedCount": 41,
+    "missingCount": 0,
+    "messageSummaryHash": "3699963f2efcdb4a58af452be5964f74ce916150ac0c680747d5ce1dff4a1095",
+    "httpStatus": 204,
+    "startedAt": "2026-08-07T13:36:59+08:00",
+    "completedAt": "2026-08-07T13:44:57+08:00",
+    "sentAt": "2026-08-07T13:45:05+08:00",
+    "totalDurationSeconds": 486,
+    "source": "scheduled-actual-x-lines"
+  }
+}
