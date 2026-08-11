@@ -15,13 +15,13 @@ tell application "iTerm"
   set mainWindow to (create window with default profile)
   delay 2
 
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/backend-heyu-node"
-    write text "source ~/.nvm/nvm.sh"
-    write text "nvm use v22"
-    write text "node index.js"
-  end tell
-  delay 2
+  # tell current session of mainWindow
+  #   write text "cd ~/Desktop/self/monitor/backend-heyu-node"
+  #   write text "source ~/.nvm/nvm.sh"
+  #   write text "nvm use v22"
+  #   write text "node index.js"
+  # end tell
+  # delay 2
 
   tell mainWindow
     create tab with default profile
@@ -35,10 +35,10 @@ tell application "iTerm"
   end tell
   delay 2
 
-  tell mainWindow
-    create tab with default profile
-  end tell
-  delay 2
+  # tell mainWindow
+  #   create tab with default profile
+  # end tell
+  # delay 2
 
   # tell current session of mainWindow
   #   write text "cd ~/Desktop/self/monitor/backend-futures-py"
@@ -47,17 +47,17 @@ tell application "iTerm"
   # end tell
   # delay 2
 
-  tell mainWindow
-    create tab with default profile
-  end tell
-  delay 2
+  # tell mainWindow
+  #   create tab with default profile
+  # end tell
+  # delay 2
 
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/backend-futures-py"
-    write text "source .venv/bin/activate"
-    write text "python monitor_pocket_etf.py"
-  end tell
-  delay 2
+  # tell current session of mainWindow
+  #   write text "cd ~/Desktop/self/monitor/backend-futures-py"
+  #   write text "source .venv/bin/activate"
+  #   write text "python monitor_pocket_etf.py"
+  # end tell
+  # delay 2
 
   tell mainWindow
     create tab with default profile
@@ -81,18 +81,18 @@ tell application "iTerm"
   end tell
   delay 2
 
-  tell mainWindow
-    create tab with default profile
-  end tell
-  delay 2
+  # tell mainWindow
+  #   create tab with default profile
+  # end tell
+  # delay 2
 
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/frontend-vue"
-    write text "source ~/.nvm/nvm.sh"
-    write text "nvm use v22"
-    write text "pnpm dev"
-  end tell
-  delay 2
+  # tell current session of mainWindow
+  #   write text "cd ~/Desktop/self/monitor/frontend-vue"
+  #   write text "source ~/.nvm/nvm.sh"
+  #   write text "nvm use v22"
+  #   write text "pnpm dev"
+  # end tell
+  # delay 2
 
   tell mainWindow
     create tab with default profile
@@ -106,17 +106,17 @@ tell application "iTerm"
   end tell
   delay 2
 
-  tell mainWindow
-    create tab with default profile
-  end tell
-  delay 2
+  # tell mainWindow
+  #   create tab with default profile
+  # end tell
+  # delay 2
 
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/backend-futures-py"
-    write text "source .venv/bin/activate"
-    write text "python mongo_market_api.py"
-  end tell
-  delay 2
+  # tell current session of mainWindow
+  #   write text "cd ~/Desktop/self/monitor/backend-futures-py"
+  #   write text "source .venv/bin/activate"
+  #   write text "python mongo_market_api.py"
+  # end tell
+  # delay 2
 
   tell mainWindow
     create tab with default profile

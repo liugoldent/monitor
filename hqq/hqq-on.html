@@ -1,0 +1,450 @@
+<html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base target="_top">
+  <title>线上打卡系統</title>
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async="" defer=""></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 20px;
+      text-align: center;
+      background-color: #f4f6f9;
+      margin: 0;
+    }
+    .card {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      max-width: 420px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .lang-switch {
+      text-align: right;
+      margin-bottom: 10px;
+    }
+    .lang-btn {
+      background: #f0f0f0;
+      color: #333;
+      border: 1px solid #ccc;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      width: auto;
+      display: inline-block;
+      transition: all 0.2s;
+    }
+    .lang-btn.active {
+      background: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+
+    /* ========== Google 登录区域 ========== */
+    .login-section {
+      text-align: center;
+      padding: 20px 0;
+    }
+    .login-section h2 {
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .login-section p {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .user-info {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    .user-info img {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .user-info .user-details {
+      text-align: left;
+    }
+    .user-info .user-details .name {
+      font-weight: bold;
+      color: #333;
+      font-size: 16px;
+    }
+    .user-info .user-details .email {
+      color: #666;
+      font-size: 13px;
+    }
+    .logout-btn {
+      background: #6c757d;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: opacity 0.2s;
+    }
+    .logout-btn:hover { opacity: 0.9; }
+    
+    #g_id_onload { display: none; }
+    #google-signin-btn { display: flex; justify-content: center; margin-top: 10px; }
+
+    /* ========== 時鐘区域 ========== */
+    .clock-box {
+      background-color: #eef2f7;
+      padding: 12px;
+      border-radius: 8px;
+      margin: 15px 0;
+    }
+    .clock-date {
+      font-size: 14px;
+      color: #666;
+    }
+    .clock-time {
+      font-size: 26px;
+      font-weight: bold;
+      color: #1a73e8;
+      font-family: monospace;
+      margin-top: 4px;
+    }
+
+    .section-title {
+      font-size: 14px;
+      color: #666;
+      margin: 15px 0 8px 0;
+      text-align: left;
+      font-weight: bold;
+    }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+    }
+    button.action-btn {
+      flex: 1;
+      padding: 12px 8px;
+      font-size: 15px;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button.action-btn:hover { opacity: 0.9; }
+    button.action-btn:disabled { background-color: #cccccc !important; cursor: not-allowed; opacity: 0.7; }
+    
+    .btn-in { background-color: #28a745; color: white; }
+    .btn-out { background-color: #dc3545; color: white; }
+    .btn-check { background-color: #17a2b8; color: white; width: 100%; }
+
+    #result {
+      margin-top: 20px;
+      font-weight: bold;
+      min-height: 24px;
+      font-size: 14px;
+      color: #333;
+      word-break: break-all;
+    }
+  </style>
+<link id="googleidentityservice" type="text/css" media="all" href="https://accounts.google.com/gsi/style" rel="stylesheet"><style id="googleidentityservice_button_styles">.qJTHM{-moz-user-select:none;-webkit-user-select:none;-ms-user-select:none;color:#202124;direction:ltr;-webkit-touch-callout:none;font-family:Roboto-Regular,arial,sans-serif;-webkit-font-smoothing:antialiased;font-weight:400;margin:0;overflow:hidden;-webkit-text-size-adjust:100%}.ynRLnc{left:-9999px;position:absolute;top:-9999px}.L6cTce{display:none}.bltWBb{overflow-wrap:break-word;word-break:break-word}.hSRGPd{color:#1a73e8;cursor:pointer;font-weight:500;text-decoration:none}.Bz112c-W3lGp{height:16px;width:16px}.Bz112c-E3DyYd{height:20px;width:20px}.Bz112c-r9oPif{height:24px;width:24px}.Bz112c-u2z5K{height:36px;width:36px}.Bz112c-uaxL4e{border-radius:10px}.LgbsSe-Bz112c{display:block}.S9gUrf-YoZ4jf{border:none;margin:0;padding:0}.S9gUrf-YoZ4jf *{border:none;margin:0;padding:0}.fFW7wc-ibnC6b>.aZ2wEe>div{border-color:#4285f4}.P1ekSe-ZMv3u{-webkit-transition:height .2s linear;transition:height .2s linear}.P1ekSe-ZMv3u>div:first-child{background-color:#1a73e8!important;-webkit-transition:width .3s linear;transition:width .3s linear}.P1ekSe-ZMv3u>div:nth-child(2){background-image:-webkit-gradient(linear,left top,right top,from(rgba(255,255,255,.7)),to(rgba(255,255,255,.7))),-webkit-gradient(linear,left top,right top,from(#1a73e8),to(#1a73e8))!important;background-image:-webkit-linear-gradient(left,rgba(255,255,255,.7),rgba(255,255,255,.7)),-webkit-linear-gradient(left,#1a73e8,#1a73e8)!important;background-image:linear-gradient(90deg,rgba(255,255,255,.7),rgba(255,255,255,.7)),linear-gradient(90deg,#1a73e8,#1a73e8)!important}.P1ekSe-ZMv3u>div:nth-child(3){background-image:-webkit-gradient(linear,left top,right top,from(rgba(255,255,255,.7)),to(rgba(255,255,255,.7))),-webkit-gradient(linear,left top,right top,from(#1a73e8),to(#1a73e8))!important;background-image:-webkit-linear-gradient(left,rgba(255,255,255,.7),rgba(255,255,255,.7)),-webkit-linear-gradient(left,#1a73e8,#1a73e8)!important;background-image:linear-gradient(90deg,rgba(255,255,255,.7),rgba(255,255,255,.7)),linear-gradient(90deg,#1a73e8,#1a73e8)!important}.haAclf{display:inline-block}.nsm7Bb-HzV7m-LgbsSe{border-radius:4px;box-sizing:border-box;-webkit-transition:background-color .218s,border-color .218s;transition:background-color .218s,border-color .218s;-moz-user-select:none;-webkit-user-select:none;-ms-user-select:none;-webkit-appearance:none;background-color:#fff;background-image:none;border:1px solid #dadce0;color:#3c4043;cursor:pointer;font-family:Google Sans,arial,sans-serif;font-size:.875rem;height:40px;letter-spacing:.25px;outline:none;overflow:hidden;padding:0 12px;position:relative;text-align:center;vertical-align:middle;white-space:nowrap;width:auto}@media screen and (-ms-high-contrast:active){.nsm7Bb-HzV7m-LgbsSe{border:2px solid windowText;color:windowText}}@media screen and (preferes-contrast:more){.nsm7Bb-HzV7m-LgbsSe{color:#000}}.nsm7Bb-HzV7m-LgbsSe.pSzOP-SxQuSe{font-size:.875rem;height:32px;letter-spacing:.25px;padding:0 10px}.nsm7Bb-HzV7m-LgbsSe.purZT-SxQuSe{font-size:.6875rem;height:20px;letter-spacing:.3px;padding:0 8px}.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe{padding:0;width:40px}.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe.pSzOP-SxQuSe{width:32px}.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe.purZT-SxQuSe{width:20px}.nsm7Bb-HzV7m-LgbsSe.JGcpL-RbRzK{border-radius:20px}.nsm7Bb-HzV7m-LgbsSe.JGcpL-RbRzK.pSzOP-SxQuSe{border-radius:16px}.nsm7Bb-HzV7m-LgbsSe.JGcpL-RbRzK.purZT-SxQuSe{border-radius:10px}.nsm7Bb-HzV7m-LgbsSe.i5vt6e-to915-Ia7Qfc{border:1px solid #8e918f;background-color:#131314;color:#e3e3e3}.nsm7Bb-HzV7m-LgbsSe.MFS4be-Ia7Qfc{border:none;color:#fff}.nsm7Bb-HzV7m-LgbsSe.MFS4be-v3pZbf-Ia7Qfc{background-color:#1a73e8}.nsm7Bb-HzV7m-LgbsSe.MFS4be-JaPV2b-Ia7Qfc{background-color:#202124;color:#e8eaed}@media screen and (prefers-contrast:more){.nsm7Bb-HzV7m-LgbsSe.MFS4be-JaPV2b-Ia7Qfc{color:#fff}}.nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c{height:18px;margin-right:8px;min-width:18px;width:18px}.nsm7Bb-HzV7m-LgbsSe.pSzOP-SxQuSe .nsm7Bb-HzV7m-LgbsSe-Bz112c{height:14px;min-width:14px;width:14px}.nsm7Bb-HzV7m-LgbsSe.purZT-SxQuSe .nsm7Bb-HzV7m-LgbsSe-Bz112c{height:10px;min-width:10px;width:10px}.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-Bz112c{margin-left:8px;margin-right:-4px}.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c{margin:0;padding:10px}.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe.pSzOP-SxQuSe .nsm7Bb-HzV7m-LgbsSe-Bz112c{padding:8px}.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe.purZT-SxQuSe .nsm7Bb-HzV7m-LgbsSe-Bz112c{padding:4px}.nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{border-top-left-radius:3px;border-bottom-left-radius:3px;display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center;-webkit-box-align:center;-webkit-align-items:center;align-items:center;background-color:#fff;height:36px;margin-left:-10px;margin-right:12px;min-width:36px;width:36px}.nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf .nsm7Bb-HzV7m-LgbsSe-Bz112c,.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf .nsm7Bb-HzV7m-LgbsSe-Bz112c{margin:0;padding:0}.nsm7Bb-HzV7m-LgbsSe.pSzOP-SxQuSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{height:28px;margin-left:-8px;margin-right:10px;min-width:28px;width:28px}.nsm7Bb-HzV7m-LgbsSe.purZT-SxQuSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{height:16px;margin-left:-6px;margin-right:8px;min-width:16px;width:16px}.nsm7Bb-HzV7m-LgbsSe.Bz112c-LgbsSe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{border-radius:3px;margin-left:2px;margin-right:0;padding:0}.nsm7Bb-HzV7m-LgbsSe.JGcpL-RbRzK .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{border-radius:18px}.nsm7Bb-HzV7m-LgbsSe.pSzOP-SxQuSe.JGcpL-RbRzK .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{border-radius:14px}.nsm7Bb-HzV7m-LgbsSe.purZT-SxQuSe.JGcpL-RbRzK .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{border-radius:8px}.nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-bN97Pc-sM5MNb{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-align-items:center;-webkit-box-align:center;align-items:center;-webkit-flex-direction:row;-webkit-box-orient:horizontal;-webkit-box-direction:normal;flex-direction:row;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;-webkit-flex-wrap:nowrap;flex-wrap:nowrap;height:100%;position:relative;width:100%}.nsm7Bb-HzV7m-LgbsSe .oXtfBe-l4eHX{-webkit-box-pack:center;-webkit-justify-content:center;justify-content:center}.nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-BPrWId{-webkit-flex-grow:1;-webkit-box-flex:1;flex-grow:1;font-family:Google Sans,arial,sans-serif;font-weight:500;overflow:hidden;text-overflow:ellipsis;vertical-align:top}.nsm7Bb-HzV7m-LgbsSe.purZT-SxQuSe .nsm7Bb-HzV7m-LgbsSe-BPrWId{font-weight:300}.nsm7Bb-HzV7m-LgbsSe .oXtfBe-l4eHX .nsm7Bb-HzV7m-LgbsSe-BPrWId{-webkit-flex-grow:0;-webkit-box-flex:0;flex-grow:0}.nsm7Bb-HzV7m-LgbsSe .nsm7Bb-HzV7m-LgbsSe-MJoBVe{-webkit-transition:background-color .218s;transition:background-color .218s;bottom:0;left:0;position:absolute;right:0;top:0}.nsm7Bb-HzV7m-LgbsSe:focus,.nsm7Bb-HzV7m-LgbsSe:hover{box-shadow:none;border-color:rgb(210,227,252);outline:none}.nsm7Bb-HzV7m-LgbsSe:focus-within{outline:2px solid #00639b;border-color:transparent}.nsm7Bb-HzV7m-LgbsSe:hover .nsm7Bb-HzV7m-LgbsSe-MJoBVe{background:rgba(66,133,244,.08)}.nsm7Bb-HzV7m-LgbsSe:active .nsm7Bb-HzV7m-LgbsSe-MJoBVe,.nsm7Bb-HzV7m-LgbsSe:focus .nsm7Bb-HzV7m-LgbsSe-MJoBVe{background:rgba(66,133,244,.1)}.nsm7Bb-HzV7m-LgbsSe.i5vt6e-to915-Ia7Qfc:hover .nsm7Bb-HzV7m-LgbsSe-MJoBVe{background:rgba(255,255,255,.08)}.nsm7Bb-HzV7m-LgbsSe.i5vt6e-to915-Ia7Qfc:active .nsm7Bb-HzV7m-LgbsSe-MJoBVe,.nsm7Bb-HzV7m-LgbsSe.i5vt6e-to915-Ia7Qfc:focus .nsm7Bb-HzV7m-LgbsSe-MJoBVe{background:rgba(255,255,255,.12)}.nsm7Bb-HzV7m-LgbsSe.MFS4be-Ia7Qfc:hover .nsm7Bb-HzV7m-LgbsSe-MJoBVe{background:rgba(255,255,255,.24)}.nsm7Bb-HzV7m-LgbsSe.MFS4be-Ia7Qfc:active .nsm7Bb-HzV7m-LgbsSe-MJoBVe,.nsm7Bb-HzV7m-LgbsSe.MFS4be-Ia7Qfc:focus .nsm7Bb-HzV7m-LgbsSe-MJoBVe{background:rgba(255,255,255,.32)}.nsm7Bb-HzV7m-LgbsSe .n1UuX-DkfjY{border-radius:50%;display:-webkit-box;display:-webkit-flex;display:flex;height:20px;margin-left:-4px;margin-right:8px;min-width:20px;width:20px}.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-BPrWId{font-family:Roboto;font-size:12px;text-align:left}.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-BPrWId .K4efff .fmcmS,.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-BPrWId .ssJRIf{overflow:hidden;text-overflow:ellipsis}.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-BPrWId .K4efff{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-align-items:center;-webkit-box-align:center;align-items:center;color:#5f6368;fill:#5f6368;font-size:11px;font-weight:400}.nsm7Bb-HzV7m-LgbsSe.jVeSEe.i5vt6e-to915-Ia7Qfc .nsm7Bb-HzV7m-LgbsSe-BPrWId .K4efff{color:#c4c7c5;fill:#c4c7c5}.nsm7Bb-HzV7m-LgbsSe.jVeSEe.MFS4be-Ia7Qfc .nsm7Bb-HzV7m-LgbsSe-BPrWId .K4efff{color:#e8eaed;fill:#e8eaed}@media screen and (prefers-contrast:more){.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-BPrWId .K4efff,.nsm7Bb-HzV7m-LgbsSe.jVeSEe.MFS4be-Ia7Qfc .nsm7Bb-HzV7m-LgbsSe-BPrWId .K4efff{color:#000;fill:#000}}.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-BPrWId .K4efff .Bz112c{height:18px;margin:-3px -3px -3px 2px;min-width:18px;width:18px}.nsm7Bb-HzV7m-LgbsSe.jVeSEe .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{border-top-left-radius:0;border-bottom-left-radius:0;border-top-right-radius:3px;border-bottom-right-radius:3px;margin-left:12px;margin-right:-10px}.nsm7Bb-HzV7m-LgbsSe.jVeSEe.JGcpL-RbRzK .nsm7Bb-HzV7m-LgbsSe-Bz112c-haAclf{border-radius:18px}.L5Fo6c-sM5MNb{border:0;display:block;left:0;position:relative;top:0}.L5Fo6c-bF1uUb{border-radius:4px;bottom:0;cursor:pointer;left:0;position:absolute;right:0;top:0}.L5Fo6c-bF1uUb:focus{border:none;outline:none}sentinel{}</style></head>
+<body>
+
+  <div class="card">
+    <!-- 语言切换按钮 -->
+    <div class="lang-switch">
+      <button class="lang-btn active" id="btn-zh" onclick="setLanguage('zh')">中文</button>
+      <button class="lang-btn" id="btn-en" onclick="setLanguage('en')">English</button>
+    </div>
+
+    <!-- Google 登录区域 -->
+    <div class="login-section" id="login-section" style="display: none;">
+      <h2 id="login-title">欢迎使用</h2>
+      <p id="login-desc">请使用 Google 帐户登录以开始打卡</p>
+      
+      <!-- Google One Tap 隱藏容器 -->
+      <div id="g_id_onload" data-client_id="770197018120-2hood91cjvsd19i0s163fsvseg7qea19.apps.googleusercontent.com" data-callback="handleCredentialResponse" data-auto_select="true" data-cancel_on_tap_outside="true" data-prompt_parent_id="login-section">
+      </div>
+      
+      <!-- Google 登录按鈕容器 -->
+      <div id="google-signin-btn"><div class="S9gUrf-YoZ4jf" style="position: relative;"><div></div><iframe src="https://accounts.google.com/gsi/button?theme=outline&amp;size=large&amp;text=signin_with&amp;shape=rectangular&amp;logo_alignment=left&amp;width=280&amp;is_fedcm_supported=true&amp;client_id=770197018120-2hood91cjvsd19i0s163fsvseg7qea19.apps.googleusercontent.com&amp;iframe_id=gsi_325705_268099&amp;cas=q6SxAUicSOLBc92QfgpfKqMBUs7vmS%2FisBq499sawXI" class="L5Fo6c-PQbLGe" allow="identity-credentials-get" id="gsi_325705_268099" title="“使用 Google 账号登录”按钮" style="display: block; position: relative; top: 0px; left: 0px; height: 44px; width: 300px; border: 0px; margin: -2px -10px;"></iframe></div></div>
+    </div>
+
+    <!-- 用户信息（登录後显示） -->
+    <div class="user-info" id="user-info" style="display: flex;">
+      <img id="user-photo" src="https://lh3.googleusercontent.com/a/ACg8ocK4gaKyBBDCmjBkRjaTyYXs7tIuZZ2ixDdtbi4ePSg9gw_uDg=s96-c" alt="avatar">
+      <div class="user-details">
+        <div class="name" id="user-name">keedem.l HQQ</div>
+        <div class="email" id="user-email">keedem.l@spookyy.com</div>
+      </div>
+    </div>
+    <button class="logout-btn" id="logout-btn" style="display: inline-block;" onclick="signOut()">退出登录</button>
+
+    <!-- 打卡功能区域 -->
+    <div id="attendance-area" style="display: block;">
+      <h2 id="app-title">线上打卡系統</h2>
+
+      <!-- 实时时钟 -->
+      <div class="clock-box">
+        <div class="clock-date" id="clock-date">2026-08-10</div>
+        <div class="clock-time" id="clock-time">08:24:04 AM</div>
+      </div>
+
+      <!-- 一般出勤区域 -->
+      <div class="section-title" id="title-general">📅 一般出勤</div>
+      <div class="btn-group">
+        <button class="action-btn btn-in" id="btn-in" onclick="submitAttendance('IN')">🟢 上班打卡</button>
+        <button class="action-btn btn-out" id="btn-out" onclick="submitAttendance('OUT')">🔴 下班打卡</button>
+      </div>
+
+      <!-- 在岗查核区域 -->
+      <div class="section-title" id="title-check">📋 在岗查核</div>
+      <div class="btn-group">
+        <button class="action-btn btn-check" id="btn-check" onclick="submitAttendance('ON_DUTY_CHECK')">🔵 在岗确认打卡</button>
+      </div>
+
+      <!-- 打卡结果消息 -->
+      <p id="result">✅ 打卡成功！</p>
+    </div>
+  </div>
+
+  <script>
+    const GOOGLE_CLIENT_ID = '770197018120-2hood91cjvsd19i0s163fsvseg7qea19.apps.googleusercontent.com';
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbxv8_Hun6y2I9Sl7K0faGwVhI2f2DZV1-k9iig8e7RsRD-sE4n_JiOXgFRNTDjqMw4F/exec";
+    
+    let currentUser = null; 
+    let currentLang = 'zh';
+
+    const i18n = {
+      zh: {
+        loginTitle: "欢迎使用",
+        loginDesc: "请使用 Google 帐户登录以开始打卡",
+        logout: "退出登录",
+        title: "线上打卡系統",
+        general: "📅 一般出勤",
+        check: "📋 在岗查核",
+        btnIn: "🟢 上班打卡",
+        btnOut: "🔴 下班打卡",
+        btnCheck: "🔵 在岗确认打卡",
+        processing: "数据处理中...",
+        success: "✅ 打卡成功！",
+        error: "❌ 错误：",
+        pleaseLogin: "🔒 請先登录",
+        alreadyDone: "⚠️ 今天已经完成此项打卡，无需重复打卡！"
+      },
+      en: {
+        loginTitle: "Welcome",
+        loginDesc: "Please sign in with Google to start clocking",
+        logout: "Sign Out",
+        title: "Remote Attendance",
+        general: "📅 General Attendance",
+        check: "📋 On-Duty Check",
+        btnIn: "🟢 Clock In",
+        btnOut: "🔴 Clock Out",
+        btnCheck: "🔵 On-Duty Confirm",
+        processing: "Processing...",
+        success: "✅ Clock-in successful!",
+        error: "❌ Error: ",
+        pleaseLogin: "🔒 Please Sign In First",
+        alreadyDone: "⚠️ You have already completed this clock-in today!"
+      }
+    };
+
+    window.onload = function() {
+      sessionStorage.clear();
+      const savedUser = sessionStorage.getItem('googleUser');
+      if (savedUser) {
+        try {
+          currentUser = JSON.parse(savedUser);
+          showLoggedInState();
+        } catch (e) {
+          sessionStorage.removeItem('googleUser');
+        }
+      }
+      initializeGoogleOneTap();
+      setInterval(updateClock, 1000);
+      updateClock();
+    };
+
+    function initializeGoogleOneTap() {
+      if (typeof google === 'undefined' || !google.accounts) {
+        setTimeout(initializeGoogleOneTap, 100);
+        return;
+      }
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleCredentialResponse,
+        auto_select: false,
+        cancel_on_tap_outside: true
+      });
+      google.accounts.id.prompt();
+      google.accounts.id.renderButton(
+        document.getElementById('google-signin-btn'),
+        { theme: 'outline', size: 'large', text: 'signin_with', shape: 'rectangular', logo_alignment: 'left', width: 280 }
+      );
+    }
+
+    window.handleCredentialResponse = function(response) {
+      try {
+        const payload = parseJwt(response.credential);
+        currentUser = {
+          idToken: response.credential,
+          uid: payload.sub,
+          email: payload.email,
+          name: payload.name,
+          picture: payload.picture
+        };
+        sessionStorage.setItem('googleUser', JSON.stringify(currentUser));
+        showLoggedInState();
+      } catch (error) {
+        console.error("解析失败", error);
+      }
+    };
+
+    function parseJwt(token) {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      return JSON.parse(jsonPayload);
+    }
+
+    function showLoggedInState() {
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('user-info').style.display = 'flex';
+      document.getElementById('user-photo').src = currentUser.picture;
+      document.getElementById('user-name').textContent = currentUser.name;
+      document.getElementById('user-email').textContent = currentUser.email;
+      document.getElementById('logout-btn').style.display = 'inline-block';
+      document.getElementById('attendance-area').style.display = 'block';
+
+      checkTodayStatus();
+    }
+
+    function checkTodayStatus() {
+      const btnIn = document.getElementById('btn-in');
+      const btnOut = document.getElementById('btn-out');
+
+      btnIn.disabled = false;
+      btnOut.disabled = false;
+    }
+
+    function signOut() {
+      if (typeof google !== 'undefined' && google.accounts) {
+        google.accounts.id.disableAutoSelect();
+      }
+      sessionStorage.clear();
+      currentUser = null;
+      location.reload();
+    }
+
+    function setLanguage(lang) {
+      currentLang = lang;
+      document.getElementById('btn-zh').classList.toggle('active', lang === 'zh');
+      document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+      document.getElementById('app-title').innerText = i18n[lang].title;
+      document.getElementById('title-general').innerText = i18n[lang].general;
+      document.getElementById('title-check').innerText = i18n[lang].check;
+      document.getElementById('btn-in').innerText = i18n[lang].btnIn;
+      document.getElementById('btn-out').innerText = i18n[lang].btnOut;
+      document.getElementById('btn-check').innerText = i18n[lang].btnCheck;
+      document.getElementById('login-title').innerText = i18n[lang].loginTitle;
+      document.getElementById('login-desc').innerText = i18n[lang].loginDesc;
+      document.getElementById('logout-btn').innerText = i18n[lang].logout;
+    }
+
+    function updateClock() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      let rawHours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const ampm = rawHours >= 12 ? 'PM' : 'AM';
+      let hours12 = rawHours % 12 || 12;
+      document.getElementById('clock-date').innerText = `${year}-${month}-${day}`;
+      document.getElementById('clock-time').innerText = `${String(hours12).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+    }
+
+    async function submitAttendance(type) {
+      if (!currentUser) {
+        document.getElementById("result").innerText = i18n[currentLang].pleaseLogin;
+        return;
+      }
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const recordKey = `checked_${currentUser.email}_${todayStr}`;
+      let checkedTypes = JSON.parse(localStorage.getItem(recordKey) || "[]");
+
+      const singleLimitTypes = ['IN', 'OUT'];
+      if (singleLimitTypes.includes(type) && checkedTypes.includes(type)) {
+        document.getElementById("result").innerText = i18n[currentLang].alreadyDone;
+        return;
+      }
+
+      // 在岗查核防连击保护（1.5秒冷却）
+      const btnCheck = document.getElementById('btn-check');
+      if (type === 'ON_DUTY_CHECK') {
+        if (btnCheck.dataset.lock === "true") return;
+        btnCheck.dataset.lock = "true";
+        setTimeout(() => { btnCheck.dataset.lock = "false"; }, 1500);
+      }
+
+      document.getElementById("result").innerText = i18n[currentLang].processing;
+
+      let ipData = await fetch("https://api.ipify.org?format=json")
+        .then(res => res.json())
+        .catch(() => ({ ip: "Unknown" }));
+
+      const payload = {
+        ip: ipData.ip,
+        type: type,
+        lang: currentLang,
+        browser: navigator.userAgent,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        browserLang: navigator.language,
+        googleId: currentUser.uid,
+        email: currentUser.email,
+        name: currentUser.name,
+        picture: currentUser.picture,
+        googleToken: currentUser.idToken,
+        timestamp: new Date().getTime(),
+        nonce: Math.random().toString(36).substring(2)
+      };
+
+      try {
+        await fetch(GAS_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+
+        document.getElementById("result").innerText = i18n[currentLang].success;
+
+        if (singleLimitTypes.includes(type)) {
+          checkedTypes.push(type);
+          localStorage.setItem(recordKey, JSON.stringify(checkedTypes));
+        }
+
+      } catch (error) {
+        document.getElementById("result").innerText = i18n[currentLang].error + error.message;
+      }
+    }
+  </script>
+
+
+
+</body></html>

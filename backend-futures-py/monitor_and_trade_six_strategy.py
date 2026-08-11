@@ -15,6 +15,7 @@ from auto_trade_six_strategy import (
     orders_enabled,
     send_discord_message,
 )
+from hqq_browser_screenshot import schedule_hqq_browser_screenshot
 from strategy_common import format_mxf_number, get_latest_mxf_snapshot
 
 
@@ -585,6 +586,7 @@ async def bot_message_handler(event):
     previous_net_position, state_reconciled = get_previous_net_position_for_signal(previous_state, signal)
     append_signal_log(signal)
     state = update_strategy_state(signal)
+    schedule_hqq_browser_screenshot(signal)
     net_position = get_net_position(state)
     target_action = _target_action_for_net_position(net_position)
     target_quantity = abs(net_position)
