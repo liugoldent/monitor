@@ -4,9 +4,31 @@
     "dataDate": "2026-08-13",
     "timezone": "Asia/Taipei",
     "criteria": "indicator B plot non-empty OR BB plot non-empty OR F State=1",
-    "bCodes": ["2303", "2327", "4958", "6488"],
-    "bbCodes": ["3008"],
-    "fStateOneCodes": ["2330", "2383", "2454", "3008", "3017", "6669", "3443", "5274", "2059", "2360", "3653", "2408", "3189", "3231"],
+    "bCodes": [
+      "2303",
+      "2327",
+      "4958",
+      "6488"
+    ],
+    "bbCodes": [
+      "3008"
+    ],
+    "fStateOneCodes": [
+      "2330",
+      "2383",
+      "2454",
+      "3008",
+      "3017",
+      "6669",
+      "3443",
+      "5274",
+      "2059",
+      "2360",
+      "3653",
+      "2408",
+      "3189",
+      "3231"
+    ],
     "zone1Codes": [],
     "zone4AboveSma20Codes": [],
     "watchlistCounts": {
@@ -48,9 +70,21 @@
     "dataDate": "2026-08-13",
     "timezone": "Asia/Taipei",
     "criteria": "indicator plots B and BB non-empty; F State=1",
-    "bCodes": ["2303", "2327", "4958", "6488"],
+    "bCodes": [
+      "2303",
+      "2327",
+      "4958",
+      "6488"
+    ],
     "bbCodes": [],
-    "fStateOneCodes": ["2059", "2360", "3653", "2408", "3189", "3231"],
+    "fStateOneCodes": [
+      "2059",
+      "2360",
+      "3653",
+      "2408",
+      "3189",
+      "3231"
+    ],
     "verifiedCount": 41,
     "expectedCount": 41,
     "missingCount": 0,
@@ -69,17 +103,52 @@
     "dataDate": "2026-08-13",
     "timezone": "Asia/Taipei",
     "criteria": "B/BB plots and F State=1; red watchlist X zone from current daily snapshot",
-    "etfWatchlistCounts": {"etf交集3檔": 11, "etf交集4檔": 9, "etf交集5檔": 19},
+    "etfWatchlistCounts": {
+      "etf交集3檔": 11,
+      "etf交集4檔": 9,
+      "etf交集5檔": 19
+    },
     "verifiedStockCount": 39,
     "expectedStockCount": 39,
     "stockMissingCount": 0,
-    "bCodes": ["2303", "2327", "4958", "6488"],
-    "bbCodes": ["3008"],
-    "fStateOneCodes": ["2059", "2360", "3653", "3189", "3231"],
+    "bCodes": [
+      "2303",
+      "2327",
+      "4958",
+      "6488"
+    ],
+    "bbCodes": [
+      "3008"
+    ],
+    "fStateOneCodes": [
+      "2059",
+      "2360",
+      "3653",
+      "3189",
+      "3231"
+    ],
     "redWatchlistCount": 15,
-    "redWatchlistCodes": ["MXF1!", "MGC1!", "WSP1!", "HSI1!", "IF1!", "ZS1!", "MHG1!", "NK225MC1!", "HSI", "SOX", "USDTWD", "IX0043", "SILVER", "VIX", "BB1!"],
+    "redWatchlistCodes": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "HSI1!",
+      "IF1!",
+      "ZS1!",
+      "MHG1!",
+      "NK225MC1!",
+      "HSI",
+      "SOX",
+      "USDTWD",
+      "IX0043",
+      "SILVER",
+      "VIX",
+      "BB1!"
+    ],
     "redWatchlistMissingCount": 0,
-    "redWatchlistZones": {"all": "無法判定：B-BB Upper/Lower 缺值或無法可靠載入"},
+    "redWatchlistZones": {
+      "all": "無法判定：B-BB Upper/Lower 缺值或無法可靠載入"
+    },
     "messageSummaryHash": "9bbc9dfa7cd8b5bf6858035ccf26583ac2131fee41b2323f9bf57ab6907fe4c9",
     "httpStatus": 204,
     "segments": 2,
@@ -100,21 +169,78 @@
     "reliableValueCount": 9,
     "missingValueCount": 6,
     "zones": {
-      "MXF1!": {"close": 46146, "upper": 44499, "lower": 38750, "zone": "1區"},
-      "MGC1!": {"close": 4449.9, "upper": 4185.7, "lower": 4182.4, "zone": "1區"},
-      "WSP1!": {"zone": "無法判定"},
-      "HSI1!": {"close": 25333, "upper": 24659, "lower": 23858, "zone": "1區"},
-      "IF1!": {"zone": "無法判定"},
-      "ZS1!": {"close": 1180, "upper": 1238.125, "lower": 1160, "zone": "4區"},
-      "MHG1!": {"close": 6.618, "upper": 5.9582, "lower": 6.3168, "zone": "1區"},
-      "NK225MC1!": {"zone": "無法判定"},
-      "HSI": {"zone": "無法判定"},
-      "SOX": {"close": 12399.38, "upper": 12823.49, "lower": 8748.48, "zone": "4區"},
-      "USDTWD": {"close": 32.095, "upper": 30.959, "lower": 31.769, "zone": "1區"},
-      "IX0043": {"zone": "無法判定"},
-      "SILVER": {"close": 65.179, "upper": 72.8028, "lower": 58.2841, "zone": "4區"},
-      "VIX": {"close": 14.44, "upper": 16.52, "lower": 18.75, "zone": "3區"},
-      "BB1!": {"zone": "無法判定"}
+      "MXF1!": {
+        "close": 46146,
+        "upper": 44499,
+        "lower": 38750,
+        "zone": "1區"
+      },
+      "MGC1!": {
+        "close": 4449.9,
+        "upper": 4185.7,
+        "lower": 4182.4,
+        "zone": "1區"
+      },
+      "WSP1!": {
+        "zone": "無法判定"
+      },
+      "HSI1!": {
+        "close": 25333,
+        "upper": 24659,
+        "lower": 23858,
+        "zone": "1區"
+      },
+      "IF1!": {
+        "zone": "無法判定"
+      },
+      "ZS1!": {
+        "close": 1180,
+        "upper": 1238.125,
+        "lower": 1160,
+        "zone": "4區"
+      },
+      "MHG1!": {
+        "close": 6.618,
+        "upper": 5.9582,
+        "lower": 6.3168,
+        "zone": "1區"
+      },
+      "NK225MC1!": {
+        "zone": "無法判定"
+      },
+      "HSI": {
+        "zone": "無法判定"
+      },
+      "SOX": {
+        "close": 12399.38,
+        "upper": 12823.49,
+        "lower": 8748.48,
+        "zone": "4區"
+      },
+      "USDTWD": {
+        "close": 32.095,
+        "upper": 30.959,
+        "lower": 31.769,
+        "zone": "1區"
+      },
+      "IX0043": {
+        "zone": "無法判定"
+      },
+      "SILVER": {
+        "close": 65.179,
+        "upper": 72.8028,
+        "lower": 58.2841,
+        "zone": "4區"
+      },
+      "VIX": {
+        "close": 14.44,
+        "upper": 16.52,
+        "lower": 18.75,
+        "zone": "3區"
+      },
+      "BB1!": {
+        "zone": "無法判定"
+      }
     },
     "messageSummaryHash": "75b9db373de3cc5d71f265076504a6b88987e15c12dea9e9d463d4676509e63d",
     "httpStatus": 204,
@@ -131,30 +257,172 @@
     "dataDate": "2026-08-13",
     "timezone": "Asia/Taipei",
     "criteria": "Native red-watchlist Space traversal; 月線 + Trendlines B-BB MA20/B/BB/F State; independent Per-Bar Values Lookback14 Slope1 ATR X zones",
-    "redWatchlistCodes": ["MXF1!", "MGC1!", "WSP1!", "HSI1!", "IF1!", "ZS1!", "MHG1!", "NK225MC1!", "HSI", "SOX", "USDTWD", "IX0043", "SILVER", "VIX", "BB1!"],
+    "redWatchlistCodes": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "HSI1!",
+      "IF1!",
+      "ZS1!",
+      "MHG1!",
+      "NK225MC1!",
+      "HSI",
+      "SOX",
+      "USDTWD",
+      "IX0043",
+      "SILVER",
+      "VIX",
+      "BB1!"
+    ],
     "redWatchlistCount": 15,
     "verifiedCount": 15,
     "expectedCount": 15,
     "missingCount": 0,
     "bCodes": [],
     "bbCodes": [],
-    "fStateOneCodes": ["MXF1!", "MGC1!", "WSP1!", "MHG1!", "NK225MC1!"],
+    "fStateOneCodes": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "MHG1!",
+      "NK225MC1!"
+    ],
     "zones": {
-      "MXF1!": {"close": 46258, "ma20": 43887, "upper": 44499, "lower": 38750, "zone": "1區", "distanceToMa20Pct": 5.40, "distanceToHighPct": 3.95},
-      "MGC1!": {"close": 4440.9, "ma20": 4191, "upper": 4185.7, "lower": 4182.4, "zone": "1區", "distanceToMa20Pct": 5.96, "distanceToHighPct": 6.10},
-      "WSP1!": {"close": 7793.25, "ma20": 7602.38, "upper": 7476.35, "lower": 7595.35, "zone": "1區", "distanceToMa20Pct": 2.51, "distanceToHighPct": 2.61},
-      "HSI1!": {"close": 25327, "ma20": 25511, "upper": 24659, "lower": 23858, "zone": "1區", "distanceToMa20Pct": -0.72, "distanceToHighPct": 2.71},
-      "IF1!": {"close": 4667.6, "ma20": 4616.2, "upper": 4770.2, "lower": 4963.3, "zone": "3區", "distanceToMa20Pct": 1.11, "distanceToHighPct": -5.96},
-      "ZS1!": {"close": 1180, "ma20": 1200, "upper": 1238.2, "lower": 1160, "zone": "4區", "distanceToMa20Pct": -1.67, "distanceToHighPct": -4.70},
-      "MHG1!": {"close": 6.6165, "ma20": 6.5018, "upper": 5.9582, "lower": 6.3168, "zone": "1區", "distanceToMa20Pct": 1.76, "distanceToHighPct": 4.74},
-      "NK225MC1!": {"close": 68560, "ma20": 65329, "upper": 67788, "lower": 63537, "zone": "1區", "distanceToMa20Pct": 4.95, "distanceToHighPct": 1.14},
-      "HSI": {"close": 25396.51, "ma20": 25468.85, "upper": 25043.27, "lower": 23676.48, "zone": "1區", "distanceToMa20Pct": -0.28, "distanceToHighPct": 1.41},
-      "SOX": {"close": 12399.38, "ma20": 11819.13, "upper": 12823.49, "lower": 8748.48, "zone": "4區", "distanceToMa20Pct": 4.91, "distanceToHighPct": -3.31},
-      "USDTWD": {"close": 32.09, "ma20": 32.296, "upper": 30.959, "lower": 31.769, "zone": "1區", "distanceToMa20Pct": -0.64, "distanceToHighPct": 1.01},
-      "IX0043": {"close": 406.12, "ma20": 376.07, "upper": 421.2, "lower": 435.35, "zone": "3區", "distanceToMa20Pct": 7.99, "distanceToHighPct": -6.71},
-      "SILVER": {"close": 64.919, "ma20": 60.0764, "upper": 72.8028, "lower": 58.2841, "zone": "4區", "distanceToMa20Pct": 8.06, "distanceToHighPct": -10.83},
-      "VIX": {"close": 14.42, "ma20": 16.85, "upper": 16.52, "lower": 18.75, "zone": "3區", "distanceToMa20Pct": -14.42, "distanceToHighPct": -23.09},
-      "BB1!": {"close": 88.98, "ma20": 87.82, "upper": 97.98, "lower": 75.97, "zone": "4區", "distanceToMa20Pct": 1.32, "distanceToHighPct": -9.19}
+      "MXF1!": {
+        "close": 46258,
+        "ma20": 43887,
+        "upper": 44499,
+        "lower": 38750,
+        "zone": "1區",
+        "distanceToMa20Pct": 5.4,
+        "distanceToHighPct": 3.95
+      },
+      "MGC1!": {
+        "close": 4440.9,
+        "ma20": 4191,
+        "upper": 4185.7,
+        "lower": 4182.4,
+        "zone": "1區",
+        "distanceToMa20Pct": 5.96,
+        "distanceToHighPct": 6.1
+      },
+      "WSP1!": {
+        "close": 7793.25,
+        "ma20": 7602.38,
+        "upper": 7476.35,
+        "lower": 7595.35,
+        "zone": "1區",
+        "distanceToMa20Pct": 2.51,
+        "distanceToHighPct": 2.61
+      },
+      "HSI1!": {
+        "close": 25327,
+        "ma20": 25511,
+        "upper": 24659,
+        "lower": 23858,
+        "zone": "1區",
+        "distanceToMa20Pct": -0.72,
+        "distanceToHighPct": 2.71
+      },
+      "IF1!": {
+        "close": 4667.6,
+        "ma20": 4616.2,
+        "upper": 4770.2,
+        "lower": 4963.3,
+        "zone": "3區",
+        "distanceToMa20Pct": 1.11,
+        "distanceToHighPct": -5.96
+      },
+      "ZS1!": {
+        "close": 1180,
+        "ma20": 1200,
+        "upper": 1238.2,
+        "lower": 1160,
+        "zone": "4區",
+        "distanceToMa20Pct": -1.67,
+        "distanceToHighPct": -4.7
+      },
+      "MHG1!": {
+        "close": 6.6165,
+        "ma20": 6.5018,
+        "upper": 5.9582,
+        "lower": 6.3168,
+        "zone": "1區",
+        "distanceToMa20Pct": 1.76,
+        "distanceToHighPct": 4.74
+      },
+      "NK225MC1!": {
+        "close": 68560,
+        "ma20": 65329,
+        "upper": 67788,
+        "lower": 63537,
+        "zone": "1區",
+        "distanceToMa20Pct": 4.95,
+        "distanceToHighPct": 1.14
+      },
+      "HSI": {
+        "close": 25396.51,
+        "ma20": 25468.85,
+        "upper": 25043.27,
+        "lower": 23676.48,
+        "zone": "1區",
+        "distanceToMa20Pct": -0.28,
+        "distanceToHighPct": 1.41
+      },
+      "SOX": {
+        "close": 12399.38,
+        "ma20": 11819.13,
+        "upper": 12823.49,
+        "lower": 8748.48,
+        "zone": "4區",
+        "distanceToMa20Pct": 4.91,
+        "distanceToHighPct": -3.31
+      },
+      "USDTWD": {
+        "close": 32.09,
+        "ma20": 32.296,
+        "upper": 30.959,
+        "lower": 31.769,
+        "zone": "1區",
+        "distanceToMa20Pct": -0.64,
+        "distanceToHighPct": 1.01
+      },
+      "IX0043": {
+        "close": 406.12,
+        "ma20": 376.07,
+        "upper": 421.2,
+        "lower": 435.35,
+        "zone": "3區",
+        "distanceToMa20Pct": 7.99,
+        "distanceToHighPct": -6.71
+      },
+      "SILVER": {
+        "close": 64.919,
+        "ma20": 60.0764,
+        "upper": 72.8028,
+        "lower": 58.2841,
+        "zone": "4區",
+        "distanceToMa20Pct": 8.06,
+        "distanceToHighPct": -10.83
+      },
+      "VIX": {
+        "close": 14.42,
+        "ma20": 16.85,
+        "upper": 16.52,
+        "lower": 18.75,
+        "zone": "3區",
+        "distanceToMa20Pct": -14.42,
+        "distanceToHighPct": -23.09
+      },
+      "BB1!": {
+        "close": 88.98,
+        "ma20": 87.82,
+        "upper": 97.98,
+        "lower": 75.97,
+        "zone": "4區",
+        "distanceToMa20Pct": 1.32,
+        "distanceToHighPct": -9.19
+      }
     },
     "messageSummaryHash": "b7147160f7b2449306adfca28bc6e8c2c827fe258522f16aea7cc0c5911a069e",
     "httpStatus": 204,
@@ -172,15 +440,52 @@
     "expectedStockCount": 39,
     "stockMissingCount": 0,
     "bCodes": [],
-    "bbCodes": ["8046"],
-    "fStateOneCodes": ["2059", "2360", "2383", "2454", "3017", "3189", "3231", "3443", "3653", "5274", "6669", "8046"],
-    "redWatchlistCodes": ["MXF1!", "MGC1!", "WSP1!", "HSI1!", "IF1!", "ZS1!", "MHG1!", "NK225MC1!", "HSI", "SOX", "USDTWD", "IX0043", "SILVER", "VIX", "BB1!"],
+    "bbCodes": [
+      "8046"
+    ],
+    "fStateOneCodes": [
+      "2059",
+      "2360",
+      "2383",
+      "2454",
+      "3017",
+      "3189",
+      "3231",
+      "3443",
+      "3653",
+      "5274",
+      "6669",
+      "8046"
+    ],
+    "redWatchlistCodes": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "HSI1!",
+      "IF1!",
+      "ZS1!",
+      "MHG1!",
+      "NK225MC1!",
+      "HSI",
+      "SOX",
+      "USDTWD",
+      "IX0043",
+      "SILVER",
+      "VIX",
+      "BB1!"
+    ],
     "redWatchlistCount": 15,
     "redWatchlistVerifiedCount": 15,
     "redWatchlistMissingCount": 0,
     "redB": [],
     "redBB": [],
-    "redFStateOne": ["MXF1!", "MGC1!", "WSP1!", "MHG1!", "NK225MC1!"],
+    "redFStateOne": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "MHG1!",
+      "NK225MC1!"
+    ],
     "messageSummaryHash": "38f2098cae331f23207ac2857785da09b72c0476f8b5ce665a086dd4cfe41669",
     "httpStatus": 204,
     "segments": 2,
@@ -188,5 +493,639 @@
     "completedAt": "2026-08-14T14:01:00+08:00",
     "sentAt": "2026-08-14T14:01:00+08:00",
     "totalDurationSeconds": 452
+  },
+  "lastSuccessfulSend2026-08-17": {
+    "dataDate": "2026-08-17",
+    "timezone": "Asia/Taipei",
+    "criteria": "月線 + Trendlines B-BB latest daily B/BB/F/O State; red list fully scanned",
+    "verifiedStockCount": 39,
+    "expectedStockCount": 39,
+    "stockMissingCount": 0,
+    "bCodes": [
+      "2449"
+    ],
+    "bbCodes": [
+      "3008",
+      "3037",
+      "6187",
+      "7769"
+    ],
+    "fStateOneCodes": [
+      "2059",
+      "2360",
+      "2383",
+      "2454",
+      "3008",
+      "3017",
+      "3037",
+      "3189",
+      "3231",
+      "3443",
+      "3653",
+      "5274",
+      "6187",
+      "6669",
+      "7769",
+      "8046"
+    ],
+    "oStateOneCodes": [
+      "3665",
+      "6223"
+    ],
+    "redWatchlistCodes": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "HSI1!",
+      "IF1!",
+      "ZS1!",
+      "MHG1!",
+      "NK225MC1!",
+      "HSI",
+      "SOX",
+      "USDTWD",
+      "IX0043",
+      "SILVER",
+      "VIX"
+    ],
+    "redWatchlistCount": 14,
+    "redWatchlistVerifiedCount": 14,
+    "redWatchlistMissingCount": 0,
+    "redB": [
+      "HSI1!",
+      "HSI"
+    ],
+    "redBB": [
+      "HSI1!",
+      "HSI"
+    ],
+    "redFStateOne": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "HSI1!",
+      "ZS1!",
+      "MHG1!",
+      "NK225MC1!",
+      "HSI"
+    ],
+    "redOStateOne": [
+      "ZS1!"
+    ],
+    "snapshotArtifact": "/private/tmp/upper-break-2026-08-17-scan.json",
+    "messageSummaryHash": "71032cb2d0a4429b1f9611f80005691806698a1adc2cab84a633d8cd88ab8f1f",
+    "httpStatus": 204,
+    "segments": 4,
+    "startedAt": "2026-08-17T13:47:45+08:00",
+    "completedAt": "2026-08-17T13:57:00+08:00",
+    "sentAt": "2026-08-17T13:57:00+08:00",
+    "totalDurationSeconds": 555
+  },
+  "lastSuccessfulSend2026-08-18": {
+    "dataDate": "2026-08-18",
+    "timezone": "Asia/Taipei",
+    "criteria": "月線 + Trendlines B-BB latest daily B/BB/F/O State; red list fully scanned",
+    "verifiedStockCount": 38,
+    "expectedStockCount": 38,
+    "stockMissingCount": 0,
+    "bCodes": [
+      "3665"
+    ],
+    "bbCodes": [
+      "2330",
+      "3665"
+    ],
+    "fStateOneCodes": [
+      "2330",
+      "2383",
+      "2454",
+      "3008",
+      "3017",
+      "6669",
+      "8046",
+      "3037",
+      "3443",
+      "3665",
+      "5274",
+      "2059",
+      "2360",
+      "3653",
+      "3189"
+    ],
+    "oStateOneCodes": [
+      "2327",
+      "2317",
+      "2449",
+      "3231",
+      "6515"
+    ],
+    "selectedStockDetails": [
+      {
+        "code": "2059",
+        "name": "川湖",
+        "etfCount": 4,
+        "close": 14310,
+        "ma20": 9989,
+        "distancePct": 43.26,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:47:38"
+      },
+      {
+        "code": "2317",
+        "name": "鴻海",
+        "etfCount": 3,
+        "close": 249.5,
+        "ma20": 253.9,
+        "distancePct": -1.73,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 1,
+        "snapshotTime": "2026-08-18 13:46:28"
+      },
+      {
+        "code": "2327",
+        "name": "國巨*",
+        "etfCount": 4,
+        "close": 575,
+        "ma20": 588,
+        "distancePct": -2.21,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 1,
+        "snapshotTime": "2026-08-18 13:47:39"
+      },
+      {
+        "code": "2330",
+        "name": "台積電",
+        "etfCount": 6,
+        "close": 2375,
+        "ma20": 2362,
+        "distancePct": 0.55,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": true,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:22"
+      },
+      {
+        "code": "2360",
+        "name": "致茂",
+        "etfCount": 4,
+        "close": 2305,
+        "ma20": 2080,
+        "distancePct": 10.82,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:47:40"
+      },
+      {
+        "code": "2383",
+        "name": "台光電",
+        "etfCount": 6,
+        "close": 6180,
+        "ma20": 5210,
+        "distancePct": 18.62,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:24"
+      },
+      {
+        "code": "2449",
+        "name": "京元電子",
+        "etfCount": 3,
+        "close": 235,
+        "ma20": 245.2,
+        "distancePct": -4.16,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 1,
+        "snapshotTime": "2026-08-18 13:46:32"
+      },
+      {
+        "code": "2454",
+        "name": "聯發科",
+        "etfCount": 6,
+        "close": 3895,
+        "ma20": 3819,
+        "distancePct": 1.99,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:25"
+      },
+      {
+        "code": "3008",
+        "name": "大立光",
+        "etfCount": 6,
+        "close": 5280,
+        "ma20": 4325,
+        "distancePct": 22.08,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:34"
+      },
+      {
+        "code": "3017",
+        "name": "奇鋐",
+        "etfCount": 6,
+        "close": 3015,
+        "ma20": 2645,
+        "distancePct": 13.99,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:35"
+      },
+      {
+        "code": "3037",
+        "name": "欣興",
+        "etfCount": 5,
+        "close": 1145,
+        "ma20": 920,
+        "distancePct": 24.46,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:36"
+      },
+      {
+        "code": "3189",
+        "name": "景碩",
+        "etfCount": 3,
+        "close": 865,
+        "ma20": 771,
+        "distancePct": 12.19,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:46:30"
+      },
+      {
+        "code": "3231",
+        "name": "緯創",
+        "etfCount": 3,
+        "close": 180.5,
+        "ma20": 182.6,
+        "distancePct": -1.15,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 1,
+        "snapshotTime": "2026-08-18 13:46:33"
+      },
+      {
+        "code": "3443",
+        "name": "創意",
+        "etfCount": 5,
+        "close": 5545,
+        "ma20": 4493,
+        "distancePct": 23.41,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:37"
+      },
+      {
+        "code": "3653",
+        "name": "健策",
+        "etfCount": 4,
+        "close": 5125,
+        "ma20": 4057,
+        "distancePct": 26.32,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:47:41"
+      },
+      {
+        "code": "3665",
+        "name": "貿聯-KY",
+        "etfCount": 5,
+        "close": 2240,
+        "ma20": 2186,
+        "distancePct": 2.47,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": true,
+        "bb": true,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:47"
+      },
+      {
+        "code": "5274",
+        "name": "信驊",
+        "etfCount": 5,
+        "close": 17055,
+        "ma20": 15727,
+        "distancePct": 8.44,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:45:48"
+      },
+      {
+        "code": "6515",
+        "name": "穎崴",
+        "etfCount": 3,
+        "close": 6290,
+        "ma20": 6441,
+        "distancePct": -2.34,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 1,
+        "snapshotTime": "2026-08-18 13:46:35"
+      },
+      {
+        "code": "6669",
+        "name": "緯穎",
+        "etfCount": 6,
+        "close": 6350,
+        "ma20": 5865,
+        "distancePct": 8.27,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:46:01"
+      },
+      {
+        "code": "8046",
+        "name": "南電",
+        "etfCount": 6,
+        "close": 1260,
+        "ma20": 1110,
+        "distancePct": 13.51,
+        "distanceJudgment": "⛔ 超過10%，不要追價",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:46:02"
+      }
+    ],
+    "redWatchlistCodes": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "HSI1!",
+      "IF1!",
+      "ZS1!",
+      "MHG1!",
+      "NK225MC1!",
+      "HSI",
+      "SOX",
+      "USDTWD",
+      "IX0043",
+      "SILVER",
+      "VIX"
+    ],
+    "redWatchlistCount": 14,
+    "redWatchlistVerifiedCount": 14,
+    "redWatchlistMissingCount": 0,
+    "redB": [],
+    "redBB": [],
+    "redFStateOne": [
+      "MXF1!",
+      "MGC1!",
+      "WSP1!",
+      "MHG1!",
+      "NK225MC1!"
+    ],
+    "redOStateOne": [],
+    "redDetails": [
+      {
+        "code": "MXF1!",
+        "full": "TAIFEX:MXF1!",
+        "price": 45079,
+        "ma20": 44060,
+        "distancePct": 2.31,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:08"
+      },
+      {
+        "code": "MGC1!",
+        "full": "COMEX_MINI:MGC1!",
+        "price": 4445.2,
+        "ma20": 4252.3,
+        "distancePct": 4.54,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:09"
+      },
+      {
+        "code": "WSP1!",
+        "full": "BMFBOVESPA:WSP1!",
+        "price": 7771.75,
+        "ma20": 7633.13,
+        "distancePct": 1.82,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:10"
+      },
+      {
+        "code": "HSI1!",
+        "full": "HKEX:HSI1!",
+        "price": 25295,
+        "ma20": 25520,
+        "distancePct": -0.88,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:10"
+      },
+      {
+        "code": "IF1!",
+        "full": "CFFEX:IF1!",
+        "price": 4684,
+        "ma20": 4632.3,
+        "distancePct": 1.12,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:11"
+      },
+      {
+        "code": "ZS1!",
+        "full": "CBOT:ZS1!",
+        "price": 1224.75,
+        "ma20": 1199.25,
+        "distancePct": 2.13,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:13"
+      },
+      {
+        "code": "MHG1!",
+        "full": "COMEX_MINI:MHG1!",
+        "price": 6.5735,
+        "ma20": 6.5336,
+        "distancePct": 0.61,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:14"
+      },
+      {
+        "code": "NK225MC1!",
+        "full": "OSE:NK225MC1!",
+        "price": 67735,
+        "ma20": 65641,
+        "distancePct": 3.19,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 1,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:40"
+      },
+      {
+        "code": "HSI",
+        "full": "HSI:HSI",
+        "price": 25420.45,
+        "ma20": 25526.5,
+        "distancePct": -0.42,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:41"
+      },
+      {
+        "code": "SOX",
+        "full": "NASDAQ:SOX",
+        "price": 12621,
+        "ma20": 11929.57,
+        "distancePct": 5.8,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:42"
+      },
+      {
+        "code": "USDTWD",
+        "full": "FX_IDC:USDTWD",
+        "price": 31.846,
+        "ma20": 32.234,
+        "distancePct": -1.2,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:42"
+      },
+      {
+        "code": "IX0043",
+        "full": "TPEX:IX0043",
+        "price": 390.83,
+        "ma20": 379.13,
+        "distancePct": 3.09,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:43"
+      },
+      {
+        "code": "SILVER",
+        "full": "TVC:SILVER",
+        "price": 65.1092,
+        "ma20": 61.2767,
+        "distancePct": 6.25,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:44"
+      },
+      {
+        "code": "VIX",
+        "full": "CBOE:VIX",
+        "price": 15.19,
+        "ma20": 16.46,
+        "distancePct": -7.72,
+        "distanceJudgment": "✅ 可買入（僅通過距月線條件）",
+        "b": false,
+        "bb": false,
+        "fState": 0,
+        "oState": 0,
+        "snapshotTime": "2026-08-18 13:48:45"
+      }
+    ],
+    "messageSummaryHash": "6ed9a898c9d7519c28616ddac4a4a3372d8b2c51bea8a6fb5d67a24c62c5354d",
+    "httpStatus": 204,
+    "segmentHttpStatuses": [
+      204,
+      204,
+      204,
+      204
+    ],
+    "segments": 4,
+    "startedAt": "2026-08-18T13:36:50+08:00",
+    "completedAt": "2026-08-18T13:49:20+08:00",
+    "sentAt": "2026-08-18T13:52:28+08:00",
+    "totalDurationSeconds": 938
   }
 }
