@@ -66,14 +66,9 @@ Docker image 不會打包 `.env` 和 `.pfx`，避免憑證被 bake 進 image。
 ```text
 backend-futures-py/.env
 backend-futures-py/Sinopac.pfx
+backend-futures-py/session_monitor_six_strategy.session
 backend-heyu-node/.env
 frontend-vue/.env
-shioaji_demo_shane/.env
-shioaji_demo_shane/Sinopac.pfx
-shioaji_demo_rosco/.env
-shioaji_demo_rosco/Sinopac.pfx
-shioaji_demo_ichih/.env
-shioaji_demo_ichih/Sinopac.pfx
 ```
 
 Windows 那台如果缺其中任何一個檔案，請先補齊。
@@ -89,8 +84,7 @@ SERVICE_FILTER=webhook-server,mongo-market-api,frontend-vue docker compose up --
 服務名稱：
 
 ```text
-trade-main
-trade-shane
+six-strategy
 heyu-node
 monitor-mxf
 monitor-stock-futures
@@ -99,6 +93,5 @@ webhook-server
 frontend-vue
 monitor-render-ping
 mongo-market-api
-google-clockin
 cloudflared
 ```

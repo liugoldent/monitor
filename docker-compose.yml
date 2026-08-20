@@ -17,17 +17,7 @@ services:
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
       - ./backend-futures-py/stockTech:/app/backend-futures-py/stockTech
-      - ./backend-futures-py/session_monitor.session:/app/backend-futures-py/session_monitor.session
+      - ./backend-futures-py/session_monitor_six_strategy.session:/app/backend-futures-py/session_monitor_six_strategy.session
       - ./backend-heyu-node/.env:/app/backend-heyu-node/.env:ro
       - ./frontend-vue/.env:/app/frontend-vue/.env:ro
       - ./frontend-vue/public/institutional:/app/frontend-vue/public/institutional
-      - ./shioaji_demo_shane/.env:/app/shioaji_demo_shane/.env:ro
-      - ./shioaji_demo_shane/Sinopac.pfx:/app/shioaji_demo_shane/Sinopac.pfx:ro
-      - ./shioaji_demo_shane/session_monitor.session:/app/shioaji_demo_shane/session_monitor.session
-      - ./shioaji_demo_rosco/.env:/app/shioaji_demo_rosco/.env:ro
-      - ./shioaji_demo_rosco/Sinopac.pfx:/app/shioaji_demo_rosco/Sinopac.pfx:ro
-      - ./shioaji_demo_rosco/session_monitor.session:/app/shioaji_demo_rosco/session_monitor.session
-      - ./shioaji_demo_ichih/.env:/app/shioaji_demo_ichih/.env:ro
-      - ./shioaji_demo_ichih/Sinopac.pfx:/app/shioaji_demo_ichih/Sinopac.pfx:ro
-      - ./shioaji_demo_ichih/session_monitor.session:/app/shioaji_demo_ichih/session_monitor.session
-      - ./shioaji_demo_ichih/shioaji.log:/app/shioaji_demo_ichih/shioaji.log

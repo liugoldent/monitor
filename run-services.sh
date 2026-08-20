@@ -118,16 +118,5 @@ tell application "iTerm"
   # end tell
   # delay 2
 
-  tell mainWindow
-    create tab with default profile
-  end tell
-  delay 2
-
-  tell current session of mainWindow
-    write text "cd ~/Desktop/self/monitor/google-clockin"
-    write text "python hqt_keedem_schedule_output.py"
-  end tell
-  delay 2
-
 end tell
 EOF2

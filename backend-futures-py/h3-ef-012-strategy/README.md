@@ -38,7 +38,7 @@ cd /Users/kt/Desktop/self/monitor/backend-futures-py/h3-ef-012-strategy
 ../.venv/bin/python monitor_and_trade.py
 ```
 
-`monitor_and_trade.py`會完成Telegram監測、H與E/F狀態保存、0/1/2目標計算及Discord模擬下單。它不會匯入或執行`backend-futures-py/auto_trade.py`；該檔案只保留作為未來串接永豐實單時的寫法參考。
+`monitor_and_trade.py`會完成Telegram監測、H與E/F狀態保存、0/1/2目標計算及Discord模擬下單。它是獨立服務，不會匯入舊H交易程式；未來串接永豐實單時，應直接在這個策略目錄內新增獨立下單模組。
 
 每次程式成功啟動時，會先透過共用Discord webhook送出一次`開始自動交易`。Telegram斷線後的自動重連不會重複發送這則啟動通知。
 

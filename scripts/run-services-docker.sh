@@ -49,8 +49,7 @@ stop_services() {
 
 trap stop_services INT TERM EXIT
 
-start_service "trade-main" "backend-futures-py" python monitor_and_trade.py
-start_service "trade-shane" "shioaji_demo_shane" python monitor_and_trade.py
+start_service "six-strategy" "backend-futures-py" python monitor_and_trade_six_strategy.py
 start_service "heyu-node" "backend-heyu-node" node index.js
 start_service "monitor-mxf" "backend-futures-py" python monitor_mxf.py
 start_service "monitor-stock-futures" "backend-futures-py" python monitor_stock_futures.py
@@ -59,7 +58,6 @@ start_service "webhook-server" "backend-futures-py" python webhook_server.py
 start_service "frontend-vue" "frontend-vue" pnpm dev --host 0.0.0.0
 start_service "monitor-render-ping" "backend-futures-py" python monitor_render_ping.py
 start_service "mongo-market-api" "backend-futures-py" python mongo_market_api.py
-start_service "google-clockin" "google-clockin" python hqt_keedem_schedule_output.py
 
 if should_start "cloudflared"; then
   if [[ -n "${CLOUDFLARED_TOKEN:-}" ]]; then
