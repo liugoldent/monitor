@@ -11,6 +11,90 @@ scripts/run-services-docker.sh
 
 ## 啟動
 
+### Windows 交易機：三視窗長駐模式
+
+Windows 專用內容位於 `master-win` 分支。先切換分支：
+
+```powershell
+git switch master-win
+```
+
+然後雙擊：
+
+```text
+run-windows-services.cmd
+```
+
+第一次執行會要求輸入新的 Cloudflare tunnel token，並將它存到 Git 忽略的根目錄 `.env`。啟動器會自動啟動 Docker Desktop、建立或更新 image，並啟動以下程序：
+
+```text
+six-strategy    monitor_and_trade_six_strategy.py
+monitor-mxf     monitor_mxf.py
+webhook-server  webhook_server.py
+cloudflared     Cloudflare tunnel
+```
+
+若已安裝 Windows Terminal，畫面會開啟一個 Windows Terminal 視窗，內含四個 log 分頁：
+
+```text
+1. 六策略 CSV 監聽
+2. MXF 市場監聽
+3. Webhook Server (`webhook_server.py`)
+4. Cloudflare Tunnel
+```
+
+若找不到 `wt.exe`，啟動器會退回四個獨立 PowerShell 視窗。可從 Microsoft Store 安裝 Windows Terminal 後再次執行啟動器。
+
+六策略第一次在 Windows 啟動前，先雙擊 `initialize-six-strategy-session.cmd`，依序輸入 Telegram 國際格式電話、Telegram 收到的登入碼，以及帳號有啟用時的兩步驗證密碼。登入完成後會保存專屬 session 並只重啟六策略服務。
+
+關閉 log 視窗不會停止背景服務。容器設為 `restart: unless-stopped`，程序異常或 Docker/Windows 重新啟動後會自動恢復。
+
+若希望 Windows 登入後不必手動開 Docker，請在 Docker Desktop 設定中啟用 `Start Docker Desktop when you sign in`。
+
+停止這組服務可雙擊：
+
+```text
+stop-windows-services.cmd
+```
+
+### Windows：只啟動六策略 CSV 監聽器（建議）
+
+先開啟 Docker Desktop，然後在 PowerShell 執行：
+
+```powershell
+.\run-six-strategy.ps1
+```
+
+也可以直接雙擊 `run-six-strategy.cmd`。這個入口會自動使用 PowerShell 的 `Bypass` 模式，不受本機 execution policy 影響。
+
+背景執行：
+
+```powershell
+.\run-six-strategy.ps1 -Background
+```
+
+查看 log：
+
+```powershell
+docker compose logs -f six-strategy
+```
+
+停止：
+
+```powershell
+docker compose stop six-strategy
+```
+
+成功連上 Telegram 後，符合條件的新訊號會寫入：
+
+```text
+backend-futures-py/tv_doc/six_strategy_signal_events.csv
+```
+
+這個專用服務只啟動 `monitor_and_trade_six_strategy.py`，不會連帶啟動前端、webhook 或其他監聽器。它會將現有的 `session_monitor.session` 掛載成六策略監聽器所需的 session 名稱。
+
+### 啟動全部服務
+
 在 repo 根目錄執行：
 
 ```bash
@@ -89,7 +173,7 @@ SERVICE_FILTER=webhook-server,mongo-market-api,frontend-vue docker compose up --
 服務名稱：
 
 ```text
-trade-main
+six-strategy
 trade-shane
 heyu-node
 monitor-mxf

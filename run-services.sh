@@ -12,6 +12,8 @@ osascript <<'EOF2'
 tell application "iTerm"
   activate
 
+  set cloudflaredToken to system attribute "CLOUDFLARED_TOKEN"
+
   set mainWindow to (create window with default profile)
   delay 2
 
@@ -59,15 +61,17 @@ tell application "iTerm"
   # end tell
   # delay 2
 
-  tell mainWindow
-    create tab with default profile
-  end tell
-  delay 2
+  if cloudflaredToken is not "" then
+    tell mainWindow
+      create tab with default profile
+    end tell
+    delay 2
 
-  tell current session of mainWindow
-    write text "cloudflared tunnel run --token eyJhIjoiZDM2YTZkNDkzNGEzMjI5ZjI1ZWQwZjQwOWE0OTU1MzEiLCJ0IjoiNzhiM2VlZjctNGNiMy00N2ZhLWEwOGUtMWMzZTU0MWQ2YjgyIiwicyI6Ik1qVTNaV0psTjJNdE0yRTFaQzAwTWpCakxUa3daR0l0TUdZeE1XVmtOVGc0TXpOayJ9"
-  end tell
-  delay 2
+    tell current session of mainWindow
+      write text "cloudflared tunnel run --token " & quoted form of cloudflaredToken
+    end tell
+    delay 2
+  end if
 
   tell mainWindow
     create tab with default profile

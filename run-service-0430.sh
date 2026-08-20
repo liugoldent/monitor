@@ -4,6 +4,8 @@ osascript <<'EOF2'
 tell application "iTerm"
   activate
 
+  set cloudflaredToken to system attribute "CLOUDFLARED_TOKEN"
+
   set mainWindow to (create window with default profile)
   set bounds of mainWindow to {0, 0, 1200, 600}
 
@@ -77,7 +79,7 @@ tell application "iTerm"
   end tell
 
   tell current session of mainWindow
-    write text "cloudflared tunnel run --token eyJhIjoiZDM2YTZkNDkzNGEzMjI5ZjI1ZWQwZjQwOWE0OTU1MzEiLCJ0IjoiNzhiM2VlZjctNGNiMy00N2ZhLWEwOGUtMWMzZTU0MWQ2YjgyIiwicyI6Ik1qVTNaV0psTjJNdE0yRTFaQzAwTWpCakxUa3daR0l0TUdZeE1XVmtOVGc0TXpOayJ9"
+    write text "cloudflared tunnel run --token " & quoted form of cloudflaredToken
   end tell
   delay 2
 
