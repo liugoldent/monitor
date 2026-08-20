@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping
 
@@ -301,3 +302,89 @@ def load_latest_ef_positions(path: Path) -> dict[str, int]:
             if code in ALL_STRATEGIES and position is not None:
                 latest[code] = position
     return latest
+
+
+def load_latest_recorded_close(path: Path, cutoff: datetime) -> float | None:
+    """Read the latest close whose record timestamp is not after the cutoff."""
+    if not path.exists():
+        return None
+
+    latest_time: datetime | None = None
+    latest_price: float | None = None
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                recorded_at = datetime.strptime(
+                    str(row.get("Record Time") or "").strip(),
+                    "%Y-%m-%d %H:%M:%S",
+                )
+                if cutoff.tzinfo is not None:
+                    recorded_at = recorded_at.replace(tzinfo=cutoff.tzinfo)
+                close = float(str(row.get("Close") or "").strip())
+            except (TypeError, ValueError):
+                continue
+            if recorded_at <= cutoff and (
+                latest_time is None or recorded_at > latest_time
+            ):
+                latest_time = recorded_at
+                latest_price = close
+    return latest_price
+
+
+def build_h_trade_rows(
+    *,
+    timestamp: str,
+    previous_position: int,
+    target_position: int,
+    price: float | None,
+    previous_entry_price: float | None,
+    point_value: int = 10,
+) -> list[dict[str, object]]:
+    """Build h_trade-compatible rows for one full-position target change.
+
+    Every target change closes the previous analytical segment and opens a new
+    segment. This keeps quantity changes measurable without pretending that a
+    historical price was known when it was not.
+    """
+    allowed = {-2, -1, 0, 1, 2}
+    if previous_position not in allowed or target_position not in allowed:
+        raise ValueError(
+            f"交易部位必須介於-2到2: {previous_position}->{target_position}"
+        )
+    if previous_position == target_position:
+        return []
+
+    normalized_price: float | str = "" if price is None else float(price)
+    rows: list[dict[str, object]] = []
+    if previous_position != 0:
+        previous_side = "bull" if previous_position > 0 else "bear"
+        pnl: float | str = ""
+        if price is not None and previous_entry_price is not None:
+            direction = 1 if previous_position > 0 else -1
+            pnl = round(
+                (float(price) - float(previous_entry_price)) * direction * point_value,
+                2,
+            )
+        rows.append(
+            {
+                "timestamp": timestamp,
+                "action": "exiting",
+                "side": previous_side,
+                "price": normalized_price,
+                "pnl": pnl,
+                "quantity": abs(previous_position),
+            }
+        )
+
+    if target_position != 0:
+        rows.append(
+            {
+                "timestamp": timestamp,
+                "action": "enter",
+                "side": "bull" if target_position > 0 else "bear",
+                "price": normalized_price,
+                "pnl": "",
+                "quantity": abs(target_position),
+            }
+        )
+    return rows

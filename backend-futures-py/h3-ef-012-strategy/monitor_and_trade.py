@@ -21,6 +21,9 @@ RECORDS_DIR = BASE_DIR / "records"
 H_RECORD_PATH = RECORDS_DIR / "h3_position_events.csv"
 EF_RECORD_PATH = RECORDS_DIR / "ef_position_events.csv"
 COMBINED_POSITION_PATH = RECORDS_DIR / "combined_position.json"
+H_TRADE_RECORD_PATH = RECORDS_DIR / "h3_trade.csv"
+MIXED_TRADE_RECORD_PATH = RECORDS_DIR / "h3_ef_trade.csv"
+WEBHOOK_DATA_1MIN_PATH = BACKEND_DIR / "tv_doc" / "webhook_data_1min.csv"
 RUNTIME_DIR = BASE_DIR / "runtime"
 STATE_PATH = RUNTIME_DIR / "h3_ef_012_state.json"
 LOCK_PATH = RUNTIME_DIR / "h3_ef_012.lock"
@@ -31,9 +34,11 @@ DISCORD_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
 from strategy import (
     ALL_STRATEGIES,
     Decision,
+    build_h_trade_rows,
     evaluate_strategy,
     load_latest_ef_positions,
     load_latest_h_position,
+    load_latest_recorded_close,
     parse_h_signal,
     parse_six_strategy_signal,
     position_event_action,
@@ -293,6 +298,7 @@ EF_RECORD_FIELDS = [
     "state_reconciled",
     "raw_message",
 ]
+TRADE_RECORD_FIELDS = ["timestamp", "action", "side", "price", "pnl", "quantity"]
 
 
 def append_record(path: Path, fields: list[str], row: dict) -> None:
@@ -303,6 +309,71 @@ def append_record(path: Path, fields: list[str], row: dict) -> None:
         if not exists:
             writer.writeheader()
         writer.writerow({field: row.get(field, "") for field in fields})
+
+
+def latest_market_price(at: datetime | None = None) -> float | None:
+    """Return the newest one-minute close that was already recorded at `at`."""
+    return load_latest_recorded_close(
+        WEBHOOK_DATA_1MIN_PATH,
+        at or datetime.now(TZ),
+    )
+
+
+def latest_open_trade(path: Path) -> dict[str, str] | None:
+    """Rebuild the currently open analytical segment from a trade CSV."""
+    if not path.exists():
+        return None
+    open_trade: dict[str, str] | None = None
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            action = str(row.get("action") or "").strip()
+            if action == "enter":
+                open_trade = dict(row)
+            elif action == "exiting":
+                open_trade = None
+    return open_trade
+
+
+def trade_log_position(path: Path) -> int | None:
+    open_trade = latest_open_trade(path)
+    if open_trade is None:
+        return 0 if path.exists() else None
+    side = str(open_trade.get("side") or "").strip()
+    try:
+        quantity = int(float(str(open_trade.get("quantity") or "")))
+    except ValueError:
+        return None
+    if side not in {"bull", "bear"} or quantity not in {1, 2}:
+        return None
+    return quantity if side == "bull" else -quantity
+
+
+def append_trade_transition(
+    path: Path,
+    previous_position: int,
+    target_position: int,
+    *,
+    observed_at: datetime | None = None,
+) -> None:
+    """Append h_trade-compatible exit/entry rows for a target change."""
+    event_time = observed_at or datetime.now(TZ)
+    open_trade = latest_open_trade(path)
+    previous_entry_price: float | None = None
+    if open_trade is not None and trade_log_position(path) == previous_position:
+        try:
+            previous_entry_price = float(str(open_trade.get("price") or "").strip())
+        except ValueError:
+            previous_entry_price = None
+
+    rows = build_h_trade_rows(
+        timestamp=event_time.strftime("%Y-%m-%d %H:%M:%S"),
+        previous_position=previous_position,
+        target_position=target_position,
+        price=latest_market_price(event_time),
+        previous_entry_price=previous_entry_price,
+    )
+    for row in rows:
+        append_record(path, TRADE_RECORD_FIELDS, row)
 
 
 def record_contains_event(path: Path, event_key: str) -> bool:
@@ -355,6 +426,15 @@ def apply_h_event(
             "raw_message": raw_message,
         },
     )
+    try:
+        append_trade_transition(
+            H_TRADE_RECORD_PATH,
+            previous if previous in {-1, 1} else 0,
+            position,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"H3交易紀錄寫入失敗：{exc}")
+        send_discord_message(f"H3交易紀錄寫入失敗，請人工檢查：{exc}")
     return previous, action, True
 
 
@@ -411,6 +491,8 @@ def apply_final_position_file(trigger_reason: str) -> bool:
     if previous_target is None:
         # Compatibility with state written by the first observation-only version.
         previous_target = state.get("last_observed_target")
+    if previous_target is None:
+        previous_target = trade_log_position(MIXED_TRADE_RECORD_PATH)
     try:
         normalized_previous = int(previous_target) if previous_target is not None else 0
     except (TypeError, ValueError):
@@ -429,6 +511,19 @@ def apply_final_position_file(trigger_reason: str) -> bool:
         decision_summary=combined_position_text(snapshot),
     )
     if success:
+        try:
+            append_trade_transition(
+                MIXED_TRADE_RECORD_PATH,
+                normalized_previous,
+                final_target,
+            )
+            state.pop("last_trade_log_error_at", None)
+            state.pop("last_trade_log_error", None)
+        except (OSError, ValueError) as exc:
+            state["last_trade_log_error_at"] = now_text()
+            state["last_trade_log_error"] = str(exc)
+            print(f"混合策略交易紀錄寫入失敗：{exc}")
+            send_discord_message(f"混合策略交易紀錄寫入失敗，請人工檢查：{exc}")
         state["last_simulated_target"] = final_target
         state["last_simulated_target_updated_at"] = now_text()
     else:

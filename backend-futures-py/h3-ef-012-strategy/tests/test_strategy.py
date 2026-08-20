@@ -3,7 +3,9 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,9 +14,11 @@ from strategy import (  # noqa: E402
     ALL_STRATEGIES,
     PORTFOLIO_E,
     PORTFOLIO_F,
+    build_h_trade_rows,
     evaluate_strategy,
     load_latest_ef_positions,
     load_latest_h_position,
+    load_latest_recorded_close,
     parse_h_signal,
     parse_six_strategy_signal,
     position_event_action,
@@ -181,6 +185,82 @@ class PositionRecordTests(unittest.TestCase):
                 load_latest_ef_positions(path),
                 {"CFC07m": -1, "CFCTX17m": 0},
             )
+
+
+class HTradeRecordTests(unittest.TestCase):
+    def test_market_price_never_reads_a_future_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "one_minute.csv"
+            path.write_text(
+                "Record Time,Close\n"
+                "2026-08-20 20:00:00,100\n"
+                "2026-08-20 20:02:00,999\n",
+                encoding="utf-8",
+            )
+            cutoff = datetime(
+                2026,
+                8,
+                20,
+                20,
+                1,
+                tzinfo=ZoneInfo("Asia/Taipei"),
+            )
+            self.assertEqual(load_latest_recorded_close(path, cutoff), 100.0)
+
+    def test_add_position_closes_old_segment_and_opens_new_quantity(self):
+        rows = build_h_trade_rows(
+            timestamp="2026-08-20 21:00:00",
+            previous_position=1,
+            target_position=2,
+            price=110,
+            previous_entry_price=100,
+        )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "timestamp": "2026-08-20 21:00:00",
+                    "action": "exiting",
+                    "side": "bull",
+                    "price": 110.0,
+                    "pnl": 100.0,
+                    "quantity": 1,
+                },
+                {
+                    "timestamp": "2026-08-20 21:00:00",
+                    "action": "enter",
+                    "side": "bull",
+                    "price": 110.0,
+                    "pnl": "",
+                    "quantity": 2,
+                },
+            ],
+        )
+
+    def test_short_exit_pnl_uses_short_direction(self):
+        rows = build_h_trade_rows(
+            timestamp="2026-08-20 21:00:00",
+            previous_position=-1,
+            target_position=0,
+            price=90,
+            previous_entry_price=100,
+        )
+        self.assertEqual(rows[0]["pnl"], 100.0)
+        self.assertEqual(rows[0]["quantity"], 1)
+        self.assertEqual(rows[0]["side"], "bear")
+
+    def test_unknown_initial_entry_does_not_invent_pnl(self):
+        rows = build_h_trade_rows(
+            timestamp="2026-08-20 21:00:00",
+            previous_position=-1,
+            target_position=1,
+            price=44482,
+            previous_entry_price=None,
+        )
+        self.assertEqual(rows[0]["action"], "exiting")
+        self.assertEqual(rows[0]["pnl"], "")
+        self.assertEqual(rows[1]["action"], "enter")
+        self.assertEqual(rows[1]["side"], "bull")
 
 
 if __name__ == "__main__":

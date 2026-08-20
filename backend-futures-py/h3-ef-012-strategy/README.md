@@ -49,14 +49,25 @@ cd /Users/kt/Desktop/self/monitor/backend-futures-py/h3-ef-012-strategy
 - `records/h3_position_events.csv`：H3方向變化，包含時間、Telegram event ID、進出動作、原部位、新部位及原始訊息。
 - `records/ef_position_events.csv`：十二套E/F倉位變化，另外包含群益帳號、策略代碼及狀態是否需要校正。
 
+另外會產生兩份與`tv_doc/h_trade.csv`欄位完全相同的交易分析紀錄：
+
+- `records/h3_trade.csv`：只記錄H3本身的多空進出。
+- `records/h3_ef_trade.csv`：記錄永豐H3+EF混合策略最終0/1/2口的進出。
+
+兩份交易紀錄的欄位皆為`timestamp,action,side,price,pnl,quantity`。`side`使用`bull`或`bear`，`action`使用`enter`或`exiting`；平倉損益沿用既有`h_trade.csv`算法，以每口點數乘以10計算，口數另外保存在`quantity`。加碼或減碼時，會在同一時間先結束原本的整段部位，再以新口數開一段，讓1口與2口期間可以分開統計。
+
+價格只會讀取`tv_doc/webhook_data_1min.csv`中「訊號收到時間以前」最新一筆已記錄的一分鐘收盤價，不會拿之後才出現的K棒回填。2026-08-20建立初始空單時並不知道真正進場價，因此初始價格留白，第一次平倉損益也會留白；從下一次有即時價格的進場開始才會正常計算損益。
+
 每次收到Telegram訊號時，程式先把變化追加至對應CSV；準備模擬下單時，再從頭讀取兩個CSV並重建最新H與十二套E/F部位，最後才執行0/1/2判斷。計算結果先寫入`records/combined_position.json`，下單階段會重新讀取這個總和檔的`final_target_position`，不會直接使用記憶體裡的計算結果。
 
 完整流程：
 
 ```text
 H3 Telegram → h3_position_events.csv ┐
-                                      ├→ combined_position.json → Discord模擬下單
+                                      ├→ combined_position.json → Discord模擬下單 → h3_ef_trade.csv
 EF Telegram → ef_position_events.csv ┘
+
+H3 Telegram → h3_trade.csv
 ```
 
 EF明確支援以下六種變化：`0→1`、`0→-1`、`1→0`、`-1→0`、`1→-1`、`-1→1`。最後兩種會記成平掉原方向並直接轉向。
@@ -107,7 +118,7 @@ EF明確支援以下六種變化：`0→1`、`0→-1`、`1→0`、`-1→0`、`1�
 - 硬性限制絕對部位最多2口。
 - 同時間連續EF訊號會等待1秒合併後再計算。
 - Telegram事件ID會保存去重，且禁止同時啟動兩個監控實例。
-- 不會查詢或修改永豐部位，也不會寫入`h_trade.csv`。
+- 不會查詢或修改永豐部位，也不會改寫既有`tv_doc/h_trade.csv`；新策略只寫入自己`records/`下的兩份交易紀錄。
 
 ## 環境設定
 
