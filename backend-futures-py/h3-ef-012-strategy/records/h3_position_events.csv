@@ -1,0 +1,2 @@
+received_at,event_key,source,action,previous_position,new_position,raw_message
+2026-08-20 20:04:56,initial:h3,使用者指定初始倉位,初始空單,,-1,H3目前為一口空單

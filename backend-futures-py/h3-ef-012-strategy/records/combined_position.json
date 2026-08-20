@@ -1,0 +1,16 @@
+{
+  "updated_at": "2026-08-20 20:04:56",
+  "trigger": "使用者指定初始倉位",
+  "h_position": -1,
+  "e_net": -2,
+  "f_net": 0,
+  "e_direction": -1,
+  "f_direction": 0,
+  "consensus": 0,
+  "calculated_target_position": -1,
+  "manual_target_position": null,
+  "final_target_position": -1,
+  "manual_override_active": false,
+  "reason": "E、F沒有一致共識，永豐只跟H持有1口",
+  "manual_edit_help": "要人工覆寫時只修改manual_target_position為-2到2；設回null即可恢復自動計算。請勿直接修改final_target_position。"
+}

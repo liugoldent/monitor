@@ -1,0 +1,13 @@
+received_at,event_key,account,strategy_code,source,action,previous_position,new_position,state_reconciled,raw_message
+2026-08-20 20:04:56,initial:ef:CFC07m,6008770,CFC07m,使用者指定初始倉位,初始空單,,-1,false,CFC07m目前為一口空單
+2026-08-20 20:04:56,initial:ef:CFCTX17m,6008770,CFCTX17m,使用者指定初始倉位,初始空單,,-1,false,CFCTX17m目前為一口空單
+2026-08-20 20:04:56,initial:ef:CFCTX18m,6008770,CFCTX18m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCTX19m,6008770,CFCTX19m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCTX20m,6008770,CFCTX20m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCTX21m,6008770,CFCTX21m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCWIN01m,6008770,CFCWIN01m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCPW3m,6008770,CFCPW3m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCCPm,6008770,CFCCPm,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCTX16m,6008770,CFCTX16m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCTX22m,6008770,CFCTX22m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
+2026-08-20 20:04:56,initial:ef:CFCTX23m,6008770,CFCTX23m,使用者指定初始倉位,初始空手,,0,false,其餘EF策略目前空手
