@@ -26,6 +26,12 @@ PORTFOLIO_F = (
 )
 ALL_STRATEGIES = PORTFOLIO_E + PORTFOLIO_F
 
+# U is deliberately editable in records/combined_position.json.  Keep a hard
+# ceiling so a typo in that file cannot create an unexpectedly huge simulated
+# adjustment (and, later, a huge real order if this strategy is connected).
+MAX_POSITION_UNIT = 20
+MAX_TARGET_QUANTITY = 2 * MAX_POSITION_UNIT
+
 STRATEGY_ALIASES = {
     # The provider has previously emitted this typo for CFCWIN01m.
     "CFCWN01m": "CFCWIN01m",
@@ -226,6 +232,60 @@ def position_text(position: int | None) -> str:
     return "空手"
 
 
+def validate_position_unit(value: object) -> int:
+    """Validate the manually editable U multiplier."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"U必須是1到{MAX_POSITION_UNIT}的整數，目前為{value!r}"
+        )
+    if not 1 <= value <= MAX_POSITION_UNIT:
+        raise ValueError(
+            f"U必須是1到{MAX_POSITION_UNIT}的整數，目前為{value!r}"
+        )
+    return value
+
+
+def scale_target_position(base_target: int, position_unit: int) -> int:
+    """Convert the base 0/1/2 result into the configured 0/U/2U target."""
+    if isinstance(base_target, bool) or base_target not in {-2, -1, 0, 1, 2}:
+        raise ValueError(f"基礎目標必須是-2到2的整數，目前為{base_target!r}")
+    return base_target * validate_position_unit(position_unit)
+
+
+def scaled_relation_reason(relation: str, position_unit: int) -> str:
+    """Describe a base decision after applying U."""
+    unit = validate_position_unit(position_unit)
+    if relation == "opposite":
+        return "E、F形成一致共識且與H反向，永豐降為空手"
+    if relation == "same":
+        if unit == 1:
+            return "E、F形成一致共識且與H同向，永豐持有2口"
+        return f"E、F形成一致共識且與H同向，永豐持有{2 * unit}口（2U，U={unit}）"
+    if relation == "neutral":
+        if unit == 1:
+            return "E、F沒有一致共識，永豐只跟H持有1口"
+        return f"E、F沒有一致共識，永豐只跟H持有{unit}口（U={unit}）"
+    raise ValueError(f"無效的策略關係: {relation!r}")
+
+
+def unchanged_target_notification_text(
+    *,
+    timestamp: str,
+    trigger_reason: str,
+    decision_summary: str,
+    target_position: int,
+) -> str:
+    """Build the Discord receipt sent when a valid signal keeps the target unchanged."""
+    return (
+        "📡【訊號已收到｜H3+EF 0/U/2U】\n"
+        f"時間：{timestamp}\n"
+        f"觸發：{trigger_reason}\n"
+        f"判斷：{decision_summary}\n"
+        f"結果：最終倉位檔未改變，維持 {position_text(target_position)}，"
+        "不送Discord模擬單"
+    )
+
+
 def simulated_order_action(previous: int, target: int) -> tuple[str, str, int]:
     """Describe the signed target-position adjustment used by Discord simulation."""
     if previous == target:
@@ -346,10 +406,16 @@ def build_h_trade_rows(
     segment. This keeps quantity changes measurable without pretending that a
     historical price was known when it was not.
     """
-    allowed = {-2, -1, 0, 1, 2}
-    if previous_position not in allowed or target_position not in allowed:
+    positions = (previous_position, target_position)
+    if any(
+        isinstance(position, bool)
+        or not isinstance(position, int)
+        or abs(position) > MAX_TARGET_QUANTITY
+        for position in positions
+    ):
         raise ValueError(
-            f"交易部位必須介於-2到2: {previous_position}->{target_position}"
+            f"交易部位必須介於-{MAX_TARGET_QUANTITY}到{MAX_TARGET_QUANTITY}: "
+            f"{previous_position}->{target_position}"
         )
     if previous_position == target_position:
         return []

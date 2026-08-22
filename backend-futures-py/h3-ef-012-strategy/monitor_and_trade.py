@@ -34,6 +34,8 @@ DISCORD_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
 from strategy import (
     ALL_STRATEGIES,
     Decision,
+    MAX_POSITION_UNIT,
+    MAX_TARGET_QUANTITY,
     build_h_trade_rows,
     evaluate_strategy,
     load_latest_ef_positions,
@@ -43,7 +45,11 @@ from strategy import (
     parse_six_strategy_signal,
     position_event_action,
     position_text,
+    scale_target_position,
+    scaled_relation_reason,
     simulated_order_action,
+    unchanged_target_notification_text,
+    validate_position_unit,
 )
 
 
@@ -98,7 +104,7 @@ def save_json_atomic(path: Path, value: dict) -> None:
 
 def default_state() -> dict:
     return {
-        "strategy": "H3+EF 0/1/2",
+        "strategy": "H3+EF 0/U/2U",
         "processed_event_keys": [],
         "last_simulated_target": None,
     }
@@ -112,7 +118,7 @@ def evaluate_records() -> Decision:
     )
 
 
-def decision_text(decision: Decision) -> str:
+def decision_text(decision: Decision, position_unit: int = 1) -> str:
     if not decision.ready:
         missing_text = (
             f"，缺少 {', '.join(decision.missing_strategies)}"
@@ -120,23 +126,33 @@ def decision_text(decision: Decision) -> str:
             else ""
         )
         return f"策略尚未就緒：{decision.reason}{missing_text}"
+    scaled_target = scale_target_position(decision.target_position, position_unit)
+    reason = scaled_relation_reason(decision.relation, position_unit)
     return (
         f"H={position_text(decision.h_position)}，E淨部位={decision.e_net}，"
         f"F淨部位={decision.f_net}，EF共識={position_text(decision.consensus)}，"
-        f"永豐目標={position_text(decision.target_position)}；{decision.reason}"
+        f"U={position_unit}，永豐目標={position_text(scaled_target)}；{reason}"
     )
 
 
-def _target_position(value: object, field_name: str, *, allow_none: bool = False) -> int | None:
+def _target_position(
+    value: object,
+    field_name: str,
+    *,
+    max_abs: int = MAX_TARGET_QUANTITY,
+    allow_none: bool = False,
+) -> int | None:
     if value is None and allow_none:
         return None
-    try:
-        position = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name}必須是-2到2的整數，目前為{value!r}") from exc
-    if position != value or position not in {-2, -1, 0, 1, 2}:
-        raise ValueError(f"{field_name}必須是-2到2的整數，目前為{value!r}")
-    return position
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or abs(value) > max_abs
+    ):
+        raise ValueError(
+            f"{field_name}必須是-{max_abs}到{max_abs}的整數，目前為{value!r}"
+        )
+    return value
 
 
 def load_combined_position() -> dict:
@@ -157,32 +173,44 @@ def write_combined_position(decision: Decision, trigger_reason: str) -> dict:
         raise ValueError("策略尚未就緒，不能寫入最終倉位")
 
     existing = load_combined_position() if COMBINED_POSITION_PATH.exists() else {}
+    position_unit = validate_position_unit(existing.get("U", 1))
+    base_target = _target_position(
+        decision.target_position,
+        "base_target_position",
+        max_abs=2,
+    )
+    calculated_target = scale_target_position(base_target, position_unit)
     manual_target = _target_position(
         existing.get("manual_target_position"),
         "manual_target_position",
+        max_abs=2 * position_unit,
         allow_none=True,
-    )
-    calculated_target = _target_position(
-        decision.target_position,
-        "calculated_target_position",
     )
     final_target = manual_target if manual_target is not None else calculated_target
     snapshot = {
         "updated_at": now_text(),
         "trigger": trigger_reason,
+        "U": position_unit,
         "h_position": decision.h_position,
         "e_net": decision.e_net,
         "f_net": decision.f_net,
         "e_direction": decision.e_direction,
         "f_direction": decision.f_direction,
         "consensus": decision.consensus,
+        "relation": decision.relation,
+        "base_target_position": base_target,
         "calculated_target_position": calculated_target,
         "manual_target_position": manual_target,
         "final_target_position": final_target,
         "manual_override_active": manual_target is not None,
-        "reason": decision.reason,
+        "reason": scaled_relation_reason(decision.relation, position_unit),
+        "U_edit_help": (
+            f"只修改U為1到{MAX_POSITION_UNIT}的整數；U=2時策略為0/2/4口，"
+            "存檔後會立即重新計算。"
+        ),
         "manual_edit_help": (
-            "要人工覆寫時只修改manual_target_position為-2到2；"
+            f"要人工覆寫時只修改manual_target_position為-{2 * position_unit}"
+            f"到{2 * position_unit}的整數；"
             "設回null即可恢復自動計算。請勿直接修改final_target_position。"
         ),
     }
@@ -191,23 +219,61 @@ def write_combined_position(decision: Decision, trigger_reason: str) -> dict:
 
 
 def reconcile_manual_override() -> dict:
-    """Normalize a manual edit and make final_target_position authoritative."""
+    """Normalize manual U/target edits and make the final target authoritative."""
     snapshot = load_combined_position()
-    calculated_target = _target_position(
-        snapshot.get("calculated_target_position"),
-        "calculated_target_position",
+    position_unit = validate_position_unit(snapshot.get("U", 1))
+    base_target = _target_position(
+        snapshot.get(
+            "base_target_position",
+            snapshot.get("calculated_target_position"),
+        ),
+        "base_target_position",
+        max_abs=2,
     )
+    calculated_target = scale_target_position(base_target, position_unit)
     manual_target = _target_position(
         snapshot.get("manual_target_position"),
         "manual_target_position",
+        max_abs=2 * position_unit,
         allow_none=True,
     )
     final_target = manual_target if manual_target is not None else calculated_target
-    if snapshot.get("final_target_position") != final_target:
+    relation = snapshot.get("relation")
+    if relation not in {"same", "opposite", "neutral"}:
+        h_position = snapshot.get("h_position")
+        consensus = snapshot.get("consensus")
+        if h_position in {-1, 1} and consensus == h_position:
+            relation = "same"
+        elif h_position in {-1, 1} and consensus == -h_position:
+            relation = "opposite"
+        else:
+            relation = "neutral"
+    reason = scaled_relation_reason(relation, position_unit)
+    normalized = {
+        "U": position_unit,
+        "relation": relation,
+        "base_target_position": base_target,
+        "calculated_target_position": calculated_target,
+        "manual_target_position": manual_target,
+        "final_target_position": final_target,
+        "manual_override_active": manual_target is not None,
+        "reason": reason,
+        "U_edit_help": (
+            f"只修改U為1到{MAX_POSITION_UNIT}的整數；U=2時策略為0/2/4口，"
+            "存檔後會立即重新計算。"
+        ),
+        "manual_edit_help": (
+            f"要人工覆寫時只修改manual_target_position為-{2 * position_unit}"
+            f"到{2 * position_unit}的整數；"
+            "設回null即可恢復自動計算。請勿直接修改final_target_position。"
+        ),
+    }
+    changed = any(snapshot.get(key) != value for key, value in normalized.items())
+    if changed:
+        snapshot.update(normalized)
         snapshot["final_target_position"] = final_target
-        snapshot["manual_override_active"] = manual_target is not None
         snapshot["updated_at"] = now_text()
-        snapshot["trigger"] = "人工修改總和倉位檔"
+        snapshot["trigger"] = "人工修改U或總和倉位檔"
         save_json_atomic(COMBINED_POSITION_PATH, snapshot)
     return snapshot
 
@@ -221,6 +287,7 @@ def combined_position_text(snapshot: dict) -> str:
     return (
         f"H={position_text(snapshot.get('h_position'))}，"
         f"E淨部位={snapshot.get('e_net')}，F淨部位={snapshot.get('f_net')}，"
+        f"U={snapshot.get('U', 1)}，"
         f"自動目標={position_text(snapshot.get('calculated_target_position'))}"
         f"{override_text}，最終目標={position_text(snapshot.get('final_target_position'))}；"
         f"{snapshot.get('reason', '')}"
@@ -228,23 +295,46 @@ def combined_position_text(snapshot: dict) -> str:
 
 
 def send_discord_message(content: str) -> bool:
-    """Send through the same webhook used by the existing alive notification."""
+    """Send a message and wait until Discord confirms that it was created."""
     webhook_url = os.getenv(DISCORD_WEBHOOK_ENV, "").strip()
     if not webhook_url:
         print(f"❌ Discord webhook 未設定: {DISCORD_WEBHOOK_ENV}")
         return False
 
-    try:
-        response = requests.post(
-            webhook_url,
-            json={"username": "NotifierBot", "content": content},
-            timeout=15,
-        )
-        response.raise_for_status()
-        return True
-    except requests.exceptions.RequestException as exc:
-        print(f"❌ 發送 Discord 訊息失敗: {exc}")
-        return False
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.post(
+                webhook_url,
+                params={"wait": "true"},
+                json={"username": "NotifierBot", "content": content},
+                timeout=15,
+            )
+            response.raise_for_status()
+            response_payload = response.json()
+            message_id = response_payload.get("id")
+            if not message_id:
+                raise requests.exceptions.RequestException(
+                    "Discord 未回傳已建立的訊息 ID"
+                )
+            print(f"✅ Discord 訊息已送達: message_id={message_id}")
+            return True
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            safe_error = str(exc).replace(webhook_url, "<Discord webhook>")
+            if attempt == max_attempts:
+                print(
+                    f"❌ 發送 Discord 訊息失敗（已嘗試{max_attempts}次）: "
+                    f"{safe_error}"
+                )
+                return False
+            retry_delay = attempt
+            print(
+                f"⚠️ Discord 訊息送出失敗，{retry_delay}秒後重試"
+                f"（{attempt}/{max_attempts}）: {safe_error}"
+            )
+            time.sleep(retry_delay)
+
+    return False
 
 
 def send_simulated_order(
@@ -255,9 +345,17 @@ def send_simulated_order(
     decision_summary: str,
 ) -> bool:
     """Simulate the target-position adjustment by sending Discord only."""
-    if previous_target not in {-2, -1, 0, 1, 2}:
+    if (
+        isinstance(previous_target, bool)
+        or not isinstance(previous_target, int)
+        or abs(previous_target) > MAX_TARGET_QUANTITY
+    ):
         raise ValueError(f"前次模擬部位超出範圍: {previous_target}")
-    if target_position not in {-2, -1, 0, 1, 2}:
+    if (
+        isinstance(target_position, bool)
+        or not isinstance(target_position, int)
+        or abs(target_position) > MAX_TARGET_QUANTITY
+    ):
         raise ValueError(f"目標模擬部位超出範圍: {target_position}")
 
     action, side, quantity = simulated_order_action(previous_target, target_position)
@@ -265,7 +363,7 @@ def send_simulated_order(
         return True
 
     message = (
-        "🧪【模擬下單｜H3+EF 0/1/2】\n"
+        "🧪【模擬下單｜H3+EF 0/U/2U】\n"
         f"時間：{now_text()}\n"
         f"動作：{action}，{side}微型台指近一（TMF）{quantity}口\n"
         f"模擬部位：{position_text(previous_target)} → {position_text(target_position)}\n"
@@ -343,7 +441,7 @@ def trade_log_position(path: Path) -> int | None:
         quantity = int(float(str(open_trade.get("quantity") or "")))
     except ValueError:
         return None
-    if side not in {"bull", "bear"} or quantity not in {1, 2}:
+    if side not in {"bull", "bear"} or not 1 <= quantity <= MAX_TARGET_QUANTITY:
         return None
     return quantity if side == "bull" else -quantity
 
@@ -479,13 +577,20 @@ def save_decision(state: dict, decision: Decision) -> None:
     state["updated_at"] = now_text()
 
 
-def apply_final_position_file(trigger_reason: str) -> bool:
+def apply_final_position_file(
+    trigger_reason: str,
+    *,
+    decision_summary: str | None = None,
+    notify_unchanged: bool = False,
+) -> bool:
     """Read only the total file, then emit the required simulated adjustment."""
     state = load_json(STATE_PATH, default_state())
     snapshot = reconcile_manual_override()
+    position_unit = validate_position_unit(snapshot.get("U", 1))
     final_target = _target_position(
         snapshot.get("final_target_position"),
         "final_target_position",
+        max_abs=2 * position_unit,
     )
     previous_target = state.get("last_simulated_target")
     if previous_target is None:
@@ -500,9 +605,27 @@ def apply_final_position_file(trigger_reason: str) -> bool:
 
     target_changed = previous_target is None or normalized_previous != final_target
     if not target_changed:
-        print(f"最終倉位檔未改變，維持 {position_text(final_target)}，不送Discord模擬單")
+        result_text = (
+            f"最終倉位檔未改變，維持 {position_text(final_target)}，"
+            "不送Discord模擬單"
+        )
+        print(result_text)
+        success = True
+        if notify_unchanged:
+            notification = unchanged_target_notification_text(
+                timestamp=now_text(),
+                trigger_reason=trigger_reason,
+                decision_summary=decision_summary or combined_position_text(snapshot),
+                target_position=final_target,
+            )
+            print(notification)
+            success = send_discord_message(notification)
+            if success:
+                state.pop("last_status_notification_error_at", None)
+            else:
+                state["last_status_notification_error_at"] = now_text()
         save_json_atomic(STATE_PATH, state)
-        return True
+        return success
 
     success = send_simulated_order(
         normalized_previous,
@@ -537,16 +660,15 @@ def execute_current_decision(trigger_reason: str) -> None:
     state = load_json(STATE_PATH, default_state())
     decision = evaluate_records()
     save_decision(state, decision)
-    message = decision_text(decision)
-    print(message)
-
     if not decision.ready or decision.target_position is None:
+        message = decision_text(decision)
+        print(message)
         save_json_atomic(STATE_PATH, state)
-        send_discord_message(f"[{datetime.now(TZ):%H:%M:%S}]：H3+EF 0/1/2。{message}")
+        send_discord_message(f"[{datetime.now(TZ):%H:%M:%S}]：H3+EF 0/U/2U。{message}")
         return
 
     try:
-        write_combined_position(decision, trigger_reason)
+        snapshot = write_combined_position(decision, trigger_reason)
     except (OSError, ValueError) as exc:
         state["last_combined_position_error_at"] = now_text()
         state["last_combined_position_error"] = str(exc)
@@ -556,8 +678,20 @@ def execute_current_decision(trigger_reason: str) -> None:
             f"本次不模擬下單：{exc}"
         )
         return
+    message = decision_text(decision, snapshot["U"])
+    print(message)
     save_json_atomic(STATE_PATH, state)
-    apply_final_position_file(trigger_reason)
+    apply_final_position_file(
+        trigger_reason,
+        decision_summary=message,
+        notify_unchanged=True,
+    )
+
+
+def execute_signal_batch(trigger_reasons: list[str]) -> None:
+    """Recompute once per accepted signal so every signal gets a Discord result."""
+    for trigger_reason in trigger_reasons:
+        execute_current_decision(trigger_reason)
 
 
 load_env_file(BACKEND_ENV_PATH)
@@ -586,9 +720,8 @@ async def delayed_recompute() -> None:
             continue
         reasons = pending_reasons
         pending_reasons = []
-        reason_text = "、".join(dict.fromkeys(reasons))
         async with state_lock:
-            await asyncio.to_thread(execute_current_decision, reason_text)
+            await asyncio.to_thread(execute_signal_batch, reasons)
         return
 
 
@@ -669,10 +802,9 @@ async def telegram_message_handler(event):
         current_state["updated_at"] = now_text()
         save_json_atomic(STATE_PATH, current_state)
         print(f"收到訊號 {event_key}: {trigger}")
-        if changed:
-            schedule_recompute(trigger)
-        else:
-            print("H方向未變，已去重但不重新計算模擬單")
+        if not changed:
+            trigger += "（H方向未變）"
+        schedule_recompute(trigger)
 
 
 def acquire_process_lock():
@@ -681,7 +813,7 @@ def acquire_process_lock():
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError as exc:
         handle.close()
-        raise RuntimeError("H3+EF 0/1/2監控程式已經有另一個實例在執行") from exc
+        raise RuntimeError("H3+EF 0/U/2U監控程式已經有另一個實例在執行") from exc
     handle.write(str(os.getpid()))
     handle.flush()
     return handle
@@ -689,13 +821,18 @@ def acquire_process_lock():
 
 def main() -> None:
     process_lock = acquire_process_lock()
-    print("=== H3 + EF 0/1/2 Discord 模擬下單監控 ===")
+    print("=== H3 + EF 0/U/2U Discord 模擬下單監控 ===")
     if send_discord_message("開始自動交易"):
         print("已送出Discord啟動通知：開始自動交易")
     else:
         print("Discord啟動通知送出失敗，監控服務仍會繼續啟動")
     print(f"群益帳號過濾={CAPITAL_ACCOUNT}，執行模式=Discord模擬下單（不連永豐）")
-    print(decision_text(evaluate_records()))
+    current_unit = validate_position_unit(
+        load_combined_position().get("U", 1)
+        if COMBINED_POSITION_PATH.exists()
+        else 1
+    )
+    print(decision_text(evaluate_records(), current_unit))
 
     if env_flag("H3_EF_012_SIMULATE_ON_START", default=False):
         execute_current_decision("程式啟動模擬對帳")

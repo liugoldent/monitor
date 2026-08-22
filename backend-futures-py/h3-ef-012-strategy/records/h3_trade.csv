@@ -1,2 +1,6 @@
 timestamp,action,side,price,pnl,quantity
 2026-08-20 20:04:56,enter,bear,,,1
+2026-08-20 23:04:11,exiting,bear,44938.0,,1
+2026-08-20 23:04:11,enter,bull,44938.0,,1
+2026-08-21 15:01:46,exiting,bull,45206.0,2680.0,1
+2026-08-21 15:01:46,enter,bear,45206.0,,1

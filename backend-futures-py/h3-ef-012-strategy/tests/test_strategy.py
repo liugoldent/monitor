@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from strategy import (  # noqa: E402
     ALL_STRATEGIES,
+    MAX_POSITION_UNIT,
     PORTFOLIO_E,
     PORTFOLIO_F,
     build_h_trade_rows,
@@ -22,7 +23,11 @@ from strategy import (  # noqa: E402
     parse_h_signal,
     parse_six_strategy_signal,
     position_event_action,
+    scale_target_position,
+    scaled_relation_reason,
     simulated_order_action,
+    unchanged_target_notification_text,
+    validate_position_unit,
 )
 
 
@@ -147,6 +152,53 @@ class SimulatedOrderActionTests(unittest.TestCase):
     def test_short_two_to_short_one_is_buy_reduce(self):
         self.assertEqual(simulated_order_action(-2, -1), ("減碼", "買進", 1))
 
+    def test_unchanged_target_notification_contains_decision_and_no_order_result(self):
+        message = unchanged_target_notification_text(
+            timestamp="2026-08-20 21:00:00",
+            trigger_reason="CFC07m -1->1、CFCTX16m 0->1",
+            decision_summary=(
+                "H=空1口，E淨部位=0，F淨部位=1，EF共識=空手，"
+                "永豐目標=空1口；E、F沒有一致共識，永豐只跟H持有1口"
+            ),
+            target_position=-1,
+        )
+        self.assertIn(
+            "判斷：H=空1口，E淨部位=0，F淨部位=1，EF共識=空手，"
+            "永豐目標=空1口；E、F沒有一致共識，永豐只跟H持有1口",
+            message,
+        )
+        self.assertIn(
+            "結果：最終倉位檔未改變，維持 空1口，不送Discord模擬單",
+            message,
+        )
+
+
+class PositionUnitTests(unittest.TestCase):
+    def test_u_one_preserves_current_zero_one_two_rule(self):
+        self.assertEqual(scale_target_position(-2, 1), -2)
+        self.assertEqual(scale_target_position(-1, 1), -1)
+        self.assertEqual(scale_target_position(0, 1), 0)
+
+    def test_u_scales_follow_h_and_consensus_targets(self):
+        self.assertEqual(scale_target_position(-1, 3), -3)
+        self.assertEqual(scale_target_position(2, 3), 6)
+
+    def test_u_reason_displays_scaled_quantity(self):
+        self.assertEqual(
+            scaled_relation_reason("neutral", 3),
+            "E、F沒有一致共識，永豐只跟H持有3口（U=3）",
+        )
+        self.assertEqual(
+            scaled_relation_reason("same", 3),
+            "E、F形成一致共識且與H同向，永豐持有6口（2U，U=3）",
+        )
+
+    def test_u_rejects_zero_negative_decimal_boolean_and_too_large(self):
+        for value in (0, -1, 1.5, True, MAX_POSITION_UNIT + 1):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    validate_position_unit(value)
+
 
 class PositionRecordTests(unittest.TestCase):
     def test_position_event_action_covers_all_six_ef_transitions(self):
@@ -248,6 +300,17 @@ class HTradeRecordTests(unittest.TestCase):
         self.assertEqual(rows[0]["pnl"], 100.0)
         self.assertEqual(rows[0]["quantity"], 1)
         self.assertEqual(rows[0]["side"], "bear")
+
+    def test_scaled_position_quantity_is_recorded(self):
+        rows = build_h_trade_rows(
+            timestamp="2026-08-20 21:00:00",
+            previous_position=2,
+            target_position=6,
+            price=110,
+            previous_entry_price=100,
+        )
+        self.assertEqual(rows[0]["quantity"], 2)
+        self.assertEqual(rows[1]["quantity"], 6)
 
     def test_unknown_initial_entry_does_not_invent_pnl(self):
         rows = build_h_trade_rows(
