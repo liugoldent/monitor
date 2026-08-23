@@ -14,17 +14,14 @@ webhook_data_3min.csv
 webhook_data_5min.csv
 webhook_data_10min.csv
 webhook_data_15min.csv
-h_position_size_state.json
-h_position_size_events.csv
-h_position_size_strategy.md
 README.md
 ```
 
-注意：`auto_trade.py` 目前會使用 `h_position_size_state.json`，不要移動。
+`h_trade.csv`是舊H交易流程留下的歷史交易資料，目前週一啟動鏈與H3＋EF混合策略都不會讀取；暫時保留供績效分析。
 
 ## strategy_state：策略狀態
 
-正式或觀察中策略的 state json 放這裡。
+仍在使用的策略 state json 放這裡；本次已移除停用H觀察策略的狀態。
 
 ```text
 strategy_state/
@@ -32,7 +29,7 @@ strategy_state/
 
 ## strategy_alerts：策略通知紀錄
 
-正式或觀察中策略寫出的 alert csv 放這裡。
+仍在使用的策略寫出的 alert csv 放這裡；本次已移除停用H觀察策略的通知紀錄。
 
 ```text
 strategy_alerts/
@@ -56,7 +53,7 @@ backups/
 
 ## inactive_strategy_state：已停用策略狀態
 
-已合併或已停用策略的舊 state/alert 放這裡，只留作參考。
+停用策略的舊 state/alert 已清除；目錄若為空可忽略。
 
 ```text
 inactive_strategy_state/
