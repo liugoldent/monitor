@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 import requests
 from telethon import TelegramClient, events
 
+from auto_trade import execute_target_position
+
 
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
@@ -30,6 +32,7 @@ LOCK_PATH = RUNTIME_DIR / "h3_ef_012.lock"
 TZ = ZoneInfo("Asia/Taipei")
 RECONNECT_DELAY_SECONDS = 5
 DISCORD_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
+ENABLE_ORDERS_ENV = "H3_EF_012_ENABLE_ORDERS"
 
 from strategy import (
     ALL_STRATEGIES,
@@ -603,8 +606,9 @@ def apply_final_position_file(
     except (TypeError, ValueError):
         normalized_previous = 0
 
+    orders_enabled = env_flag(ENABLE_ORDERS_ENV)
     target_changed = previous_target is None or normalized_previous != final_target
-    if not target_changed:
+    if not target_changed and not orders_enabled:
         result_text = (
             f"最終倉位檔未改變，維持 {position_text(final_target)}，"
             "不送Discord模擬單"
@@ -627,17 +631,55 @@ def apply_final_position_file(
         save_json_atomic(STATE_PATH, state)
         return success
 
-    success = send_simulated_order(
-        normalized_previous,
-        final_target,
-        trigger_reason=trigger_reason,
-        decision_summary=combined_position_text(snapshot),
-    )
+    executed_previous = normalized_previous
+    if orders_enabled:
+        try:
+            order_result = execute_target_position(final_target)
+            executed_previous = order_result.previous_position
+            side_text = "買進" if order_result.side == "buy" else "賣出"
+            if order_result.order_sent:
+                result_text = f"已送出{side_text} TMF {order_result.quantity}口"
+            else:
+                result_text = "永豐實際部位已符合目標，未送單"
+            notification_sent = send_discord_message(
+                "🚨【實單執行｜H3+EF 0/U/2U】\n"
+                f"時間：{now_text()}\n"
+                f"結果：{result_text}\n"
+                f"實際部位：{position_text(executed_previous)} → "
+                f"{position_text(final_target)}\n"
+                f"觸發：{trigger_reason}\n"
+                f"判斷：{combined_position_text(snapshot)}"
+            )
+            if not notification_sent:
+                state["last_order_notification_error_at"] = now_text()
+            else:
+                state.pop("last_order_notification_error_at", None)
+            # The broker operation succeeded even if its Discord receipt failed.
+            success = True
+        except Exception as exc:
+            state["last_order_error_at"] = now_text()
+            state["last_order_error_target"] = final_target
+            state["last_order_error"] = str(exc)
+            save_json_atomic(STATE_PATH, state)
+            print(f"實單執行失敗：{exc}")
+            send_discord_message(
+                f"❌【實單失敗｜H3+EF 0/U/2U】\n時間：{now_text()}\n"
+                f"目標：{position_text(final_target)}\n錯誤：{exc}\n"
+                "結果：未更新策略已執行部位，下次訊號會再次核對永豐實際部位。"
+            )
+            return False
+    else:
+        success = send_simulated_order(
+            normalized_previous,
+            final_target,
+            trigger_reason=trigger_reason,
+            decision_summary=combined_position_text(snapshot),
+        )
     if success:
         try:
             append_trade_transition(
                 MIXED_TRADE_RECORD_PATH,
-                normalized_previous,
+                executed_previous,
                 final_target,
             )
             state.pop("last_trade_log_error_at", None)
@@ -649,6 +691,9 @@ def apply_final_position_file(
             send_discord_message(f"混合策略交易紀錄寫入失敗，請人工檢查：{exc}")
         state["last_simulated_target"] = final_target
         state["last_simulated_target_updated_at"] = now_text()
+        if orders_enabled:
+            state["last_executed_target"] = final_target
+            state["last_executed_target_updated_at"] = now_text()
     else:
         state["last_simulation_error_at"] = now_text()
         state["last_simulation_error_target"] = final_target
