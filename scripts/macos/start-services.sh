@@ -62,7 +62,6 @@ on run argv
   end if
 
   createServiceTab(mainWindow, backendDir, "python webhook_server.py")
-  createServiceTab(mainWindow, backendDir, "python monitor_render_ping.py")
 end run
 APPLESCRIPT
 

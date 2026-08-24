@@ -10,6 +10,17 @@
 - Docker：Windows 獨立服務使用 `windows` Compose profile；既有 `monitor`
   服務未加 profile，因此原本啟動方式不變。
 
+## 正式服務清單
+
+macOS 與 Windows 平台入口都以同一組四個服務為目標：
+
+```text
+monitor-mxf
+webhook-server
+cloudflared
+h3-ef-012-strategy
+```
+
 ## 變更原則
 
 1. 共用 Python、Node 與前端程式不可因 OS 複製成兩份。

@@ -15,6 +15,8 @@
 - 根目錄 `run-services.sh`、`run-trade-services.sh` 保留為相容入口。
 - repo 路徑改為動態計算。
 - Cloudflare token 改讀環境變數或 `.env`，不再寫在腳本內。
+- 正式交易監控由舊六策略切換為 H3+EF。
+- 停止從平台入口啟動 `monitor_render_ping.py`。
 
 ### Windows
 
@@ -36,6 +38,7 @@
 - [x] Telegram helper Python 編譯。
 - [x] webhook tests：3 tests passed。
 - [x] H3+EF tests：38 tests passed（專案 `.venv`）。
+- [x] Mac 與 Windows 平台入口的正式服務清單一致。
 - [ ] macOS 實際啟動、接收 webhook、停止。
 - [ ] Windows PowerShell 語法解析。
 - [ ] Windows Docker Desktop 實際啟動四個服務。

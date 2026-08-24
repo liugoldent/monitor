@@ -22,3 +22,14 @@ Cloudflare token 依序讀取：
 2. repo 根目錄 `.env` 內的 `CLOUDFLARED_TOKEN`。
 
 兩處都沒有設定時，其他服務照常啟動，但略過 Cloudflare tunnel。
+
+## 啟動的正式服務
+
+```text
+monitor_mxf.py
+webhook_server.py
+cloudflared tunnel
+h3-ef-012-strategy/monitor_and_trade.py
+```
+
+`monitor_and_trade_six_strategy.py` 與 `monitor_render_ping.py` 已退出正式啟動清單。
