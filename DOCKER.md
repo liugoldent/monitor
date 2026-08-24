@@ -1,6 +1,9 @@
 # Docker 啟動說明
 
-這份 Docker 設定是給 Windows 或其他非 macOS 環境使用。
+這份文件說明共用 Docker image 與 Compose 設定。平台入口另見：
+
+- `docs/platform/macos.md`
+- `docs/platform/windows.md`
 
 原本的 `run-services.sh` 會用 macOS 的 `osascript` 開 iTerm 分頁；Docker 內不能跑 iTerm。
 現在 `run-services.sh` 在容器內會自動改跑：
@@ -10,6 +13,8 @@ scripts/run-services-docker.sh
 ```
 
 ## 啟動
+
+### 既有整合容器
 
 在 repo 根目錄執行：
 
@@ -34,6 +39,18 @@ docker compose logs -f monitor
 ```bash
 docker compose down
 ```
+
+### Windows 分離服務
+
+Windows 平常直接執行根目錄 `run-windows-services.cmd`。若要手動操作：
+
+```powershell
+docker compose --profile windows up -d --build `
+  monitor-mxf webhook-server h3-ef-012-strategy cloudflared
+```
+
+這些服務放在 `windows` profile，不會改變原本不帶 profile 的
+`docker compose up` 行為。
 
 ## 對外 port
 
@@ -72,6 +89,13 @@ frontend-vue/.env
 ```
 
 Windows 那台如果缺其中任何一個檔案，請先補齊。
+
+H3+EF 服務另會使用下列本機 runtime 目錄；內容已由該策略的 `.gitignore`
+排除：
+
+```text
+backend-futures-py/h3-ef-012-strategy/runtime/
+```
 
 ## 只跑部分服務
 
