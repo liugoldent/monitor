@@ -102,9 +102,24 @@ foreach ($item in $logWindows) {
             '--window', 'monitor-services', 'new-tab',
             '--title', $item.Title, 'powershell.exe'
         ) + $watchArgs
-        Start-Process $terminal.Source -ArgumentList $terminalArgs
+        # Invoke wt.exe directly so PowerShell preserves arguments containing
+        # spaces. Start-Process flattens ArgumentList into a single string and
+        # caused titles such as "MXF Market Monitor" to be parsed as commands.
+        & $terminal.Source @terminalArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Windows Terminal could not open the $($item.Title) log tab."
+        }
     } else {
-        Start-Process powershell.exe -ArgumentList $watchArgs
+        # Start-Process also needs explicit quotes in its flattened argument
+        # string when Windows Terminal is unavailable.
+        $quotedWatchArgs = @(
+            '-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass',
+            '-File', ('"{0}"' -f $watchScript),
+            '-Title', ('"{0}"' -f $item.Title),
+            '-ServiceNames', ('"{0}"' -f $item.Service),
+            '-ProjectDir', ('"{0}"' -f $projectDir)
+        )
+        Start-Process powershell.exe -ArgumentList $quotedWatchArgs
     }
     Start-Sleep -Milliseconds 300
 }

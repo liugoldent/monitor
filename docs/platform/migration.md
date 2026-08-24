@@ -42,6 +42,7 @@
 - [ ] macOS 實際啟動、接收 webhook、停止。
 - [ ] Windows PowerShell 語法解析。
 - [ ] Windows Docker Desktop 實際啟動四個服務。
+- [ ] Windows Terminal 四個 log 分頁可正確開啟（含空白路徑與標題）。
 - [ ] Windows Telegram session 初始化。
 - [ ] Windows Cloudflare tunnel 對外連線。
 
