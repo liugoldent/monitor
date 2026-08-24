@@ -57,6 +57,27 @@ class AutoTradeTests(unittest.TestCase):
         self.assertFalse(result.order_sent)
         self.api.place_order.assert_not_called()
 
+    def test_shioaji_action_enum_direction_is_supported(self):
+        self.api.list_positions.return_value = [
+            {"code": "TMFQ6", "direction": "Action.Sell", "quantity": 1}
+        ]
+
+        result = auto_trade.execute_target_position(0, api=self.api, sj=self.sj)
+
+        self.assertEqual(result.previous_position, -1)
+        self.assertEqual(result.side, "buy")
+        self.assertEqual(result.quantity, 1)
+
+    def test_shioaji_buy_action_enum_direction_is_supported(self):
+        self.api.list_positions.return_value = [
+            {"code": "TMFQ6", "direction": "Action.Buy", "quantity": 2}
+        ]
+
+        result = auto_trade.execute_target_position(2, api=self.api, sj=self.sj)
+
+        self.assertEqual(result.previous_position, 2)
+        self.assertFalse(result.order_sent)
+
 
 if __name__ == "__main__":
     unittest.main()

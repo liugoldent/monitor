@@ -56,6 +56,10 @@ def _position_quantity(position: Any) -> int:
 
 def _position_side(position: Any) -> int:
     direction = str(_position_value(position, "direction", "")).strip().lower()
+    # Shioaji may expose the enum as either ``Sell`` or ``Action.Sell``
+    # depending on the SDK/model version.
+    if "." in direction:
+        direction = direction.rsplit(".", 1)[-1]
     if direction == "buy":
         return 1
     if direction == "sell":

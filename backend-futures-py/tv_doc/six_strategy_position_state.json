@@ -14,24 +14,24 @@
     "CFCTX16m": {
       "name": "財神列車16號",
       "portfolio": "贏家投組F",
-      "position": 0,
-      "side": "flat",
-      "updated_at": "2026-08-22 04:00:03",
-      "last_message_time": "2026-08-22 04:00:02",
+      "position": -1,
+      "side": "bear",
+      "updated_at": "2026-08-24 12:00:18",
+      "last_message_time": "2026-08-24 12:00:16",
       "last_account": "6008770",
       "last_raw_strategy_code": "CFCTX16m",
-      "last_raw_text": "【08.22 04:00:02】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX16m《倉位》-1.0 -> 0.0"
+      "last_raw_text": "【08.24 12:00:16】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX16m《倉位》0.0 -> -1.0"
     },
     "CFCTX22m": {
       "name": "財神列車22號",
       "portfolio": "贏家投組F",
       "position": 0,
       "side": "flat",
-      "updated_at": "2026-08-21 09:07:32",
-      "last_message_time": "2026-08-21 09:07:31",
+      "updated_at": "2026-08-24 10:00:04",
+      "last_message_time": "2026-08-24 10:00:03",
       "last_account": "6008770",
       "last_raw_strategy_code": "CFCTX22m",
-      "last_raw_text": "【08.21 09:07:31】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX22m《倉位》1.0 -> 0.0"
+      "last_raw_text": "【08.24 10:00:03】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX22m《倉位》1.0 -> 0.0"
     },
     "CFCCPm": {
       "name": "財神列車6號",
@@ -69,24 +69,24 @@
     "CFCTX19m": {
       "name": "財神列車19號",
       "portfolio": "贏家投組E",
-      "position": 0,
-      "side": "flat",
-      "updated_at": "2026-08-11 13:01:35",
-      "last_message_time": "2026-08-11 13:01:34",
+      "position": -1,
+      "side": "bear",
+      "updated_at": "2026-08-24 09:58:36",
+      "last_message_time": "2026-08-24 09:58:35",
       "last_account": "6008770",
       "last_raw_strategy_code": "CFCTX19m",
-      "last_raw_text": "【08.11 13:01:34】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX19m《倉位》-1.0 -> 0.0"
+      "last_raw_text": "【08.24 09:58:35】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX19m《倉位》1.0 -> -1.0"
     },
     "CFC07m": {
       "name": "財神列車7號",
       "portfolio": "贏家投組E",
       "position": -1,
       "side": "bear",
-      "updated_at": "2026-08-21 21:49:58",
-      "last_message_time": "2026-08-21 21:49:56",
+      "updated_at": "2026-08-24 12:00:28",
+      "last_message_time": "2026-08-24 12:00:27",
       "last_account": "6008770",
       "last_raw_strategy_code": "CFC07m",
-      "last_raw_text": "【08.21 21:49:56】\n【訊號通知】【群益】\n【6008770】\n《策略》CFC07m《倉位》0.0 -> -1.0"
+      "last_raw_text": "【08.24 12:00:27】\n【訊號通知】【群益】\n【6008770】\n《策略》CFC07m《倉位》0.0 -> -1.0"
     },
     "CFCTX18m": {
       "name": "財神列車18號",
@@ -113,13 +113,13 @@
     "CFCTX17m": {
       "name": "財神列車17號",
       "portfolio": "贏家投組E",
-      "position": 1,
-      "side": "bull",
-      "updated_at": "2026-08-22 02:00:42",
-      "last_message_time": "2026-08-22 02:00:41",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-08-24 09:58:36",
+      "last_message_time": "2026-08-24 09:58:34",
       "last_account": "6008770",
       "last_raw_strategy_code": "CFCTX17m",
-      "last_raw_text": "【08.22 02:00:41】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX17m《倉位》0.0 -> 1.0"
+      "last_raw_text": "【08.24 09:58:34】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX17m《倉位》1.0 -> 0.0"
     },
     "CFCTX21m": {
       "name": "財神列車21號",
@@ -133,5 +133,5 @@
       "last_raw_text": "【08.18 10:18:08】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX21m《倉位》1.0 -> 0.0"
     }
   },
-  "updated_at": "2026-08-22 04:00:03"
+  "updated_at": "2026-08-24 12:00:28"
 }

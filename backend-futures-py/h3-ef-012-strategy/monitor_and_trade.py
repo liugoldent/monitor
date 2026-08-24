@@ -5,6 +5,7 @@ import csv
 import fcntl
 import json
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ import requests
 from telethon import TelegramClient, events
 
 from auto_trade import execute_target_position
+from mdd_tracker import update_h3_mdd_records
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,7 +27,12 @@ EF_RECORD_PATH = RECORDS_DIR / "ef_position_events.csv"
 COMBINED_POSITION_PATH = RECORDS_DIR / "combined_position.json"
 H_TRADE_RECORD_PATH = RECORDS_DIR / "h3_trade.csv"
 MIXED_TRADE_RECORD_PATH = RECORDS_DIR / "h3_ef_trade.csv"
-WEBHOOK_DATA_1MIN_PATH = BACKEND_DIR / "tv_doc" / "webhook_data_1min.csv"
+H_MDD_RECORD_PATH = RECORDS_DIR / "h3_mdd.json"
+H_MDD_HISTORY_PATH = RECORDS_DIR / "h3_mdd_history.csv"
+TV_DOC_DIR = BACKEND_DIR / "tv_doc"
+WEBHOOK_DATA_1MIN_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
+SIX_STRATEGY_SIGNAL_LOG_PATH = TV_DOC_DIR / "six_strategy_signal_events.csv"
+SIX_STRATEGY_STATE_PATH = TV_DOC_DIR / "six_strategy_position_state.json"
 RUNTIME_DIR = BASE_DIR / "runtime"
 STATE_PATH = RUNTIME_DIR / "h3_ef_012_state.json"
 LOCK_PATH = RUNTIME_DIR / "h3_ef_012.lock"
@@ -33,6 +40,36 @@ TZ = ZoneInfo("Asia/Taipei")
 RECONNECT_DELAY_SECONDS = 5
 DISCORD_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
 ENABLE_ORDERS_ENV = "H3_EF_012_ENABLE_ORDERS"
+SIX_MESSAGE_TIME_PATTERN = re.compile(
+    r"【(?P<month>\d{2})\.(?P<day>\d{2})\s+"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})】"
+)
+
+SIX_STRATEGY_NAMES = {
+    "CFC07m": "財神列車7號",
+    "CFCTX17m": "財神列車17號",
+    "CFCTX18m": "財神列車18號",
+    "CFCTX19m": "財神列車19號",
+    "CFCTX20m": "財神列車20號",
+    "CFCTX21m": "財神列車21號",
+    "CFCWIN01m": "智能引擎1號",
+    "CFCPW3m": "新財神列車3號",
+    "CFCCPm": "財神列車6號",
+    "CFCTX16m": "財神列車16號",
+    "CFCTX22m": "財神列車22號",
+    "CFCTX23m": "財神列車23號",
+}
+SIX_STRATEGY_PORTFOLIOS = {
+    code: "贏家投組E" if code in {
+        "CFC07m",
+        "CFCTX17m",
+        "CFCTX18m",
+        "CFCTX19m",
+        "CFCTX20m",
+        "CFCTX21m",
+    } else "贏家投組F"
+    for code in SIX_STRATEGY_NAMES
+}
 
 from strategy import (
     ALL_STRATEGIES,
@@ -400,6 +437,20 @@ EF_RECORD_FIELDS = [
     "raw_message",
 ]
 TRADE_RECORD_FIELDS = ["timestamp", "action", "side", "price", "pnl", "quantity"]
+SIX_STRATEGY_SIGNAL_LOG_FIELDS = [
+    "received_at",
+    "message_time",
+    "account",
+    "strategy_code",
+    "raw_strategy_code",
+    "strategy_name",
+    "previous_position",
+    "new_position",
+    "action",
+    "side",
+    "quantity",
+    "signal",
+]
 
 
 def append_record(path: Path, fields: list[str], row: dict) -> None:
@@ -410,6 +461,98 @@ def append_record(path: Path, fields: list[str], row: dict) -> None:
         if not exists:
             writer.writeheader()
         writer.writerow({field: row.get(field, "") for field in fields})
+
+
+def six_message_time(raw_message: str) -> str:
+    match = SIX_MESSAGE_TIME_PATTERN.search(raw_message)
+    if not match:
+        return ""
+    current = datetime.now(TZ)
+    try:
+        value = datetime(
+            current.year,
+            int(match.group("month")),
+            int(match.group("day")),
+            int(match.group("hour")),
+            int(match.group("minute")),
+            int(match.group("second")),
+            tzinfo=TZ,
+        )
+    except ValueError:
+        return ""
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def six_signal_action(previous_position: int, new_position: int) -> tuple[str, str]:
+    actions = {
+        (0, 1): ("enter", "bull"),
+        (0, -1): ("enter", "bear"),
+        (1, 0): ("exit", "bull"),
+        (-1, 0): ("exit", "bear"),
+        (1, -1): ("reverse", "bear"),
+        (-1, 1): ("reverse", "bull"),
+    }
+    try:
+        return actions[(previous_position, new_position)]
+    except KeyError as exc:
+        raise ValueError(
+            f"不支援的六策略倉位變化: {previous_position}->{new_position}"
+        ) from exc
+
+
+def write_six_strategy_compatible_outputs(signal, raw_message: str) -> None:
+    """Mirror an accepted EF event into the original six-strategy files."""
+    received_at = now_text()
+    message_time = six_message_time(raw_message)
+    action, side = six_signal_action(
+        signal.previous_position,
+        signal.new_position,
+    )
+    strategy_name = SIX_STRATEGY_NAMES[signal.strategy_code]
+    portfolio = SIX_STRATEGY_PORTFOLIOS[signal.strategy_code]
+    signal_text = (
+        f"《策略》{signal.raw_strategy_code}《倉位》"
+        f"{float(signal.previous_position):.1f} -> {float(signal.new_position):.1f}"
+    )
+    append_record(
+        SIX_STRATEGY_SIGNAL_LOG_PATH,
+        SIX_STRATEGY_SIGNAL_LOG_FIELDS,
+        {
+            "received_at": received_at,
+            "message_time": message_time,
+            "account": signal.account,
+            "strategy_code": signal.strategy_code,
+            "raw_strategy_code": signal.raw_strategy_code,
+            "strategy_name": strategy_name,
+            "previous_position": signal.previous_position,
+            "new_position": signal.new_position,
+            "action": action,
+            "side": side,
+            "quantity": 1,
+            "signal": signal_text,
+        },
+    )
+
+    common_state = load_json(SIX_STRATEGY_STATE_PATH, {"strategies": {}})
+    strategies = common_state.setdefault("strategies", {})
+    if not isinstance(strategies, dict):
+        strategies = {}
+        common_state["strategies"] = strategies
+    strategies[signal.strategy_code] = {
+        "name": strategy_name,
+        "portfolio": portfolio,
+        "position": signal.new_position,
+        "side": "bull" if signal.new_position > 0 else (
+            "bear" if signal.new_position < 0 else "flat"
+        ),
+        "updated_at": received_at,
+        "last_message_time": message_time,
+        "last_account": signal.account,
+        "last_raw_strategy_code": signal.raw_strategy_code,
+        "last_raw_text": raw_message,
+    }
+    common_state["updated_at"] = received_at
+    save_json_atomic(SIX_STRATEGY_STATE_PATH, common_state)
 
 
 def latest_market_price(at: datetime | None = None) -> float | None:
@@ -543,6 +686,7 @@ def apply_six_event(state: dict, signal, event_key: str, raw_message: str) -> bo
     stored_position = load_latest_ef_positions(EF_RECORD_PATH).get(signal.strategy_code)
     reconciled = stored_position != signal.previous_position
     mark_event_processed(state, event_key)
+    write_six_strategy_compatible_outputs(signal, raw_message)
     append_record(
         EF_RECORD_PATH,
         EF_RECORD_FIELDS,
@@ -807,6 +951,41 @@ async def watch_combined_position_file() -> None:
             previous_signature = combined_file_signature()
 
 
+def h3_mdd_source_signature() -> tuple[int, int] | None:
+    try:
+        stat = H_TRADE_RECORD_PATH.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+async def watch_h3_mdd_sources() -> None:
+    """Refresh realized H3 drawdown records after an H3 trade transition."""
+    previous_signature = None
+    while True:
+        current_signature = h3_mdd_source_signature()
+        if current_signature != previous_signature:
+            try:
+                snapshot = await asyncio.to_thread(
+                    update_h3_mdd_records,
+                    trade_path=H_TRADE_RECORD_PATH,
+                    snapshot_path=H_MDD_RECORD_PATH,
+                    history_path=H_MDD_HISTORY_PATH,
+                )
+                if snapshot.get("ready"):
+                    print(
+                        "H3 MDD已更新："
+                        f"目前{snapshot.get('current_mdd_points')}點，"
+                        f"歷史最大{snapshot.get('maximum_mdd_points')}點"
+                    )
+                else:
+                    print(f"H3 MDD尚未就緒：{snapshot.get('reason')}")
+                previous_signature = h3_mdd_source_signature()
+            except (OSError, ValueError) as exc:
+                print(f"H3 MDD紀錄更新失敗，2秒後重試：{exc}")
+        await asyncio.sleep(2)
+
+
 @client.on(events.NewMessage)
 async def telegram_message_handler(event):
     text = event.text or ""
@@ -885,6 +1064,7 @@ def main() -> None:
         print("啟動時不送模擬單；收到下一筆有效H或EF訊號後才重新計算")
 
     watcher_task = client.loop.create_task(watch_combined_position_file())
+    mdd_watcher_task = client.loop.create_task(watch_h3_mdd_sources())
     try:
         while True:
             try:
@@ -899,6 +1079,7 @@ def main() -> None:
         print("收到停止指令，結束監控。")
     finally:
         watcher_task.cancel()
+        mdd_watcher_task.cancel()
         process_lock.close()
 
 

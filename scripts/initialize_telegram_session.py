@@ -1,12 +1,24 @@
 import os
+import re
 from pathlib import Path
 
 from telethon import TelegramClient
+from telethon.errors import PhoneNumberInvalidError
 
 
 BACKEND_DIR = Path("/app/backend-futures-py")
 ENV_PATH = BACKEND_DIR / ".env"
-SESSION_PATH = BACKEND_DIR / "session_monitor_six_strategy"
+SESSION_PATH = Path(
+    os.getenv(
+        "TELEGRAM_SESSION_PATH",
+        str(BACKEND_DIR / "session_monitor_six_strategy"),
+    )
+)
+SESSION_MARKER_PATH = (
+    Path(os.environ["TELEGRAM_SESSION_MARKER"])
+    if os.getenv("TELEGRAM_SESSION_MARKER")
+    else None
+)
 
 
 def load_env_file() -> None:
@@ -28,6 +40,40 @@ def require_env(name: str) -> str:
     return value
 
 
+def normalize_phone(raw_phone: str) -> str:
+    """Normalize common Taiwan input while preserving international numbers."""
+    phone = re.sub(r"[\s()-]", "", raw_phone.strip())
+    if phone.startswith("+8860"):
+        return "+886" + phone[5:]
+    if phone.startswith("886") and phone.isdigit():
+        return "+" + phone
+    if phone.startswith("09") and phone.isdigit():
+        return "+886" + phone[1:]
+    return phone
+
+
+def start_interactive(client: TelegramClient) -> None:
+    while True:
+        raw_phone = input(
+            "Telegram phone (Taiwan 09xxxxxxxx or +8869xxxxxxxx): "
+        )
+        phone = normalize_phone(raw_phone)
+        if not re.fullmatch(r"\+[1-9]\d{7,14}", phone):
+            print(
+                "Invalid phone format. Enter a Taiwan mobile number as "
+                "09xxxxxxxx or +8869xxxxxxxx."
+            )
+            continue
+        try:
+            client.start(phone=phone)
+            return
+        except PhoneNumberInvalidError:
+            print(
+                "Telegram rejected that phone number. Check the country code and "
+                "try again; do not keep the leading 0 after +886."
+            )
+
+
 def main() -> None:
     load_env_file()
     client = TelegramClient(
@@ -35,9 +81,12 @@ def main() -> None:
         int(require_env("API_ID")),
         require_env("API_HASH"),
     )
-    client.start()
+    start_interactive(client)
     me = client.get_me()
     identity = getattr(me, "username", None) or getattr(me, "id", "unknown")
+    if SESSION_MARKER_PATH is not None:
+        SESSION_MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SESSION_MARKER_PATH.write_text("authorized\n", encoding="utf-8")
     print(f"Telegram login saved for: {identity}")
     client.disconnect()
 

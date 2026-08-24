@@ -53,12 +53,23 @@ cd /Users/kt/Desktop/self/monitor/backend-futures-py/h3-ef-012-strategy
 
 - `records/h3_trade.csv`：只記錄H3本身的多空進出。
 - `records/h3_ef_trade.csv`：記錄永豐H3+EF混合策略最終0/U/2U口的進出。
+- `records/h3_mdd.json`：記錄H3每次平倉後的目前已實現MDD、單口equity、歷史高點與歷史最大MDD。
+- `records/h3_mdd_history.csv`：保留每筆可計算損益的H3平倉後單口MDD歷史。
 
 兩份交易紀錄的欄位皆為`timestamp,action,side,price,pnl,quantity`。`side`使用`bull`或`bear`，`action`使用`enter`或`exiting`；平倉損益沿用既有`h_trade.csv`算法，以每口點數乘以10計算，口數另外保存在`quantity`。加碼或減碼時，會在同一時間先結束原本的整段部位，再以新口數開一段，讓1口與2口期間可以分開統計。
 
 價格只會讀取`tv_doc/webhook_data_1min.csv`中「訊號收到時間以前」最新一筆已記錄的一分鐘收盤價，不會拿之後才出現的K棒回填。2026-08-20建立初始空單時並不知道真正進場價，因此初始價格留白，第一次平倉損益也會留白；從下一次有即時價格的進場開始才會正常計算損益。
 
+H3 MDD只在H3平倉後用已實現單口點數更新：`current_mdd_points = peak_equity_points - equity_points`。持倉中的浮動損益與1分鐘close不納入MDD，也不會因實際下1口或2口而放大。監控程式每2秒檢查H3進出檔是否改變，有新平倉時只更新MDD紀錄，目前不會觸發任何下單。無法計算損益的初始H3平倉會跳過並在狀態檔記錄筆數。
+
 每次收到Telegram訊號時，程式先把變化追加至對應CSV；準備模擬下單時，再從頭讀取兩個CSV並重建最新H與十二套E/F部位，最後才執行0/U/2U判斷。計算結果先寫入`records/combined_position.json`，下單階段會重新讀取這個總和檔的`final_target_position`，不會直接使用記憶體裡的計算結果。
+
+為降低Telethon連線數，這個服務也接手原本獨立六策略監聽器的相容寫檔。每筆有效E/F訊號除了寫入`records/ef_position_events.csv`，也會同步更新：
+
+- `../tv_doc/six_strategy_signal_events.csv`
+- `../tv_doc/six_strategy_position_state.json`
+
+日常Docker模式不再啟動獨立`six-strategy`；否則同一筆E/F訊號會被兩個Telethon process重複處理與寫入。
 
 完整流程：
 
@@ -136,7 +147,7 @@ EF明確支援以下六種變化：`0→1`、`0→-1`、`1→0`、`-1→0`、`1�
 - `U`硬性限制為1到20，因此絕對目標最多40口；無效、負數或小數U一律拒絕處理。
 - 同時間連續EF訊號會等待1秒合併後再計算。
 - Telegram事件ID會保存去重，且禁止同時啟動兩個監控實例。
-- 模擬模式不查詢或修改永豐部位，也不會改寫既有`tv_doc/h_trade.csv`；新策略只寫入自己`records/`下的交易紀錄。
+- 模擬模式不查詢或修改永豐部位，也不會改寫既有`tv_doc/h_trade.csv`；除了自己`records/`下的紀錄，只會同步寫入上述兩個六策略相容檔。
 
 ## 環境設定
 

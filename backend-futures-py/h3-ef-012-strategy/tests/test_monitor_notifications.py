@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, call, patch
@@ -9,6 +12,7 @@ from unittest.mock import Mock, call, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import monitor_and_trade  # noqa: E402
+from strategy import SixStrategySignal  # noqa: E402
 
 
 class DiscordDeliveryTests(unittest.TestCase):
@@ -83,6 +87,66 @@ class SignalBatchNotificationTests(unittest.TestCase):
             execute.call_args_list,
             [call(reason) for reason in reasons],
         )
+
+
+class SixStrategyCompatibilityOutputTests(unittest.TestCase):
+    def test_ef_signal_updates_original_csv_and_json_outputs(self):
+        signal = SixStrategySignal(
+            account="6008770",
+            strategy_code="CFCTX16m",
+            raw_strategy_code="CFCTX16m",
+            previous_position=-1,
+            new_position=0,
+        )
+        raw_message = (
+            "【08.23 22:10:05】\n【訊號通知】【群益】\n【6008770】\n"
+            "《策略》CFCTX16m《倉位》-1.0 -> 0.0"
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            signal_log_path = Path(directory) / "six_strategy_signal_events.csv"
+            state_path = Path(directory) / "six_strategy_position_state.json"
+            state_path.write_text(
+                json.dumps({"strategies": {"CFC07m": {"position": 1}}}),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(
+                    monitor_and_trade,
+                    "SIX_STRATEGY_SIGNAL_LOG_PATH",
+                    signal_log_path,
+                ),
+                patch.object(
+                    monitor_and_trade,
+                    "SIX_STRATEGY_STATE_PATH",
+                    state_path,
+                ),
+                patch.object(
+                    monitor_and_trade,
+                    "now_text",
+                    return_value="2026-08-23 22:10:06",
+                ),
+            ):
+                monitor_and_trade.write_six_strategy_compatible_outputs(
+                    signal,
+                    raw_message,
+                )
+
+            with signal_log_path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["strategy_code"], "CFCTX16m")
+            self.assertEqual(rows[0]["action"], "exit")
+            self.assertEqual(rows[0]["side"], "bear")
+            self.assertEqual(rows[0]["message_time"], "2026-08-23 22:10:05")
+
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertIn("CFC07m", state["strategies"])
+            updated = state["strategies"]["CFCTX16m"]
+            self.assertEqual(updated["position"], 0)
+            self.assertEqual(updated["side"], "flat")
+            self.assertEqual(updated["portfolio"], "贏家投組F")
+            self.assertEqual(updated["last_account"], "6008770")
 
 
 if __name__ == "__main__":

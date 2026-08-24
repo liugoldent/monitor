@@ -1,5 +1,6 @@
 services:
   six-strategy:
+    profiles: ["legacy-six-strategy"]
     build:
       context: .
     container_name: monitor-six-strategy
@@ -46,6 +47,23 @@ services:
     volumes:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+
+  h3-ef-012-strategy:
+    build:
+      context: .
+    container_name: monitor-h3-ef-012-strategy
+    restart: unless-stopped
+    command: ["python", "/app/backend-futures-py/h3-ef-012-strategy/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/h3-ef-012-strategy
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
+      - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ./backend-futures-py/h3-ef-012-strategy/records:/app/backend-futures-py/h3-ef-012-strategy/records
+      - ./backend-futures-py/h3-ef-012-strategy/runtime:/app/backend-futures-py/h3-ef-012-strategy/runtime
 
   cloudflared:
     build:

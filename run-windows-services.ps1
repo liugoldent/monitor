@@ -8,11 +8,19 @@ $projectDir = $PSScriptRoot
 $backendDir = Join-Path $projectDir 'backend-futures-py'
 $rootEnvPath = Join-Path $projectDir '.env'
 $watchScript = Join-Path $projectDir 'scripts\watch-windows-service.ps1'
-$serviceNames = @('six-strategy', 'monitor-mxf', 'webhook-server', 'cloudflared')
+$h3Initializer = Join-Path $projectDir 'initialize-h3-ef-012-session.ps1'
+$h3SessionPath = Join-Path $backendDir 'h3-ef-012-strategy\runtime\session_h3_ef_012.session'
+$h3SessionMarkerPath = Join-Path $backendDir 'h3-ef-012-strategy\runtime\session_h3_ef_012.authorized'
+$serviceNames = @(
+    'monitor-mxf',
+    'webhook-server',
+    'h3-ef-012-strategy',
+    'cloudflared'
+)
 $requiredFiles = @(
     (Join-Path $backendDir '.env'),
     (Join-Path $backendDir 'Sinopac.pfx'),
-    (Join-Path $backendDir 'session_monitor_six_strategy.session')
+    $h3Initializer
 )
 
 function Get-RootEnvValue {
@@ -100,8 +108,32 @@ if (-not (Test-DockerEngine)) {
     }
 }
 
+if (
+    -not (Test-Path -LiteralPath $h3SessionPath -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $h3SessionMarkerPath -PathType Leaf)
+) {
+    Write-Host ''
+    Write-Host 'H3+EF Telegram session has not been initialized yet.' -ForegroundColor Yellow
+    Write-Host 'Starting the one-time Telegram login now...' -ForegroundColor Cyan
+    Write-Host ''
+
+    & $h3Initializer
+    if (
+        -not (Test-Path -LiteralPath $h3SessionPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $h3SessionMarkerPath -PathType Leaf)
+    ) {
+        throw 'H3+EF Telegram initialization did not complete successfully.'
+    }
+}
+
 Push-Location $projectDir
 try {
+    Write-Host 'Stopping the legacy six-strategy Telethon service...' -ForegroundColor Yellow
+    & docker compose stop six-strategy
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to stop legacy six-strategy service: $LASTEXITCODE"
+    }
+
     $composeArgs = @('compose', 'up', '--detach')
     if (-not $NoBuild) {
         $composeArgs += '--build'
@@ -117,9 +149,9 @@ try {
 }
 
 $windows = @(
-    @{ Title = 'Six Strategy CSV Monitor'; Services = 'six-strategy' },
     @{ Title = 'MXF Market Monitor'; Services = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Services = 'webhook-server' },
+    @{ Title = 'H3 EF 012 Strategy'; Services = 'h3-ef-012-strategy' },
     @{ Title = 'Cloudflare Tunnel'; Services = 'cloudflared' }
 )
 

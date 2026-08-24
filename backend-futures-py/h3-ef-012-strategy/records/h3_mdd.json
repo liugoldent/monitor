@@ -1,0 +1,20 @@
+{
+  "ready": true,
+  "updated_at": "2026-08-24 12:00:34",
+  "last_exit_timestamp": "2026-08-21 15:01:46",
+  "last_exit_side": "bull",
+  "last_exit_price": 45206.0,
+  "last_trade_pnl_points": 268.0,
+  "equity_points": 268.0,
+  "peak_equity_points": 268.0,
+  "current_mdd_points": 0.0,
+  "maximum_mdd_points": 0.0,
+  "current_mdd_twd": 0.0,
+  "maximum_mdd_twd": 0.0,
+  "point_value": 10,
+  "closed_trades_count": 1,
+  "skipped_unknown_pnl_count": 1,
+  "calculation_basis": "只累計H3平倉後的單口已實現點數，不含浮動損益",
+  "quantity_ignored": true,
+  "order_trigger_enabled": false
+}

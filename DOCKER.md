@@ -1,5 +1,7 @@
 # Docker 啟動說明
 
+Windows 交易機的日常啟動、停止與再啟動流程，請先看 [`DOCKER-WINDOWS-SOP.md`](DOCKER-WINDOWS-SOP.md)。
+
 這份 Docker 設定是給 Windows 或其他非 macOS 環境使用。
 
 原本的 `run-services.sh` 會用 macOS 的 `osascript` 開 iTerm 分頁；Docker 內不能跑 iTerm。
@@ -11,7 +13,7 @@ scripts/run-services-docker.sh
 
 ## 啟動
 
-### Windows 交易機：三視窗長駐模式
+### Windows 交易機：單一 Telethon 長駐模式
 
 Windows 專用內容位於 `master-win` 分支。先切換分支：
 
@@ -28,24 +30,25 @@ run-windows-services.cmd
 第一次執行會要求輸入新的 Cloudflare tunnel token，並將它存到 Git 忽略的根目錄 `.env`。啟動器會自動啟動 Docker Desktop、建立或更新 image，並啟動以下程序：
 
 ```text
-six-strategy    monitor_and_trade_six_strategy.py
 monitor-mxf     monitor_mxf.py
 webhook-server  webhook_server.py
+h3-ef-012-strategy  同時監聽 H3 與十二策略 E/F
 cloudflared     Cloudflare tunnel
 ```
 
 若已安裝 Windows Terminal，畫面會開啟一個 Windows Terminal 視窗，內含四個 log 分頁：
 
 ```text
-1. 六策略 CSV 監聽
-2. MXF 市場監聽
-3. Webhook Server (`webhook_server.py`)
+1. MXF 市場監聽
+2. Webhook Server (`webhook_server.py`)
+3. H3 + EF 0/U/2U 策略（含六策略相容寫檔）
 4. Cloudflare Tunnel
 ```
 
 若找不到 `wt.exe`，啟動器會退回四個獨立 PowerShell 視窗。可從 Microsoft Store 安裝 Windows Terminal 後再次執行啟動器。
 
-六策略第一次在 Windows 啟動前，先雙擊 `initialize-six-strategy-session.cmd`，依序輸入 Telegram 國際格式電話、Telegram 收到的登入碼，以及帳號有啟用時的兩步驗證密碼。登入完成後會保存專屬 session 並只重啟六策略服務。
+H3 + EF 0/U/2U 第一次啟動前，先雙擊 `initialize-h3-ef-012-session.cmd`，用相同方式建立它自己的 Telegram session。session 會保存在策略目錄的 `runtime/`，不會提交到 Git。
+若直接執行 `run-windows-services.cmd`，啟動器也會在發現 session 不存在時自動進入這個初始化流程。
 
 關閉 log 視窗不會停止背景服務。容器設為 `restart: unless-stopped`，程序異常或 Docker/Windows 重新啟動後會自動恢復。
 
@@ -57,7 +60,7 @@ cloudflared     Cloudflare tunnel
 stop-windows-services.cmd
 ```
 
-### Windows：只啟動六策略 CSV 監聽器（建議）
+### Windows：舊六策略獨立監聽器（Legacy，日常請勿啟動）
 
 先開啟 Docker Desktop，然後在 PowerShell 執行：
 
@@ -91,7 +94,35 @@ docker compose stop six-strategy
 backend-futures-py/tv_doc/six_strategy_signal_events.csv
 ```
 
-這個專用服務只啟動 `monitor_and_trade_six_strategy.py`，不會連帶啟動前端、webhook 或其他監聽器。它會將現有的 `session_monitor.session` 掛載成六策略監聽器所需的 session 名稱。
+這個專用服務只保留給除錯或回退。日常模式請使用 `h3-ef-012-strategy`，否則 E/F 訊號會被重複處理。
+
+### Windows：啟動三個核心服務
+
+H3 + EF 策略第一次使用時，先雙擊：
+
+```text
+initialize-h3-ef-012-session.cmd
+```
+
+之後在 repo 根目錄執行：
+
+```powershell
+docker compose stop six-strategy
+docker compose up -d --build monitor-mxf webhook-server h3-ef-012-strategy
+```
+
+查看三個服務狀態與 H3 + EF log：
+
+```powershell
+docker compose ps
+docker compose logs -f h3-ef-012-strategy
+```
+
+停止這三個服務：
+
+```powershell
+docker compose stop monitor-mxf webhook-server h3-ef-012-strategy
+```
 
 ### 啟動全部服務
 
@@ -173,7 +204,8 @@ SERVICE_FILTER=webhook-server,mongo-market-api,frontend-vue docker compose up --
 服務名稱：
 
 ```text
-six-strategy
+six-strategy (legacy profile)
+h3-ef-012-strategy
 trade-shane
 heyu-node
 monitor-mxf
