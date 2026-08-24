@@ -47,13 +47,13 @@
     "CFCWIN01m": {
       "name": "智能引擎1號",
       "portfolio": "贏家投組F",
-      "position": -1,
-      "side": "bear",
-      "updated_at": "2026-08-21 23:45:04",
-      "last_message_time": "2026-08-21 23:45:03",
+      "position": 0,
+      "side": "flat",
+      "updated_at": "2026-08-24 13:44:16",
+      "last_message_time": "2026-08-24 13:44:14",
       "last_account": "6008770",
       "last_raw_strategy_code": "CFCWN01m",
-      "last_raw_text": "【08.21 23:45:03】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCWN01m《倉位》1.0 -> -1.0"
+      "last_raw_text": "【08.24 13:44:14】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCWN01m《倉位》-1.0 -> 0.0"
     },
     "CFCTX23m": {
       "name": "財神列車23號",
@@ -133,5 +133,5 @@
       "last_raw_text": "【08.18 10:18:08】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCTX21m《倉位》1.0 -> 0.0"
     }
   },
-  "updated_at": "2026-08-24 12:00:28"
+  "updated_at": "2026-08-24 13:44:16"
 }

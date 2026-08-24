@@ -143,3 +143,7 @@ received_at,event_key,account,strategy_code,source,action,previous_position,new_
 【訊號通知】【群益】
 【6008770】
 《策略》CFC07m《倉位》0.0 -> -1.0"
+2026-08-24 13:44:16,8855908410:367784,6008770,CFCWIN01m,群益Telegram,空單平倉,-1,0,False,"【08.24 13:44:14】
+【訊號通知】【群益】
+【6008770】
+《策略》CFCWN01m《倉位》-1.0 -> 0.0"
