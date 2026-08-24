@@ -255,7 +255,7 @@ def _login_api():
     if not Path(ca_path).exists():
         raise FileNotFoundError(f"找不到憑證檔案: {ca_path}")
 
-    api = sj.Shioaji(simulation=False)
+    api = sj.Shioaji(simulation=True)
     api.login(require_env("API_KEY"), require_env("SECRET_KEY"))
     person_id = require_env("PERSON_ID")
     api.activate_ca(ca_path=ca_path, ca_passwd=person_id, person_id=person_id)

@@ -9,6 +9,7 @@ import csv
 import http.server
 import json
 import os
+import re
 import socketserver
 import sys
 from datetime import datetime
@@ -50,10 +51,61 @@ CSV_HEADER = [
     "MA_P200",
     "MA_N110",
     "MA_N200",
+    # Legacy compatibility columns. The current 1m 960MA alert no longer
+    # sends these values, but keeping the columns avoids shifting historical
+    # CSV data and breaking readers that still treat them as optional.
     "tt_short",
     "tt_long",
     "BBR",
 ]
+
+LEGACY_EMPTY_VALUES = ["", "", ""]
+
+
+def _parse_webhook_json(body: str) -> dict[str, object]:
+    """Parse JSON, tolerating TradingView's common final trailing comma."""
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        normalized_body = re.sub(r",\s*([}\]])\s*$", r"\1", body)
+        if normalized_body == body:
+            raise
+        data = json.loads(normalized_body)
+
+    if not isinstance(data, dict):
+        raise ValueError("Webhook payload must be a JSON object")
+    return data
+
+
+def _build_webhook_row(data: dict[str, object], current_time: str) -> tuple[str, list[object]]:
+    """Build the current 960MA CSV row while preserving the legacy schema."""
+    timeframe = str(data.get("timeframe", "")).strip()
+    tv_time_ms = data.get("time", "")
+
+    tv_time = ""
+    try:
+        if tv_time_ms:
+            tv_time = datetime.fromtimestamp(int(tv_time_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OverflowError):
+        tv_time = str(tv_time_ms)
+
+    row = [
+        current_time,
+        data.get("symbol", "Unknown"),
+        timeframe,
+        tv_time,
+        data.get("open", ""),
+        data.get("high", ""),
+        data.get("low", ""),
+        data.get("close", ""),
+        data.get("ma_960", ""),
+        data.get("ma_p80", ""),
+        data.get("ma_p200", ""),
+        data.get("ma_n110", ""),
+        data.get("ma_n200", ""),
+        *LEGACY_EMPTY_VALUES,
+    ]
+    return timeframe, row
 
 
 def _append_webhook_row(path: str, row: list[object]) -> None:
@@ -74,7 +126,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
-            data = json.loads(body)
+            data = _parse_webhook_json(body)
             print(f"Received webhook: {data}")
 
             if not data:
@@ -82,55 +134,19 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             current_time = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
-            symbol = data.get("symbol", "Unknown")
-            timeframe = str(data.get("timeframe", "")).strip()
-            tv_time_ms = data.get("time", "")
-            open_price = data.get("open", "")
-            high_price = data.get("high", "")
-            low_price = data.get("low", "")
-            close_price = data.get("close", "")
-            ma_960 = data.get("ma_960", "")
-            ma_p80 = data.get("ma_p80", "")
-            ma_p200 = data.get("ma_p200", "")
-            ma_n110 = data.get("ma_n110", "")
-            ma_n200 = data.get("ma_n200", "")
-            tt_short = str(data.get("tt_short", "")).strip()
-            tt_long = str(data.get("tt_long", "")).strip()
-            bbr = data.get("bbr", "")
-
-            tv_time = ""
-            try:
-                if tv_time_ms:
-                    tv_time = datetime.fromtimestamp(int(tv_time_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                tv_time = str(tv_time_ms)
+            timeframe, webhook_row = _build_webhook_row(data, current_time)
 
             target_csv = CSV_FILE_BY_TIMEFRAME.get(timeframe)
             if target_csv is None:
                 self.send_error(400, f"Unsupported timeframe: {timeframe}")
                 return
 
-            webhook_row = [
-                current_time,
-                symbol,
-                timeframe,
-                tv_time,
-                open_price,
-                high_price,
-                low_price,
-                close_price,
-                ma_960,
-                ma_p80,
-                ma_p200,
-                ma_n110,
-                ma_n200,
-                tt_short,
-                tt_long,
-                bbr,
-            ]
             _append_webhook_row(target_csv, webhook_row)
 
-            print(f"✅ Received: {symbol} @ {close_price} (Time: {current_time}, timeframe={timeframe})")
+            print(
+                f"✅ Received: {webhook_row[1]} @ {webhook_row[7]} "
+                f"(Time: {current_time}, timeframe={timeframe})"
+            )
             sys.stdout.flush()
 
             self.send_response(200)

@@ -53,7 +53,7 @@ def _get_current_position_side(api) -> str | None:
 
 # 純下單func
 def auto_trade(type):
-    api = sj.Shioaji(simulation=False)
+    api = sj.Shioaji(simulation=True)
     api.login(os.getenv("API_KEY"), os.getenv("SECRET_KEY"))
     api.activate_ca(ca_path=ca_path, ca_passwd=os.getenv("PERSON_ID"), person_id=os.getenv("PERSON_ID"))
 
