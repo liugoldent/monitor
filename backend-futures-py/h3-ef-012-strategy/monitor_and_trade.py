@@ -5,8 +5,9 @@ import csv
 import fcntl
 import json
 import os
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -26,24 +27,51 @@ COMBINED_POSITION_PATH = RECORDS_DIR / "combined_position.json"
 H_TRADE_RECORD_PATH = RECORDS_DIR / "h3_trade.csv"
 MIXED_TRADE_RECORD_PATH = RECORDS_DIR / "h3_ef_trade.csv"
 WEBHOOK_DATA_1MIN_PATH = BACKEND_DIR / "tv_doc" / "webhook_data_1min.csv"
+MXF_VALUE_CSV_PATH = BACKEND_DIR / "tv_doc" / "mxf_value.csv"
+LEGACY_SIX_STRATEGY_RECORD_PATH = (
+    BACKEND_DIR / "tv_doc" / "six_strategy_signal_events.csv"
+)
 RUNTIME_DIR = BASE_DIR / "runtime"
 STATE_PATH = RUNTIME_DIR / "h3_ef_012_state.json"
 LOCK_PATH = RUNTIME_DIR / "h3_ef_012.lock"
 TZ = ZoneInfo("Asia/Taipei")
 RECONNECT_DELAY_SECONDS = 5
+ORDER_ERROR_NOTIFICATION_INTERVAL_SECONDS = 60
+MAX_ORDER_ERROR_NOTIFICATIONS = 5
 DISCORD_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
+SECONDARY_DISCORD_WEBHOOK_ENV = "DISCORD_SIX_STRATEGY_WEBHOOK_URL"
 ENABLE_ORDERS_ENV = "H3_EF_012_ENABLE_ORDERS"
+
+LEGACY_STRATEGY_NAMES = {
+    "CFC07m": "財神列車7號",
+    "CFCTX17m": "財神列車17號",
+    "CFCTX18m": "財神列車18號",
+    "CFCTX19m": "財神列車19號",
+    "CFCTX20m": "財神列車20號",
+    "CFCTX21m": "財神列車21號",
+    "CFCWIN01m": "智能引擎1號",
+    "CFCPW3m": "新財神列車3號",
+    "CFCCPm": "財神列車6號",
+    "CFCTX16m": "財神列車16號",
+    "CFCTX22m": "財神列車22號",
+    "CFCTX23m": "財神列車23號",
+}
 
 from strategy import (
     ALL_STRATEGIES,
     Decision,
     MAX_POSITION_UNIT,
     MAX_TARGET_QUANTITY,
+    PORTFOLIO_E,
+    PORTFOLIO_F,
     build_h_trade_rows,
+    direction_text,
     evaluate_strategy,
     load_latest_ef_positions,
     load_latest_h_position,
     load_latest_recorded_close,
+    normalize_h_position,
+    normalize_h_record_message,
     parse_h_signal,
     parse_six_strategy_signal,
     position_event_action,
@@ -121,6 +149,63 @@ def evaluate_records() -> Decision:
     )
 
 
+def load_ef_strategy_position_details(path: Path = EF_RECORD_PATH) -> dict:
+    """Rebuild human-readable E/F strategy details from the append-only CSV."""
+    latest_rows: dict[str, dict[str, object]] = {}
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                strategy_code = str(row.get("strategy_code") or "").strip()
+                if strategy_code not in ALL_STRATEGIES:
+                    continue
+                try:
+                    position = int(float(str(row.get("new_position") or "")))
+                except ValueError:
+                    continue
+                if position not in {-1, 0, 1}:
+                    continue
+                latest_rows[strategy_code] = {
+                    "position": position,
+                    "updated_at": str(row.get("received_at") or "").strip() or None,
+                }
+
+    result: dict[str, dict[str, dict[str, object]]] = {}
+    for group_name, strategy_codes in (("E", PORTFOLIO_E), ("F", PORTFOLIO_F)):
+        group: dict[str, dict[str, object]] = {}
+        for strategy_code in strategy_codes:
+            latest = latest_rows.get(strategy_code, {})
+            position = latest.get("position")
+            if position == 1:
+                position_label = "多1口"
+            elif position == -1:
+                position_label = "空1口"
+            elif position == 0:
+                position_label = "空手"
+            else:
+                position_label = "尚無資料"
+            strategy_name = LEGACY_STRATEGY_NAMES[strategy_code]
+            group[strategy_name] = {
+                "strategy_code": strategy_code,
+                "position": position,
+                "position_text": position_label,
+                "updated_at": latest.get("updated_at"),
+            }
+        result[group_name] = group
+    return result
+
+
+def sync_combined_ef_strategy_positions() -> None:
+    """Add current E/F details on startup without triggering broker reconciliation."""
+    if not COMBINED_POSITION_PATH.exists():
+        return
+    snapshot = load_combined_position()
+    details = load_ef_strategy_position_details()
+    if snapshot.get("ef_strategy_positions") == details:
+        return
+    snapshot["ef_strategy_positions"] = details
+    save_json_atomic(COMBINED_POSITION_PATH, snapshot)
+
+
 def decision_text(decision: Decision, position_unit: int = 1) -> str:
     if not decision.ready:
         missing_text = (
@@ -132,8 +217,8 @@ def decision_text(decision: Decision, position_unit: int = 1) -> str:
     scaled_target = scale_target_position(decision.target_position, position_unit)
     reason = scaled_relation_reason(decision.relation, position_unit)
     return (
-        f"H={position_text(decision.h_position)}，E淨部位={decision.e_net}，"
-        f"F淨部位={decision.f_net}，EF共識={position_text(decision.consensus)}，"
+        f"H方向={direction_text(decision.h_position)}，EF淨部位={decision.ef_net}，"
+        f"EF方向={direction_text(decision.ef_direction)}，"
         f"U={position_unit}，永豐目標={position_text(scaled_target)}；{reason}"
     )
 
@@ -199,6 +284,8 @@ def write_combined_position(decision: Decision, trigger_reason: str) -> dict:
         "f_net": decision.f_net,
         "e_direction": decision.e_direction,
         "f_direction": decision.f_direction,
+        "ef_net": decision.ef_net,
+        "ef_direction": decision.ef_direction,
         "consensus": decision.consensus,
         "relation": decision.relation,
         "base_target_position": base_target,
@@ -207,6 +294,7 @@ def write_combined_position(decision: Decision, trigger_reason: str) -> dict:
         "final_target_position": final_target,
         "manual_override_active": manual_target is not None,
         "reason": scaled_relation_reason(decision.relation, position_unit),
+        "ef_strategy_positions": load_ef_strategy_position_details(),
         "U_edit_help": (
             f"只修改U為1到{MAX_POSITION_UNIT}的整數；U=2時策略為0/2/4口，"
             "存檔後會立即重新計算。"
@@ -261,6 +349,7 @@ def reconcile_manual_override() -> dict:
         "final_target_position": final_target,
         "manual_override_active": manual_target is not None,
         "reason": reason,
+        "ef_strategy_positions": load_ef_strategy_position_details(),
         "U_edit_help": (
             f"只修改U為1到{MAX_POSITION_UNIT}的整數；U=2時策略為0/2/4口，"
             "存檔後會立即重新計算。"
@@ -288,8 +377,9 @@ def combined_position_text(snapshot: dict) -> str:
         else ""
     )
     return (
-        f"H={position_text(snapshot.get('h_position'))}，"
-        f"E淨部位={snapshot.get('e_net')}，F淨部位={snapshot.get('f_net')}，"
+        f"H方向={direction_text(snapshot.get('h_position'))}，"
+        f"EF淨部位={snapshot.get('ef_net', (snapshot.get('e_net') or 0) + (snapshot.get('f_net') or 0))}，"
+        f"EF方向={direction_text(snapshot.get('ef_direction', snapshot.get('consensus')))}，"
         f"U={snapshot.get('U', 1)}，"
         f"自動目標={position_text(snapshot.get('calculated_target_position'))}"
         f"{override_text}，最終目標={position_text(snapshot.get('final_target_position'))}；"
@@ -297,13 +387,12 @@ def combined_position_text(snapshot: dict) -> str:
     )
 
 
-def send_discord_message(content: str) -> bool:
-    """Send a message and wait until Discord confirms that it was created."""
-    webhook_url = os.getenv(DISCORD_WEBHOOK_ENV, "").strip()
-    if not webhook_url:
-        print(f"❌ Discord webhook 未設定: {DISCORD_WEBHOOK_ENV}")
-        return False
-
+def _send_discord_to_target(
+    content: str,
+    env_name: str,
+    webhook_url: str,
+    all_webhook_urls: list[str],
+) -> bool:
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:
@@ -320,24 +409,53 @@ def send_discord_message(content: str) -> bool:
                 raise requests.exceptions.RequestException(
                     "Discord 未回傳已建立的訊息 ID"
                 )
-            print(f"✅ Discord 訊息已送達: message_id={message_id}")
+            print(
+                f"✅ Discord 訊息已送達 [{env_name}]: "
+                f"message_id={message_id}"
+            )
             return True
         except (requests.exceptions.RequestException, ValueError) as exc:
-            safe_error = str(exc).replace(webhook_url, "<Discord webhook>")
+            safe_error = str(exc)
+            for configured_url in all_webhook_urls:
+                safe_error = safe_error.replace(configured_url, "<Discord webhook>")
             if attempt == max_attempts:
                 print(
-                    f"❌ 發送 Discord 訊息失敗（已嘗試{max_attempts}次）: "
+                    f"❌ 發送 Discord 訊息失敗 [{env_name}]"
+                    f"（已嘗試{max_attempts}次）: "
                     f"{safe_error}"
                 )
                 return False
             retry_delay = attempt
             print(
-                f"⚠️ Discord 訊息送出失敗，{retry_delay}秒後重試"
+                f"⚠️ Discord 訊息送出失敗 [{env_name}]，"
+                f"{retry_delay}秒後重試"
                 f"（{attempt}/{max_attempts}）: {safe_error}"
             )
             time.sleep(retry_delay)
 
     return False
+
+
+def send_discord_message(
+    content: str,
+    webhook_env: str = DISCORD_WEBHOOK_ENV,
+) -> bool:
+    """Send to one selected Discord destination and confirm delivery."""
+    webhook_url = os.getenv(webhook_env, "").strip()
+    if not webhook_url:
+        print(f"❌ Discord webhook 未設定: {webhook_env}")
+        return False
+    configured_urls = [
+        value
+        for env_name in (DISCORD_WEBHOOK_ENV, SECONDARY_DISCORD_WEBHOOK_ENV)
+        if (value := os.getenv(env_name, "").strip())
+    ]
+    return _send_discord_to_target(
+        content,
+        webhook_env,
+        webhook_url,
+        configured_urls,
+    )
 
 
 def send_simulated_order(
@@ -399,6 +517,20 @@ EF_RECORD_FIELDS = [
     "state_reconciled",
     "raw_message",
 ]
+LEGACY_SIX_STRATEGY_RECORD_FIELDS = [
+    "received_at",
+    "message_time",
+    "account",
+    "strategy_code",
+    "raw_strategy_code",
+    "strategy_name",
+    "previous_position",
+    "new_position",
+    "action",
+    "side",
+    "quantity",
+    "signal",
+]
 TRADE_RECORD_FIELDS = ["timestamp", "action", "side", "price", "pnl", "quantity"]
 
 
@@ -412,11 +544,164 @@ def append_record(path: Path, fields: list[str], row: dict) -> None:
         writer.writerow({field: row.get(field, "") for field in fields})
 
 
+def append_legacy_six_strategy_record(
+    signal,
+    raw_message: str,
+    *,
+    received_at: str | None = None,
+) -> None:
+    """Keep the former tv_doc event file current for existing consumers."""
+    previous = signal.previous_position
+    new = signal.new_position
+    if previous == 0:
+        action = "enter"
+        side = "bull" if new > 0 else "bear"
+    elif new == 0:
+        action = "exit"
+        side = "bull" if previous > 0 else "bear"
+    else:
+        action = "reverse"
+        side = "bull" if new > 0 else "bear"
+
+    message_time = ""
+    time_match = re.search(
+        r"【(?P<month>\d{2})\.(?P<day>\d{2})\s+"
+        r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})】",
+        raw_message,
+    )
+    if time_match:
+        try:
+            received_year = (
+                int(received_at[:4])
+                if received_at and received_at[:4].isdigit()
+                else datetime.now(TZ).year
+            )
+            message_time = datetime(
+                year=received_year,
+                month=int(time_match.group("month")),
+                day=int(time_match.group("day")),
+                hour=int(time_match.group("hour")),
+                minute=int(time_match.group("minute")),
+                second=int(time_match.group("second")),
+                tzinfo=TZ,
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            pass
+
+    append_record(
+        LEGACY_SIX_STRATEGY_RECORD_PATH,
+        LEGACY_SIX_STRATEGY_RECORD_FIELDS,
+        {
+            "received_at": received_at or now_text(),
+            "message_time": message_time,
+            "account": signal.account,
+            "strategy_code": signal.strategy_code,
+            "raw_strategy_code": signal.raw_strategy_code,
+            "strategy_name": LEGACY_STRATEGY_NAMES[signal.strategy_code],
+            "previous_position": previous,
+            "new_position": new,
+            "action": action,
+            "side": side,
+            "quantity": 1,
+            "signal": (
+                f"《策略》{signal.raw_strategy_code}《倉位》"
+                f"{float(previous):.1f} -> {float(new):.1f}"
+            ),
+        },
+    )
+
+
+def backfill_legacy_six_strategy_records() -> int:
+    """Copy newer E/F events into the compatibility CSV after an upgrade."""
+    latest_legacy_received_at = ""
+    if LEGACY_SIX_STRATEGY_RECORD_PATH.exists():
+        with LEGACY_SIX_STRATEGY_RECORD_PATH.open(
+            newline="",
+            encoding="utf-8",
+        ) as handle:
+            for row in csv.DictReader(handle):
+                received_at = str(row.get("received_at") or "").strip()
+                if received_at > latest_legacy_received_at:
+                    latest_legacy_received_at = received_at
+
+    if not EF_RECORD_PATH.exists():
+        return 0
+
+    appended = 0
+    with EF_RECORD_PATH.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            received_at = str(row.get("received_at") or "").strip()
+            if not received_at or received_at <= latest_legacy_received_at:
+                continue
+            raw_message = str(row.get("raw_message") or "")
+            signal = parse_six_strategy_signal(raw_message)
+            if signal is None:
+                continue
+            append_legacy_six_strategy_record(
+                signal,
+                raw_message,
+                received_at=received_at,
+            )
+            appended += 1
+    return appended
+
+
 def latest_market_price(at: datetime | None = None) -> float | None:
     """Return the newest one-minute close that was already recorded at `at`."""
     return load_latest_recorded_close(
         WEBHOOK_DATA_1MIN_PATH,
         at or datetime.now(TZ),
+    )
+
+
+def _legacy_number(value: object) -> str:
+    try:
+        number = float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return "-"
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:.2f}".rstrip("0").rstrip(".")
+
+
+def latest_mxf_notice_text() -> str:
+    tank = "-"
+    guerrilla = "-"
+    try:
+        with MXF_VALUE_CSV_PATH.open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if row.get("tx_bvav") or row.get("mtx_bvav"):
+                    tank = _legacy_number(row.get("tx_bvav"))
+                    guerrilla = _legacy_number(row.get("mtx_bvav"))
+    except OSError as exc:
+        print(f"讀取 MXF 籌碼快照失敗：{exc}")
+    return f"籌碼：坦克 {tank}，游擊 {guerrilla}"
+
+
+def build_legacy_six_strategy_message(signal) -> str:
+    """Reproduce the former six-strategy Discord notice from this one listener."""
+    positions = load_latest_ef_positions(EF_RECORD_PATH)
+    net_position = sum(positions.values())
+    if net_position > 0:
+        net_position_text = f"多{net_position}口"
+    elif net_position < 0:
+        net_position_text = f"空{abs(net_position)}口"
+    else:
+        net_position_text = "空手"
+    portfolio_text = "贏家E投組" if signal.strategy_code in PORTFOLIO_E else "贏家F投組"
+    strategy_name = LEGACY_STRATEGY_NAMES.get(
+        signal.strategy_code,
+        signal.strategy_code,
+    )
+    reference_price = latest_market_price()
+    price_text = f"{reference_price:g}" if reference_price is not None else "未知"
+    received_time = datetime.now(TZ).strftime("%H:%M:%S")
+    return (
+        f"[{received_time}]：{portfolio_text}。"
+        f"{strategy_name}({signal.strategy_code}) "
+        f"{float(signal.previous_position):.1f} -> {float(signal.new_position):.1f}。"
+        f"下單價位：{price_text}，下單後策略倉位：{net_position_text}\n"
+        f"{latest_mxf_notice_text()}"
     )
 
 
@@ -508,6 +793,9 @@ def apply_h_event(
     event_key: str,
     raw_message: str,
 ) -> tuple[int | None, str, bool]:
+    # Every H3-only record is deliberately one unit.  The source may announce
+    # two or more lots, but its magnitude must never reach H3 PnL/MDD records.
+    position = normalize_h_position(position)
     previous = load_latest_h_position(H_RECORD_PATH)
     action = position_event_action(previous, position)
     mark_event_processed(state, event_key)
@@ -524,7 +812,7 @@ def apply_h_event(
             "action": action,
             "previous_position": previous,
             "new_position": position,
-            "raw_message": raw_message,
+            "raw_message": normalize_h_record_message(raw_message),
         },
     )
     try:
@@ -543,11 +831,12 @@ def apply_six_event(state: dict, signal, event_key: str, raw_message: str) -> bo
     stored_position = load_latest_ef_positions(EF_RECORD_PATH).get(signal.strategy_code)
     reconciled = stored_position != signal.previous_position
     mark_event_processed(state, event_key)
+    received_at = now_text()
     append_record(
         EF_RECORD_PATH,
         EF_RECORD_FIELDS,
         {
-            "received_at": now_text(),
+            "received_at": received_at,
             "event_key": event_key,
             "account": signal.account,
             "strategy_code": signal.strategy_code,
@@ -558,6 +847,11 @@ def apply_six_event(state: dict, signal, event_key: str, raw_message: str) -> bo
             "state_reconciled": reconciled,
             "raw_message": raw_message,
         },
+    )
+    append_legacy_six_strategy_record(
+        signal,
+        raw_message,
+        received_at=received_at,
     )
     return reconciled
 
@@ -571,6 +865,8 @@ def save_decision(state: dict, decision: Decision) -> None:
         "f_net": decision.f_net,
         "e_direction": decision.e_direction,
         "f_direction": decision.f_direction,
+        "ef_net": decision.ef_net,
+        "ef_direction": decision.ef_direction,
         "consensus": decision.consensus,
         "relation": decision.relation,
         "target_position": decision.target_position,
@@ -580,13 +876,85 @@ def save_decision(state: dict, decision: Decision) -> None:
     state["updated_at"] = now_text()
 
 
+def order_failure_notification_text(
+    *,
+    failed_at: str,
+    target_position: int,
+    error_text: str,
+    notification_number: int,
+) -> str:
+    return (
+        "❌【實單失敗｜H3+EF 0/U/2U】\n"
+        f"時間：{failed_at}\n"
+        f"提醒：{notification_number}/{MAX_ORDER_ERROR_NOTIFICATIONS}\n"
+        f"目標：{position_text(target_position)}\n"
+        f"錯誤：{error_text}\n"
+        "結果：本目標不再重送，請人工下單；"
+        "策略目標改變後才會再嘗試一次。"
+    )
+
+
+def process_order_failure_reminder(current_time: datetime | None = None) -> bool:
+    """Send one due reminder and permanently stop after the fifth notification."""
+    state = load_json(STATE_PATH, default_state())
+    failure = state.get("active_order_failure")
+    if not isinstance(failure, dict):
+        return False
+    try:
+        target_position = int(failure["target_position"])
+        notification_count = int(failure.get("notification_count", 0))
+    except (KeyError, TypeError, ValueError):
+        return False
+    if notification_count >= MAX_ORDER_ERROR_NOTIFICATIONS:
+        return False
+    next_notification_at = failure.get("next_notification_at")
+    if not isinstance(next_notification_at, str):
+        return False
+    try:
+        next_time = datetime.strptime(
+            next_notification_at,
+            "%Y-%m-%d %H:%M:%S",
+        ).replace(tzinfo=TZ)
+    except ValueError:
+        return False
+    reminder_time = current_time or datetime.now(TZ)
+    if reminder_time < next_time:
+        return False
+
+    notification_number = notification_count + 1
+    error_text = str(failure.get("error") or "未知錯誤")
+    failed_at = str(failure.get("failed_at") or next_notification_at)
+    notification_sent = send_discord_message(
+        order_failure_notification_text(
+            failed_at=failed_at,
+            target_position=target_position,
+            error_text=error_text,
+            notification_number=notification_number,
+        )
+    )
+    failure["notification_count"] = notification_number
+    failure["last_notification_at"] = reminder_time.strftime("%Y-%m-%d %H:%M:%S")
+    if notification_number >= MAX_ORDER_ERROR_NOTIFICATIONS:
+        failure["next_notification_at"] = None
+        failure["reminders_completed_at"] = failure["last_notification_at"]
+        print("實單失敗已提醒5次，停止後續通知")
+    else:
+        failure["next_notification_at"] = (
+            reminder_time
+            + timedelta(seconds=ORDER_ERROR_NOTIFICATION_INTERVAL_SECONDS)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+    state["active_order_failure"] = failure
+    save_json_atomic(STATE_PATH, state)
+    return notification_sent
+
+
 def apply_final_position_file(
     trigger_reason: str,
     *,
     decision_summary: str | None = None,
     notify_unchanged: bool = False,
 ) -> bool:
-    """Read only the total file, then emit the required simulated adjustment."""
+    """Read the total file, then reconcile it in simulation or real-order mode."""
     state = load_json(STATE_PATH, default_state())
     snapshot = reconcile_manual_override()
     position_unit = validate_position_unit(snapshot.get("U", 1))
@@ -633,6 +1001,30 @@ def apply_final_position_file(
 
     executed_previous = normalized_previous
     if orders_enabled:
+        last_order_attempt_target = state.get(
+            "last_order_attempt_target",
+            # Migrate a failure lock written by the previous implementation.
+            state.get("last_order_error_target"),
+        )
+        try:
+            normalized_attempt_target = int(last_order_attempt_target)
+        except (TypeError, ValueError):
+            normalized_attempt_target = None
+        if normalized_attempt_target == final_target:
+            state["last_order_attempt_target"] = final_target
+            save_json_atomic(STATE_PATH, state)
+            print(
+                "相同實單目標已嘗試過，不論上次成功或失敗都不重送："
+                f"{position_text(final_target)}"
+            )
+            return True
+        attempt_time = datetime.now(TZ)
+        attempt_time_text = attempt_time.strftime("%Y-%m-%d %H:%M:%S")
+        # Persist before contacting the broker so a crash cannot duplicate the order.
+        state["last_order_attempt_target"] = final_target
+        state["last_order_attempt_at"] = attempt_time_text
+        state.pop("active_order_failure", None)
+        save_json_atomic(STATE_PATH, state)
         try:
             order_result = execute_target_position(final_target)
             executed_previous = order_result.previous_position
@@ -646,7 +1038,7 @@ def apply_final_position_file(
                 f"時間：{now_text()}\n"
                 f"結果：{result_text}\n"
                 f"實際部位：{position_text(executed_previous)} → "
-                f"{position_text(final_target)}\n"
+                f"{position_text(order_result.actual_position)}（已向永豐重新查詢確認）\n"
                 f"觸發：{trigger_reason}\n"
                 f"判斷：{combined_position_text(snapshot)}"
             )
@@ -655,17 +1047,35 @@ def apply_final_position_file(
             else:
                 state.pop("last_order_notification_error_at", None)
             # The broker operation succeeded even if its Discord receipt failed.
+            state.pop("last_order_error_at", None)
+            state.pop("last_order_error_target", None)
+            state.pop("last_order_error", None)
             success = True
         except Exception as exc:
-            state["last_order_error_at"] = now_text()
+            error_text = str(exc)
+            state["last_order_error_at"] = attempt_time_text
             state["last_order_error_target"] = final_target
-            state["last_order_error"] = str(exc)
+            state["last_order_error"] = error_text
+            state["active_order_failure"] = {
+                "target_position": final_target,
+                "error": error_text,
+                "failed_at": attempt_time_text,
+                "notification_count": 1,
+                "last_notification_at": attempt_time_text,
+                "next_notification_at": (
+                    attempt_time
+                    + timedelta(seconds=ORDER_ERROR_NOTIFICATION_INTERVAL_SECONDS)
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+            }
             save_json_atomic(STATE_PATH, state)
             print(f"實單執行失敗：{exc}")
             send_discord_message(
-                f"❌【實單失敗｜H3+EF 0/U/2U】\n時間：{now_text()}\n"
-                f"目標：{position_text(final_target)}\n錯誤：{exc}\n"
-                "結果：未更新策略已執行部位，下次訊號會再次核對永豐實際部位。"
+                order_failure_notification_text(
+                    failed_at=attempt_time_text,
+                    target_position=final_target,
+                    error_text=error_text,
+                    notification_number=1,
+                )
             )
             return False
     else:
@@ -701,7 +1111,41 @@ def apply_final_position_file(
     return success
 
 
-def execute_current_decision(trigger_reason: str) -> None:
+def send_strategy_signal_notifications(
+    trigger_reasons: list[str],
+    *,
+    decision_summary: str,
+    target_position: int | None,
+) -> bool:
+    """Deliver every strategy signal before any broker reconciliation starts."""
+    all_delivered = True
+    total = len(trigger_reasons)
+    target_text = (
+        position_text(target_position)
+        if target_position is not None
+        else "尚未產生目標"
+    )
+    for index, trigger_reason in enumerate(trigger_reasons, start=1):
+        notification = (
+            "📨【策略訊號｜H3+EF 0/U/2U】\n"
+            f"時間：{now_text()}\n"
+            f"訊號：{trigger_reason}\n"
+            f"批次：{index}/{total}\n"
+            f"判斷：{decision_summary}\n"
+            f"最終目標：{target_text}\n"
+            "順序：本批全部策略訊號通知送達後，才會核對永豐部位並下單。"
+        )
+        print(notification)
+        if not send_discord_message(notification):
+            all_delivered = False
+    return all_delivered
+
+
+def execute_signal_batch(trigger_reasons: list[str]) -> None:
+    """Notify every accepted signal, then reconcile the final batch target once."""
+    if not trigger_reasons:
+        return
+
     state = load_json(STATE_PATH, default_state())
     decision = evaluate_records()
     save_decision(state, decision)
@@ -709,11 +1153,20 @@ def execute_current_decision(trigger_reason: str) -> None:
         message = decision_text(decision)
         print(message)
         save_json_atomic(STATE_PATH, state)
-        send_discord_message(f"[{datetime.now(TZ):%H:%M:%S}]：H3+EF 0/U/2U。{message}")
+        send_strategy_signal_notifications(
+            trigger_reasons,
+            decision_summary=message,
+            target_position=None,
+        )
         return
 
+    batch_trigger = (
+        trigger_reasons[0]
+        if len(trigger_reasons) == 1
+        else f"本批{len(trigger_reasons)}筆訊號，最後訊號：{trigger_reasons[-1]}"
+    )
     try:
-        snapshot = write_combined_position(decision, trigger_reason)
+        snapshot = write_combined_position(decision, batch_trigger)
     except (OSError, ValueError) as exc:
         state["last_combined_position_error_at"] = now_text()
         state["last_combined_position_error"] = str(exc)
@@ -726,17 +1179,33 @@ def execute_current_decision(trigger_reason: str) -> None:
     message = decision_text(decision, snapshot["U"])
     print(message)
     save_json_atomic(STATE_PATH, state)
-    apply_final_position_file(
-        trigger_reason,
+
+    notifications_delivered = send_strategy_signal_notifications(
+        trigger_reasons,
         decision_summary=message,
-        notify_unchanged=True,
+        target_position=snapshot["final_target_position"],
+    )
+    if not notifications_delivered:
+        state = load_json(STATE_PATH, default_state())
+        state["last_preorder_notification_error_at"] = now_text()
+        state["last_preorder_notification_triggers"] = list(trigger_reasons)
+        save_json_atomic(STATE_PATH, state)
+        print("本批策略訊號未全數送達Discord，安全起見不下單")
+        return
+
+    state = load_json(STATE_PATH, default_state())
+    state.pop("last_preorder_notification_error_at", None)
+    state.pop("last_preorder_notification_triggers", None)
+    save_json_atomic(STATE_PATH, state)
+    apply_final_position_file(
+        batch_trigger,
+        decision_summary=message,
+        notify_unchanged=False,
     )
 
 
-def execute_signal_batch(trigger_reasons: list[str]) -> None:
-    """Recompute once per accepted signal so every signal gets a Discord result."""
-    for trigger_reason in trigger_reasons:
-        execute_current_decision(trigger_reason)
+def execute_current_decision(trigger_reason: str) -> None:
+    execute_signal_batch([trigger_reason])
 
 
 load_env_file(BACKEND_ENV_PATH)
@@ -807,6 +1276,14 @@ async def watch_combined_position_file() -> None:
             previous_signature = combined_file_signature()
 
 
+async def watch_order_failure_reminders() -> None:
+    """Persistently deliver at most five one-minute broker failure reminders."""
+    while True:
+        await asyncio.sleep(2)
+        async with state_lock:
+            await asyncio.to_thread(process_order_failure_reminder)
+
+
 @client.on(events.NewMessage)
 async def telegram_message_handler(event):
     text = event.text or ""
@@ -830,13 +1307,18 @@ async def telegram_message_handler(event):
                 text,
             )
             trigger = (
-                f"H {position_text(previous)}->{position_text(h_signal.position)}（{action}）"
+                f"H方向 {direction_text(previous)}->{direction_text(h_signal.position)}（{action}）"
             )
-            if h_signal.announced_quantity != 1:
-                trigger += f"（原訊息口數{h_signal.announced_quantity}，本策略只取方向）"
         else:
             changed = True
             reconciled = apply_six_event(current_state, six_signal, event_key, text)
+            legacy_message = build_legacy_six_strategy_message(six_signal)
+            print(legacy_message)
+            await asyncio.to_thread(
+                send_discord_message,
+                legacy_message,
+                SECONDARY_DISCORD_WEBHOOK_ENV,
+            )
             trigger = (
                 f"{six_signal.strategy_code} "
                 f"{six_signal.previous_position}->{six_signal.new_position}"
@@ -866,12 +1348,21 @@ def acquire_process_lock():
 
 def main() -> None:
     process_lock = acquire_process_lock()
-    print("=== H3 + EF 0/U/2U Discord 模擬下單監控 ===")
+    orders_enabled = env_flag(ENABLE_ORDERS_ENV)
+    mode_text = "永豐實單" if orders_enabled else "Discord模擬下單（不連永豐）"
+    print(f"=== H3 + EF 0/U/2U {mode_text}監控 ===")
     if send_discord_message("開始自動交易"):
         print("已送出Discord啟動通知：開始自動交易")
     else:
         print("Discord啟動通知送出失敗，監控服務仍會繼續啟動")
-    print(f"群益帳號過濾={CAPITAL_ACCOUNT}，執行模式=Discord模擬下單（不連永豐）")
+    print(f"群益帳號過濾={CAPITAL_ACCOUNT}，執行模式={mode_text}")
+    backfilled_count = backfill_legacy_six_strategy_records()
+    if backfilled_count:
+        print(
+            f"已補寫 {backfilled_count} 筆 E/F 訊號到"
+            "tv_doc/six_strategy_signal_events.csv"
+        )
+    sync_combined_ef_strategy_positions()
     current_unit = validate_position_unit(
         load_combined_position().get("U", 1)
         if COMBINED_POSITION_PATH.exists()
@@ -880,11 +1371,12 @@ def main() -> None:
     print(decision_text(evaluate_records(), current_unit))
 
     if env_flag("H3_EF_012_SIMULATE_ON_START", default=False):
-        execute_current_decision("程式啟動模擬對帳")
+        execute_current_decision("程式啟動對帳")
     else:
-        print("啟動時不送模擬單；收到下一筆有效H或EF訊號後才重新計算")
+        print("啟動時不送單；收到下一筆有效H或EF訊號後才重新計算")
 
     watcher_task = client.loop.create_task(watch_combined_position_file())
+    failure_reminder_task = client.loop.create_task(watch_order_failure_reminders())
     try:
         while True:
             try:
@@ -899,6 +1391,7 @@ def main() -> None:
         print("收到停止指令，結束監控。")
     finally:
         watcher_task.cancel()
+        failure_reminder_task.cancel()
         process_lock.close()
 
 

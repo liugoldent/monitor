@@ -1,20 +1,100 @@
 {
-  "updated_at": "2026-08-24 13:44:16",
-  "trigger": "CFCWIN01m -1->0",
+  "updated_at": "2026-08-25 13:34:09",
+  "trigger": "CFCTX19m -1->0",
   "U": 1,
-  "h_position": -1,
-  "e_net": -1,
-  "f_net": -1,
-  "e_direction": -1,
-  "f_direction": -1,
-  "consensus": -1,
+  "h_position": 1,
+  "e_net": 1,
+  "f_net": 1,
+  "e_direction": 1,
+  "f_direction": 1,
+  "ef_net": 2,
+  "ef_direction": 1,
+  "consensus": 1,
   "relation": "same",
-  "base_target_position": -2,
-  "calculated_target_position": -2,
+  "base_target_position": 2,
+  "calculated_target_position": 2,
   "manual_target_position": null,
-  "final_target_position": -2,
+  "final_target_position": 2,
   "manual_override_active": false,
-  "reason": "E、F形成一致共識且與H同向，永豐持有2口",
+  "reason": "EF淨部位與H同向，永豐持有2口",
+  "ef_strategy_positions": {
+    "E": {
+      "財神列車7號": {
+        "strategy_code": "CFC07m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-25 12:14:19"
+      },
+      "財神列車17號": {
+        "strategy_code": "CFCTX17m",
+        "position": 1,
+        "position_text": "多1口",
+        "updated_at": "2026-08-25 13:23:10"
+      },
+      "財神列車18號": {
+        "strategy_code": "CFCTX18m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-25 04:23:27"
+      },
+      "財神列車19號": {
+        "strategy_code": "CFCTX19m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-25 13:34:06"
+      },
+      "財神列車20號": {
+        "strategy_code": "CFCTX20m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-25 12:40:53"
+      },
+      "財神列車21號": {
+        "strategy_code": "CFCTX21m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-24 16:01:58"
+      }
+    },
+    "F": {
+      "智能引擎1號": {
+        "strategy_code": "CFCWIN01m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-24 13:44:15"
+      },
+      "新財神列車3號": {
+        "strategy_code": "CFCPW3m",
+        "position": 1,
+        "position_text": "多1口",
+        "updated_at": "2026-08-25 12:15:02"
+      },
+      "財神列車6號": {
+        "strategy_code": "CFCCPm",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-24 21:30:14"
+      },
+      "財神列車16號": {
+        "strategy_code": "CFCTX16m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-25 04:23:25"
+      },
+      "財神列車22號": {
+        "strategy_code": "CFCTX22m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-25 09:24:58"
+      },
+      "財神列車23號": {
+        "strategy_code": "CFCTX23m",
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-20 20:04:56"
+      }
+    }
+  },
   "U_edit_help": "只修改U為1到20的整數；U=2時策略為0/2/4口，存檔後會立即重新計算。",
   "manual_edit_help": "要人工覆寫時只修改manual_target_position為-2到2的整數；設回null即可恢復自動計算。請勿直接修改final_target_position。"
 }

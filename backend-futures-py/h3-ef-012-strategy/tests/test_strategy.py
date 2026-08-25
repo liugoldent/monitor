@@ -20,6 +20,8 @@ from strategy import (  # noqa: E402
     load_latest_ef_positions,
     load_latest_h_position,
     load_latest_recorded_close,
+    normalize_h_position,
+    normalize_h_record_message,
     parse_h_signal,
     parse_six_strategy_signal,
     position_event_action,
@@ -52,7 +54,7 @@ class EvaluateStrategyTests(unittest.TestCase):
         self.assertEqual(decision.relation, "opposite")
         self.assertEqual(decision.target_position, 0)
 
-    def test_long_h_and_conflicting_groups_follows_h_one(self):
+    def test_opposite_e_f_groups_use_combined_ef_net(self):
         decision = evaluate_strategy(1, positions_with(e_value=1, f_value=-1))
         self.assertEqual(decision.relation, "neutral")
         self.assertEqual(decision.target_position, 1)
@@ -65,9 +67,21 @@ class EvaluateStrategyTests(unittest.TestCase):
         decision = evaluate_strategy(-1, positions_with(e_value=1, f_value=1))
         self.assertEqual(decision.target_position, 0)
 
-    def test_one_group_flat_means_no_consensus(self):
+    def test_one_group_flat_still_uses_combined_ef_direction(self):
         decision = evaluate_strategy(-1, positions_with(e_value=-1, f_value=0))
-        self.assertEqual(decision.target_position, -1)
+        self.assertEqual(decision.target_position, -2)
+
+    def test_group_directions_may_disagree_but_combined_net_controls(self):
+        positions = positions_with()
+        positions[PORTFOLIO_E[0]] = 1
+        positions[PORTFOLIO_E[1]] = 1
+        positions[PORTFOLIO_F[0]] = -1
+        decision = evaluate_strategy(1, positions)
+        self.assertEqual(decision.e_net, 2)
+        self.assertEqual(decision.f_net, -1)
+        self.assertEqual(decision.ef_net, 1)
+        self.assertEqual(decision.ef_direction, 1)
+        self.assertEqual(decision.target_position, 2)
 
     def test_missing_h_is_not_ready(self):
         decision = evaluate_strategy(None, positions_with())
@@ -91,13 +105,38 @@ class SignalParserTests(unittest.TestCase):
         signal = parse_h_signal(text)
         self.assertIsNotNone(signal)
         self.assertEqual(signal.position, 1)
-        self.assertEqual(signal.announced_quantity, 1)
 
-    def test_parse_h_short_with_full_width_colon(self):
-        text = "浩克3V3訊號通知\n小型台指近一訊號部位為：空1口"
+    def test_parse_h_short_two_with_full_width_colon(self):
+        text = "浩克3V3訊號通知\n小型台指近一訊號部位為：空2口"
         signal = parse_h_signal(text)
         self.assertIsNotNone(signal)
         self.assertEqual(signal.position, -1)
+
+    def test_parse_h_long_two_uses_direction_only(self):
+        signal = parse_h_signal(
+            "浩克3V3訊號通知\n小型台指近一訊號部位為：多2口"
+        )
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal.position, 1)
+
+    def test_h_record_message_always_persists_one_unit(self):
+        text = (
+            "浩克3V3訊號通知\n"
+            "小型台指近一訊號部位為：空2口\n"
+            "其他說明維持原文"
+        )
+        self.assertEqual(
+            normalize_h_record_message(text),
+            "浩克3V3訊號通知\n"
+            "小型台指近一訊號部位為：空1口\n"
+            "其他說明維持原文",
+        )
+
+    def test_h_record_position_always_persists_one_unit(self):
+        self.assertEqual(normalize_h_position(2), 1)
+        self.assertEqual(normalize_h_position(-2), -1)
+        with self.assertRaises(ValueError):
+            normalize_h_position(0)
 
     def test_reject_other_h_message(self):
         self.assertIsNone(parse_h_signal("小型台指近一訊號部位為: 多1口"))
@@ -157,14 +196,14 @@ class SimulatedOrderActionTests(unittest.TestCase):
             timestamp="2026-08-20 21:00:00",
             trigger_reason="CFC07m -1->1、CFCTX16m 0->1",
             decision_summary=(
-                "H=空1口，E淨部位=0，F淨部位=1，EF共識=空手，"
-                "永豐目標=空1口；E、F沒有一致共識，永豐只跟H持有1口"
+                "H方向=空，EF淨部位=0，EF方向=空手，"
+                "永豐目標=空1口；EF淨部位為空手，永豐只跟H持有1口"
             ),
             target_position=-1,
         )
         self.assertIn(
-            "判斷：H=空1口，E淨部位=0，F淨部位=1，EF共識=空手，"
-            "永豐目標=空1口；E、F沒有一致共識，永豐只跟H持有1口",
+            "判斷：H方向=空，EF淨部位=0，EF方向=空手，"
+            "永豐目標=空1口；EF淨部位為空手，永豐只跟H持有1口",
             message,
         )
         self.assertIn(
@@ -186,11 +225,11 @@ class PositionUnitTests(unittest.TestCase):
     def test_u_reason_displays_scaled_quantity(self):
         self.assertEqual(
             scaled_relation_reason("neutral", 3),
-            "E、F沒有一致共識，永豐只跟H持有3口（U=3）",
+            "EF淨部位為空手，永豐只跟H持有3口（U=3）",
         )
         self.assertEqual(
             scaled_relation_reason("same", 3),
-            "E、F形成一致共識且與H同向，永豐持有6口（2U，U=3）",
+            "EF淨部位與H同向，永豐持有6口（2U，U=3）",
         )
 
     def test_u_rejects_zero_negative_decimal_boolean_and_too_large(self):

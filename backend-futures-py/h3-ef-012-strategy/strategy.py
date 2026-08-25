@@ -52,7 +52,6 @@ ACCOUNT_PATTERN = re.compile(r"【(?P<account>\d+)】")
 @dataclass(frozen=True)
 class HSignal:
     position: int
-    announced_quantity: int
 
 
 @dataclass(frozen=True)
@@ -78,6 +77,16 @@ class Decision:
     reason: str
     missing_strategies: tuple[str, ...]
 
+    @property
+    def ef_net(self) -> int:
+        """Combined net position of all E/F strategies."""
+        return self.e_net + self.f_net
+
+    @property
+    def ef_direction(self) -> int:
+        """Direction-only E/F signal used by the H3+EF strategy."""
+        return _sign(self.ef_net)
+
 
 def _parse_discrete_position(value: str) -> int | None:
     try:
@@ -98,16 +107,30 @@ def _sign(value: int) -> int:
 
 
 def parse_h_signal(text: str) -> HSignal | None:
+    """Parse and normalize H3 to a one-unit signed direction."""
     if H_REQUIRED_MARKER not in text:
         return None
     match = H_POSITION_PATTERN.search(text)
     if not match:
         return None
     position = 1 if match.group("side") == "多" else -1
-    return HSignal(
-        position=position,
-        announced_quantity=int(match.group("quantity")),
-    )
+    return HSignal(position=position)
+
+
+def normalize_h_record_message(text: str) -> str:
+    """Rewrite H3's signal-position line to one unit for persisted records."""
+    match = H_POSITION_PATTERN.search(text)
+    if not match:
+        return text
+    start, end = match.span("quantity")
+    return f"{text[:start]}1{text[end:]}"
+
+
+def normalize_h_position(position: int) -> int:
+    """Normalize any non-zero H3 signed quantity to exactly one unit."""
+    if isinstance(position, bool) or not isinstance(position, int) or position == 0:
+        raise ValueError(f"H3部位必須是非零整數，目前為{position!r}")
+    return 1 if position > 0 else -1
 
 
 def parse_six_strategy_signal(
@@ -192,20 +215,23 @@ def evaluate_strategy(
     f_net = sum(normalized_positions[code] for code in PORTFOLIO_F)
     e_direction = _sign(e_net)
     f_direction = _sign(f_net)
-    consensus = e_direction if e_direction == f_direction and e_direction != 0 else 0
+    # H3+EF observes directions only.  E and F are one combined portfolio here;
+    # their individual group directions and H3's announced quantity do not
+    # participate in the target calculation.
+    ef_direction = _sign(e_net + f_net)
 
-    if consensus == -h_position:
+    if ef_direction == -h_position:
         target_position = 0
         relation = "opposite"
-        reason = "E、F形成一致共識且與H反向，永豐降為空手"
-    elif consensus == h_position:
+        reason = "EF淨部位與H反向，永豐降為空手"
+    elif ef_direction == h_position:
         target_position = 2 * h_position
         relation = "same"
-        reason = "E、F形成一致共識且與H同向，永豐持有2口"
+        reason = "EF淨部位與H同向，永豐持有2口"
     else:
         target_position = h_position
         relation = "neutral"
-        reason = "E、F沒有一致共識，永豐只跟H持有1口"
+        reason = "EF淨部位為空手，永豐只跟H持有1口"
 
     return Decision(
         ready=True,
@@ -214,7 +240,9 @@ def evaluate_strategy(
         f_net=f_net,
         e_direction=e_direction,
         f_direction=f_direction,
-        consensus=consensus,
+        # Keep this persisted field for backward compatibility.  It now means
+        # combined EF direction rather than agreement between the two groups.
+        consensus=ef_direction,
         target_position=target_position,
         relation=relation,
         reason=reason,
@@ -229,6 +257,17 @@ def position_text(position: int | None) -> str:
         return f"多{position}口"
     if position < 0:
         return f"空{abs(position)}口"
+    return "空手"
+
+
+def direction_text(direction: int | None) -> str:
+    """Describe a normalized direction without implying a position quantity."""
+    if direction is None:
+        return "未知"
+    if direction > 0:
+        return "多"
+    if direction < 0:
+        return "空"
     return "空手"
 
 
@@ -256,15 +295,15 @@ def scaled_relation_reason(relation: str, position_unit: int) -> str:
     """Describe a base decision after applying U."""
     unit = validate_position_unit(position_unit)
     if relation == "opposite":
-        return "E、F形成一致共識且與H反向，永豐降為空手"
+        return "EF淨部位與H反向，永豐降為空手"
     if relation == "same":
         if unit == 1:
-            return "E、F形成一致共識且與H同向，永豐持有2口"
-        return f"E、F形成一致共識且與H同向，永豐持有{2 * unit}口（2U，U={unit}）"
+            return "EF淨部位與H同向，永豐持有2口"
+        return f"EF淨部位與H同向，永豐持有{2 * unit}口（2U，U={unit}）"
     if relation == "neutral":
         if unit == 1:
-            return "E、F沒有一致共識，永豐只跟H持有1口"
-        return f"E、F沒有一致共識，永豐只跟H持有{unit}口（U={unit}）"
+            return "EF淨部位為空手，永豐只跟H持有1口"
+        return f"EF淨部位為空手，永豐只跟H持有{unit}口（U={unit}）"
     raise ValueError(f"無效的策略關係: {relation!r}")
 
 
