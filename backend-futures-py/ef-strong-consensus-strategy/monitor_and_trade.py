@@ -5,12 +5,13 @@ import fcntl
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 
+from auto_trade import execute_target_position
 from strategy import (
     Decision,
     build_trade_rows,
@@ -49,6 +50,10 @@ DECISION_FIELDS = [
     "target_position",
     "reason",
 ]
+DISCORD_WEBHOOK_ENV = "DISCORD_EF_STRONG_WEBHOOK_UTL"
+ENABLE_ORDERS_ENV = "EF_STRONG_ENABLE_ORDERS"
+ORDER_ERROR_NOTIFICATION_INTERVAL_SECONDS = 60
+MAX_ORDER_ERROR_NOTIFICATIONS = 5
 
 
 def load_env_file(path: Path) -> None:
@@ -152,16 +157,13 @@ def append_trade_transition(previous: int, target: int, observed_at: datetime) -
 
 
 def discord_webhook() -> str:
-    return (
-        os.getenv("DISCORD_EF_STRONG_WEBHOOK_URL", "").strip()
-        or os.getenv("DISCORD_MXF_ALERT_WEBHOOK_URL", "").strip()
-    )
+    return os.getenv(DISCORD_WEBHOOK_ENV, "").strip()
 
 
 def send_discord(content: str) -> bool:
     webhook = discord_webhook()
     if not webhook:
-        print("⚠️ 未設定 DISCORD_EF_STRONG_WEBHOOK_URL 或 DISCORD_MXF_ALERT_WEBHOOK_URL")
+        print(f"⚠️ 未設定 {DISCORD_WEBHOOK_ENV}")
         return False
     try:
         response = requests.post(
@@ -186,6 +188,147 @@ def decision_text(decision: Decision, threshold: int) -> str:
         f"強共識門檻={threshold}，目標={position_text(decision.target_position)}；"
         f"{decision.reason}"
     )
+
+
+def strategy_signal_status_text(
+    *,
+    trigger: str,
+    decision: Decision,
+    threshold: int,
+    previous_position: int,
+    batch_index: int,
+    batch_total: int,
+) -> str:
+    if not decision.ready or decision.target_position is None:
+        status = "資料尚未齊全，暫不動作"
+        target = "尚未產生"
+    elif decision.target_position == previous_position:
+        status = f"目標未變，維持{position_text(previous_position)}，無需動作"
+        target = position_text(decision.target_position)
+    else:
+        status = (
+            f"目標改變，準備由{position_text(previous_position)}"
+            f"調整為{position_text(decision.target_position)}"
+        )
+        target = position_text(decision.target_position)
+    return (
+        "📨【策略訊號狀態｜純EF強共識】\n"
+        f"時間：{now_text()}\n"
+        f"訊號：{trigger}\n"
+        f"批次：{batch_index}/{batch_total}\n"
+        f"目前策略部位：{position_text(previous_position)}\n"
+        f"本次策略目標：{target}\n"
+        f"狀態：{status}\n"
+        f"判斷：{decision_text(decision, threshold)}\n"
+        "備註：此處顯示純EF策略口數；本策略不使用H3。"
+    )
+
+
+def send_strategy_signal_status_notifications(
+    new_rows: list[dict[str, str]],
+    *,
+    decision: Decision,
+    threshold: int,
+    previous_position: int,
+) -> bool:
+    """Notify once for every newly received E/F signal, even with no action."""
+    if not new_rows:
+        return True
+    all_delivered = True
+    total = len(new_rows)
+    for index, row in enumerate(new_rows, start=1):
+        trigger = (
+            f"{row.get('strategy_code') or row.get('raw_strategy_code') or '未知策略'} "
+            f"{row.get('previous_position')}→{row.get('new_position')}"
+        )
+        message = strategy_signal_status_text(
+            trigger=trigger,
+            decision=decision,
+            threshold=threshold,
+            previous_position=previous_position,
+            batch_index=index,
+            batch_total=total,
+        )
+        print(message)
+        if not send_discord(message):
+            all_delivered = False
+    return all_delivered
+
+
+def order_failure_notification_text(
+    *,
+    failed_at: str,
+    target_position: int,
+    error_text: str,
+    notification_number: int,
+) -> str:
+    return (
+        "❌【實單失敗｜純EF強共識】\n"
+        f"時間：{failed_at}\n"
+        f"提醒：{notification_number}/{MAX_ORDER_ERROR_NOTIFICATIONS}\n"
+        f"目標：{position_text(target_position)}\n"
+        f"錯誤：{error_text}\n"
+        "結果：本目標不再重送，請人工下單；"
+        "策略目標改變後才會再嘗試一次。"
+    )
+
+
+def process_order_failure_reminder(
+    state: dict | None = None,
+    current_time: datetime | None = None,
+) -> bool:
+    """Send one due reminder and permanently stop after the fifth notice."""
+    active_state = state if state is not None else load_json(STATE_PATH, {})
+    failure = active_state.get("active_order_failure")
+    if not isinstance(failure, dict):
+        return False
+    try:
+        target_position = int(failure["target_position"])
+        notification_count = int(failure.get("notification_count", 0))
+    except (KeyError, TypeError, ValueError):
+        return False
+    if notification_count >= MAX_ORDER_ERROR_NOTIFICATIONS:
+        return False
+    next_notification_at = failure.get("next_notification_at")
+    if not isinstance(next_notification_at, str):
+        return False
+    try:
+        next_time = datetime.strptime(
+            next_notification_at,
+            "%Y-%m-%d %H:%M:%S",
+        ).replace(tzinfo=TZ)
+    except ValueError:
+        return False
+    reminder_time = current_time or now()
+    if reminder_time < next_time:
+        return False
+
+    notification_number = notification_count + 1
+    error_text = str(failure.get("error") or "未知錯誤")
+    failed_at = str(failure.get("failed_at") or next_notification_at)
+    notification_sent = send_discord(
+        order_failure_notification_text(
+            failed_at=failed_at,
+            target_position=target_position,
+            error_text=error_text,
+            notification_number=notification_number,
+        )
+    )
+    reminder_text = reminder_time.strftime("%Y-%m-%d %H:%M:%S")
+    failure["notification_count"] = notification_number
+    failure["last_notification_at"] = reminder_text
+    if notification_number >= MAX_ORDER_ERROR_NOTIFICATIONS:
+        failure["next_notification_at"] = None
+        failure["reminders_completed_at"] = reminder_text
+        print("實單失敗已提醒5次，停止後續通知，請人工下單")
+    else:
+        failure["next_notification_at"] = (
+            reminder_time
+            + timedelta(seconds=ORDER_ERROR_NOTIFICATION_INTERVAL_SECONDS)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+    active_state["active_order_failure"] = failure
+    save_json_atomic(STATE_PATH, active_state)
+    return notification_sent
 
 
 def write_position(decision: Decision, threshold: int, unit: int, trigger: str) -> None:
@@ -221,14 +364,20 @@ def process_batch(
         for row in new_rows
     ) or "啟動時重建"
     write_position(decision, threshold, unit, trigger)
-    if not decision.ready or decision.target_position is None:
-        print(decision_text(decision, threshold))
-        return
-
     previous = state.get("last_simulated_target")
     if previous is None:
         previous = 0
     previous = int(previous)
+    send_strategy_signal_status_notifications(
+        new_rows,
+        decision=decision,
+        threshold=threshold,
+        previous_position=previous,
+    )
+    if not decision.ready or decision.target_position is None:
+        print(decision_text(decision, threshold))
+        return
+
     target = decision.target_position
     append_csv(
         DECISION_PATH,
@@ -244,23 +393,100 @@ def process_batch(
             "reason": decision.reason,
         },
     )
-    if target == previous:
+    orders_enabled = env_flag(ENABLE_ORDERS_ENV)
+    if target == previous and not orders_enabled:
         print(f"[{now_text()}] {decision_text(decision, threshold)}｜維持不動")
         return
 
     observed_at = now()
-    action, side, quantity = simulated_order_action(previous, target)
-    message = (
-        "🧪【模擬下單｜純EF強共識】\n"
-        f"時間：{now_text()}\n"
-        f"動作：{action}，{side}微型台指近一（TMF）{quantity}口\n"
-        f"模擬部位：{position_text(previous)} → {position_text(target)}\n"
-        f"觸發：{trigger}\n"
-        f"判斷：{decision_text(decision, threshold)}\n"
-        "備註：本策略完全不使用H，目前只有Discord模擬與獨立績效紀錄。"
-    )
-    print(message)
-    if send_discord(message):
+    if orders_enabled:
+        last_order_attempt_target = state.get(
+            "last_order_attempt_target",
+            state.get("last_order_error_target"),
+        )
+        try:
+            normalized_attempt_target = int(last_order_attempt_target)
+        except (TypeError, ValueError):
+            normalized_attempt_target = None
+        if normalized_attempt_target == target:
+            print(
+                "相同實單目標已嘗試過，不論上次成功或失敗都不重送："
+                f"{position_text(target)}"
+            )
+            return
+        attempt_time = now()
+        attempt_time_text = attempt_time.strftime("%Y-%m-%d %H:%M:%S")
+        # Save before contacting the broker so a crash cannot duplicate an order.
+        state["last_order_attempt_target"] = target
+        state["last_order_attempt_at"] = attempt_time_text
+        state.pop("active_order_failure", None)
+        save_json_atomic(STATE_PATH, state)
+        try:
+            order_result = execute_target_position(target)
+        except Exception as exc:
+            error_text = str(exc)
+            state["last_order_error_at"] = attempt_time_text
+            state["last_order_error_target"] = target
+            state["last_order_error"] = error_text
+            state["active_order_failure"] = {
+                "target_position": target,
+                "error": error_text,
+                "failed_at": attempt_time_text,
+                "notification_count": 1,
+                "last_notification_at": attempt_time_text,
+                "next_notification_at": (
+                    attempt_time
+                    + timedelta(seconds=ORDER_ERROR_NOTIFICATION_INTERVAL_SECONDS)
+                ).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            save_json_atomic(STATE_PATH, state)
+            message = order_failure_notification_text(
+                failed_at=attempt_time_text,
+                target_position=target,
+                error_text=error_text,
+                notification_number=1,
+            )
+            print(message)
+            send_discord(message)
+            return
+        executed_previous = order_result.previous_position
+        side = "買進" if order_result.side == "buy" else "賣出"
+        result = (
+            f"已送出{side} TMF {order_result.quantity}口"
+            if order_result.order_sent
+            else "永豐實際部位已符合目標，未送單"
+        )
+        message = (
+            "🚨【實單執行｜純EF強共識】\n"
+            f"時間：{now_text()}\n結果：{result}\n"
+            f"實際部位：{position_text(executed_previous)} → "
+            f"{position_text(order_result.actual_position)}（已向永豐重新查詢確認）\n"
+            f"觸發：{trigger}\n判斷：{decision_text(decision, threshold)}"
+        )
+        print(message)
+        send_discord(message)
+        append_trade_transition(executed_previous, target, observed_at)
+        state["last_simulated_target"] = target
+        state["last_executed_target"] = target
+        state["last_executed_at"] = now_text()
+        state.pop("last_order_error_at", None)
+        state.pop("last_order_error_target", None)
+        state.pop("last_order_error", None)
+        state.pop("active_order_failure", None)
+    else:
+        action, side, quantity = simulated_order_action(previous, target)
+        message = (
+            "🧪【模擬下單｜純EF強共識】\n"
+            f"時間：{now_text()}\n"
+            f"動作：{action}，{side}微型台指近一（TMF）{quantity}口\n"
+            f"模擬部位：{position_text(previous)} → {position_text(target)}\n"
+            f"觸發：{trigger}\n"
+            f"判斷：{decision_text(decision, threshold)}\n"
+            "備註：本策略完全不使用H。"
+        )
+        print(message)
+        if not send_discord(message):
+            return
         append_trade_transition(previous, target, observed_at)
         state["last_simulated_target"] = target
 
@@ -282,26 +508,37 @@ def main() -> None:
         {"source_row_count": None, "last_simulated_target": None},
     )
     rows = read_source_rows()
-    if state.get("source_row_count") is None:
+    orders_enabled = env_flag(ENABLE_ORDERS_ENV)
+    first_start = state.get("source_row_count") is None
+    if first_start:
         decision = evaluate_records(threshold, unit)
         write_position(decision, threshold, unit, "首次啟動重建")
         if decision.ready and decision.target_position is not None:
-            if env_flag("EF_STRONG_SIMULATE_ON_START", False):
+            if orders_enabled or env_flag("EF_STRONG_SIMULATE_ON_START", False):
                 process_batch(state, rows, [], threshold, unit)
             else:
                 state["last_simulated_target"] = decision.target_position
         state["source_row_count"] = len(rows)
         save_json_atomic(STATE_PATH, state)
+    elif orders_enabled:
+        # A restart or a switch from simulation to live mode must reconcile the
+        # second account immediately. The adapter first reads the real TMF net
+        # position, so an already-correct account produces no duplicate order.
+        process_batch(state, rows, [], threshold, unit)
+        save_json_atomic(STATE_PATH, state)
 
+    mode_text = "永豐實單" if orders_enabled else "Discord模擬下單"
     send_discord(
         "✅【開始監控｜純EF強共識】\n"
         f"時間：{now_text()}\n強共識門檻：E、F各至少淨{threshold}票\n"
-        f"單位：{unit}口\n本策略不使用H，預設僅Discord模擬。"
+        f"單位：{unit}口\n模式：{mode_text}\n本策略不使用H。"
     )
-    print("=== 純 EF 強共識 Discord 模擬監控 ===")
+    print(f"=== 純 EF 強共識 {mode_text}監控 ===")
     print(f"source={SOURCE_PATH} threshold={threshold} U={unit}")
 
     while True:
+        if orders_enabled:
+            process_order_failure_reminder(state)
         rows = read_source_rows()
         previous_count = int(state.get("source_row_count") or 0)
         if len(rows) < previous_count:

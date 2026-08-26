@@ -22,23 +22,34 @@
 - `records/ef_strong_decisions.csv`：每批新訊號的判斷紀錄。
 - `runtime/ef_strong_state.json`：來源 CSV 讀取進度與最後模擬目標。
 
-目前只有 Discord 模擬，不會查詢或修改永豐部位，也不會送實單。這很重要，因為它與
-H3+EF 策略同時運作時，兩套策略不能直接爭用同一個實際帳戶淨部位。
+預設為 Discord 模擬；開啟實單後會用 `API_KEY2` / `SECRET_KEY2` 查詢第二帳戶的
+TMF 實際淨部位，並以 IOC 市價單調整到策略目標。
 
 ## 環境設定
 
-沿用 `../.env`。專屬 webhook 未設定時會退回既有 MXF 通知 webhook。
+沿用 `../.env`。Webhook 只使用這個策略的專屬變數，不會退回其他通知頻道。
 
 ```dotenv
-DISCORD_EF_STRONG_WEBHOOK_URL=
+DISCORD_EF_STRONG_WEBHOOK_UTL=
 EF_STRONG_MIN_GROUP_NET=2
 EF_STRONG_POSITION_UNIT=1
 EF_STRONG_POLL_SECONDS=2
 EF_STRONG_SIMULATE_ON_START=false
+
+# 預設 false；確認下列實單設定後才可設 true。
+EF_STRONG_ENABLE_ORDERS=false
+API_KEY2=
+SECRET_KEY2=
+PERSON_ID=
+CA_PATH=
 ```
 
 `EF_STRONG_SIMULATE_ON_START=false` 時，首次啟動只重建目前狀態，不假裝在歷史價格成交；
-收到下一批新訊號後才產生模擬調整。
+收到下一批新訊號後才產生模擬調整。實單模式不受這個模擬選項影響，啟動時會立即核對第二帳戶的
+TMF 部位並調整到當前目標。
+
+若永豐下單失敗，同一目標不會自動重送。Discord 會立即通知第 1 次，之後每 60 秒提醒，
+總共最多 5 次後停止，請人工下單。只有策略目標部位改變後，程式才會嘗試新的委託。
 
 ## 測試與啟動
 

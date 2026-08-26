@@ -3,7 +3,13 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$services = @('monitor-mxf', 'webhook-server', 'h3-ef-012-strategy', 'cloudflared')
+$services = @(
+    'monitor-mxf',
+    'webhook-server',
+    'h3-ef-012-strategy',
+    'ef-strong-consensus-strategy',
+    'cloudflared'
+)
 
 Push-Location $projectDir
 try {

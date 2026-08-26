@@ -9,7 +9,13 @@ $initializer = Join-Path $PSScriptRoot 'initialize-h3-session.ps1'
 $watchScript = Join-Path $PSScriptRoot 'watch-service.ps1'
 $sessionPath = Join-Path $backendDir 'h3-ef-012-strategy\runtime\session_h3_ef_012.session'
 $markerPath = Join-Path $backendDir 'h3-ef-012-strategy\runtime\session_h3_ef_012.authorized'
-$services = @('monitor-mxf', 'webhook-server', 'h3-ef-012-strategy', 'cloudflared')
+$services = @(
+    'monitor-mxf',
+    'webhook-server',
+    'h3-ef-012-strategy',
+    'ef-strong-consensus-strategy',
+    'cloudflared'
+)
 
 function Get-RootEnvValue([string]$Name) {
     if (-not (Test-Path -LiteralPath $rootEnvPath -PathType Leaf)) { return $null }
@@ -89,6 +95,7 @@ $logWindows = @(
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'H3 EF 012 Strategy'; Service = 'h3-ef-012-strategy' },
+    @{ Title = 'EF Strong Consensus Strategy'; Service = 'ef-strong-consensus-strategy' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue

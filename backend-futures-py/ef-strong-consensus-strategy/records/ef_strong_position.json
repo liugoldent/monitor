@@ -1,0 +1,13 @@
+{
+  "strategy": "EF Strong Consensus",
+  "uses_h": false,
+  "threshold": 2,
+  "U": 1,
+  "e_net": 2,
+  "f_net": 2,
+  "target_position": 1,
+  "ready": true,
+  "reason": "E淨部位2、F淨部位2，兩組皆達多方強共識門檻2",
+  "trigger": "CFCTX16m 0→1",
+  "updated_at": "2026-08-26 11:40:13"
+}
