@@ -1,6 +1,6 @@
 # SignalOps AI Web
 
-這是 SignalOps AI 的 React 19＋TypeScript 前端，包含策略總覽、即時事件卡片、SSE 策略小助手，以及保留的市場 K 線展示頁。
+這是 SignalOps AI 的 React 19＋TypeScript 前端，包含策略總覽、即時事件卡片、SSE 策略小助手，以及保留的市場 K 線展示頁。介面採用日系編輯設計，以和紙白、墨色與朱砂紅建立視覺層級，並支援會保存偏好的日間／夜間模式。
 
 ## 開發環境
 
@@ -28,7 +28,7 @@ pnpm type-check
 pnpm build
 ```
 
-測試涵蓋事件卡片的隱私欄位、overview render，以及助手 SSE parser。正式 build 不會讀取原始策略事件 CSV。
+測試涵蓋外觀模式切換、事件卡片的隱私欄位、overview render，以及助手 SSE parser。正式 build 不會讀取原始策略事件 CSV。
 
 ## 頁面
 
