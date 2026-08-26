@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "signalops.name" . }}
+  labels:
+    {{- include "signalops.labels" . | nindent 4 }}
+data:
+  SIGNALOPS_CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}
+  SIGNALOPS_ASSISTANT_MODE: {{ .Values.config.assistantMode | quote }}
+  SIGNALOPS_OPENAI_MODEL: {{ .Values.config.openaiModel | quote }}
+  SIGNALOPS_KAFKA_BROKERS: {{ .Values.config.kafkaBrokers | quote }}
+  SIGNALOPS_KAFKA_TOPIC: {{ .Values.config.kafkaTopic | quote }}
+  SIGNALOPS_KAFKA_GROUP: {{ .Values.config.kafkaGroup | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otlpEndpoint | quote }}

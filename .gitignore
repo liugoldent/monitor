@@ -4,6 +4,7 @@
 # Env files
 .env
 .env.*
+!signalops/backend-signalops-py/.env.example
 *.pfx
 # Node
 **/node_modules/
@@ -24,6 +25,12 @@
 **/.ruff_cache/
 **/.coverage
 **/htmlcov/
+
+# Terraform 本機狀態與 provider cache
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
 
 # IDE/editor
 **/.idea/

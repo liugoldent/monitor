@@ -1,0 +1,57 @@
+imagePullPolicy: IfNotPresent
+
+api:
+  image: ghcr.io/example/signalops-api
+  tag: latest
+  replicas: 2
+  port: 8000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+publisher:
+  enabled: true
+  image: ghcr.io/example/signalops-api
+  tag: latest
+  replicas: 1
+
+worker:
+  enabled: true
+  image: ghcr.io/example/signal-replay-worker
+  tag: latest
+  replicas: 2
+
+config:
+  corsOrigins: https://signalops.example.com
+  assistantMode: auto
+  openaiModel: gpt-5.4-mini
+  kafkaBrokers: redpanda.example.internal:9092
+  kafkaTopic: signal.events.v1
+  kafkaGroup: signalops-replay-v1
+  otlpEndpoint: ""
+
+secretRef:
+  # 必須由 External Secrets、Sealed Secrets 或平台 secret manager 建立。
+  name: signalops-runtime
+  databaseUrlKey: database-url
+  openaiApiKeyKey: openai-api-key
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: nginx
+  host: signalops.example.com
+  tlsSecretName: signalops-tls
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

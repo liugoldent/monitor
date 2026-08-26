@@ -1,0 +1,6 @@
+aws_region              = "ap-northeast-1"
+environment             = "dev"
+application_cidr        = "10.42.0.0/16"
+database_instance_class = "db.t4g.micro"
+
+# 請透過 TF_VAR_database_password 或 CI secret 注入，不要把密碼寫在這裡。

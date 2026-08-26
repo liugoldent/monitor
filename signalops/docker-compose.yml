@@ -1,0 +1,148 @@
+name: signalops
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: signalops
+      POSTGRES_USER: signalops
+      POSTGRES_PASSWORD: ${SIGNALOPS_DB_PASSWORD:-signalops}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signalops -d signalops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend-signalops-py/Dockerfile
+    restart: unless-stopped
+    environment:
+      SIGNALOPS_DATABASE_URL: postgresql+psycopg://signalops:${SIGNALOPS_DB_PASSWORD:-signalops}@db:5432/signalops
+      SIGNALOPS_CORS_ORIGINS: http://localhost:5373
+      SIGNALOPS_ASSISTANT_MODE: ${SIGNALOPS_ASSISTANT_MODE:-auto}
+      SIGNALOPS_OPENAI_MODEL: ${SIGNALOPS_OPENAI_MODEL:-gpt-5.4-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  redpanda:
+    profiles: ["streaming"]
+    image: redpandadata/redpanda:v24.3.8
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+      - "19644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redpanda-console:
+    profiles: ["streaming"]
+    image: redpandadata/console:v2.8.4
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8088:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  publisher:
+    profiles: ["streaming"]
+    build:
+      context: .
+      dockerfile: backend-signalops-py/Dockerfile
+    restart: unless-stopped
+    command: ["signalops-publisher"]
+    environment:
+      SIGNALOPS_DATABASE_URL: postgresql+psycopg://signalops:${SIGNALOPS_DB_PASSWORD:-signalops}@db:5432/signalops
+      SIGNALOPS_KAFKA_BROKERS: redpanda:9092
+      SIGNALOPS_KAFKA_TOPIC: signal.events.v1
+    depends_on:
+      db:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  replay-worker:
+    profiles: ["streaming"]
+    build:
+      context: .
+      dockerfile: workers/signal-replay-go/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    environment:
+      SIGNALOPS_DATABASE_URL: postgresql://signalops:${SIGNALOPS_DB_PASSWORD:-signalops}@db:5432/signalops
+      SIGNALOPS_KAFKA_BROKERS: redpanda:9092
+      SIGNALOPS_KAFKA_TOPIC: signal.events.v1
+      SIGNALOPS_KAFKA_GROUP: signalops-replay-v1
+    depends_on:
+      db:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  otel-collector:
+    profiles: ["observability"]
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v3.1.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-signalops}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+    name: monitor_signalops-postgres
+  redpanda-data:
+  grafana-data:

@@ -1,0 +1,88 @@
+name: SignalOps 持續整合
+
+on:
+  pull_request:
+    paths:
+      - "signalops/**"
+      - ".github/workflows/signalops-ci.yml"
+  push:
+    paths:
+      - "signalops/**"
+      - ".github/workflows/signalops-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Python 後端
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signalops/backend-signalops-py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: signalops/backend-signalops-py/pyproject.toml
+      - name: 安裝依賴
+        run: pip install -e '.[dev]'
+      - name: 靜態檢查
+        run: ruff check .
+      - name: 執行測試
+        run: pytest -q
+
+  frontend:
+    name: React 前端
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signalops/frontend-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: signalops/frontend-react/pnpm-lock.yaml
+      - name: 安裝依賴
+        run: pnpm install --frozen-lockfile
+      - name: 測試、型別與建置
+        run: pnpm test && pnpm type-check && pnpm build
+
+  go-worker:
+    name: Go Replay Worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signalops/workers/signal-replay-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache-dependency-path: signalops/workers/signal-replay-go/go.sum
+      - name: 執行測試
+        run: go test ./...
+      - name: 建置執行檔
+        run: go build ./...
+
+  containers:
+    name: 容器設定
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signalops
+    steps:
+      - uses: actions/checkout@v4
+      - name: 驗證 Compose
+        run: docker compose --profile streaming --profile observability config --quiet
+      - name: 建置 API image
+        run: docker build -f backend-signalops-py/Dockerfile .
+      - name: 測試 Go worker image
+        run: docker build --target test -f workers/signal-replay-go/Dockerfile .

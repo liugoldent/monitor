@@ -1,0 +1,40 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "signalops.name" . }}-replay-worker
+  labels:
+    {{- include "signalops.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replay-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "signalops.name" . }}
+      app.kubernetes.io/component: replay-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "signalops.name" . }}
+        app.kubernetes.io/component: replay-worker
+    spec:
+      containers:
+        - name: replay-worker
+          image: "{{ .Values.worker.image }}:{{ .Values.worker.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "signalops.name" . }}
+          env:
+            - name: SIGNALOPS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretRef.name }}
+                  key: {{ .Values.secretRef.databaseUrlKey }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

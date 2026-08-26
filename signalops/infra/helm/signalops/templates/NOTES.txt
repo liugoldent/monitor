@@ -1,0 +1,3 @@
+SignalOps API 已安裝。
+
+請確認 Secret「{{ .Values.secretRef.name }}」已由正式的 secret manager 建立，且不要把明文 database URL 或 OpenAI API key 放進 values.yaml。

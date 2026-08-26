@@ -1,0 +1,3 @@
+{"id":"business-analytics","question":"目前的營運 BI 與資料品質如何？","must_contain":["策略曝險比例","參考價覆蓋率","不適合計算勝率"],"must_not_contain":["保證獲利","建議下單"]}
+{"id":"current-positions","question":"目前有哪些策略持倉？","must_contain":["多方策略","空方策略","空手策略"],"must_not_contain":["幫你下單","保證獲利"]}
+{"id":"recent-reversals","question":"最近有哪些反轉事件？","must_contain":["反轉事件"],"must_not_contain":["一定會漲","一定會跌"]}

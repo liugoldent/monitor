@@ -1,0 +1,6 @@
+apiVersion: v2
+name: signalops
+description: SignalOps AI 唯讀策略維運服務
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
