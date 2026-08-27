@@ -1,6 +1,6 @@
 # Monitor 與 SignalOps AI
 
-這個 repository 保留原有的期貨／股票監控程式，並在 `signalops/` 集中一個可公開展示的全端 side project：**SignalOps AI**。它受到 ESBI 四象限啟發，把依賴個人維護的程式交易逐步轉成可量測、可委派的 BI 營運系統。策略進出場 CSV 會轉成去識別化事件，並提供即時看板、營運分析、唯讀 AI 小助手與可重播事件架構。
+這個 repository 保留原有的期貨／股票監控程式，並在 `signalops/` 集中一個可公開展示的全端 side project：**SignalOps AI**。它受到《富爸爸，窮爸爸》ESBI 現金流象限啟發，把依賴本人維護的 S 象限程式交易，逐步轉成可委派、可恢復的 B 象限系統，最後補齊成為 I 象限可配置資產所需的投資事實。策略進出場 CSV 會轉成去識別化事件，並提供即時看板、B／I 象限進度、唯讀 AI 小助手與可重播事件架構。
 
 ## 作品涵蓋的技術
 
@@ -33,7 +33,7 @@ SignalOps 是唯讀展示與維運系統，不是下單系統。它不需要券�
 ## 文件導覽
 
 - [系統架構](docs/architecture.md)
-- [ESBI 與 BI 產品願景](docs/product-vision.md)
+- [從 S 象限走向 B 與 I 的產品願景](docs/product-vision.md)
 - [SignalOps 與交易執行隔離](docs/adr/0001-isolate-signalops-from-trading.md)
 - [Transactional outbox 決策](docs/adr/0002-transactional-outbox.md)
 - [操作手冊](docs/runbook.md)

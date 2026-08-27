@@ -40,7 +40,7 @@ backend-signalops-py/.venv/bin/signalops-import \
 | `GET /api/v1/signals` | 游標分頁、可篩選的事件時間軸 |
 | `GET /api/v1/overview` | 事件、策略與持倉摘要 |
 | `GET /api/v1/positions` | 每個策略的最新持倉 |
-| `GET /api/v1/analytics` | 活躍度、曝險比例、趨勢、轉換矩陣與資料品質 |
+| `GET /api/v1/analytics` | B 象限系統營運事實與 I 象限資本配置資料門檻 |
 | `WS /api/v1/stream` | 新事件與 heartbeat |
 | `POST /api/v1/assistant/query` | SSE 唯讀策略問答 |
 | `GET /metrics/` | Prometheus 指標 |
@@ -51,7 +51,7 @@ backend-signalops-py/.venv/bin/signalops-import \
 - `SIGNALOPS_ASSISTANT_MODE=openai`：要求 OpenAI；服務失敗時仍降級到本機工具。
 - 其他值：只使用本機工具。
 
-助手只註冊 `list_recent_signals`、`get_current_positions`、`get_strategy_summary`、`get_business_analytics` 四個 strict 唯讀工具。正式 OpenAI 串流採 Responses API；資料不要求保存（`store=False`）。
+助手只註冊 `list_recent_signals`、`get_current_positions`、`get_strategy_summary`、`get_business_analytics` 四個 strict 唯讀工具。系統 prompt 明確把 B 定義為 Business Owner、I 定義為 Investor，不會把 BI 誤解為 Business Intelligence。正式 OpenAI 串流採 Responses API；資料不要求保存（`store=False`）。
 
 ## 資料庫 migration
 

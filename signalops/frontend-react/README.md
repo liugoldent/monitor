@@ -33,8 +33,8 @@ pnpm build
 ## 頁面
 
 - `#/overview`：策略數量、事件統計、目前持倉與策略摘要。
-- `#/analytics`：ESBI 產品故事、營運 KPI、月趨勢、轉換矩陣與資料品質。
+- `#/analytics`：ESBI 的 B／I 象限進度；B 區呈現系統營運事實，I 區呈現資本配置資料門檻。
 - `#/signals`：游標分頁事件卡片，支援策略／動作篩選與 WebSocket 更新。
-- `#/assistant`：只查詢真實資料的策略小助手，不提供下單或保證獲利建議。
+- `#/assistant`：協助檢查 B 象限系統化程度與 I 象限資料門檻的唯讀助手，不提供下單或保證獲利建議。
 - `#/market`：既有 K 線資料展示。
 - `#/react-notes`：作品的 React 技術重點。

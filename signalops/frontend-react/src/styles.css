@@ -417,6 +417,55 @@ input:focus-visible {
   color: var(--accent);
 }
 
+.quadrant-section-heading {
+  align-items: start;
+  border-top: 1px solid var(--line-strong);
+  display: grid;
+  gap: 26px;
+  grid-template-columns: 84px minmax(0, 1fr);
+  padding: 28px 8px 4px;
+}
+
+.quadrant-letter {
+  border-right: 1px solid var(--line);
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 4.6rem;
+  font-weight: 600;
+  line-height: 0.88;
+}
+
+.quadrant-section-heading small {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.63rem;
+  letter-spacing: 0.13em;
+}
+
+.quadrant-section-heading h2 {
+  font-family: var(--font-serif);
+  font-size: clamp(1.55rem, 3vw, 2.35rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  margin: 7px 0 8px;
+}
+
+.quadrant-section-heading p {
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 0;
+  max-width: 840px;
+}
+
+.investor-heading {
+  margin-top: 20px;
+}
+
+.investor-heading .quadrant-letter,
+.investor-heading small {
+  color: var(--blue);
+}
+
 .signal-summary-grid,
 .summary-grid {
   background: var(--line);
@@ -628,6 +677,10 @@ tbody tr:hover td {
   grid-template-columns: minmax(0, 1.55fr) minmax(290px, 0.7fr);
 }
 
+.analytics-grid.investor-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .activity-chart {
   align-items: end;
   display: grid;
@@ -696,6 +749,62 @@ tbody tr:hover td {
   font-size: 1.08rem;
   font-weight: 650;
   margin: 0;
+}
+
+.readiness-list {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.readiness-list li {
+  align-items: start;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  padding: 14px 0;
+}
+
+.readiness-list li:first-child {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.readiness-list > li > span {
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  padding-top: 3px;
+}
+
+.readiness-list strong,
+.readiness-list small {
+  display: block;
+}
+
+.readiness-list strong {
+  font-family: var(--font-serif);
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.readiness-list small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.55;
+  margin-top: 5px;
+}
+
+.locked-list > li > span {
+  color: var(--blue);
+}
+
+.investor-requirements .limitation-list {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 14px;
 }
 
 .quality-gate {
@@ -1348,6 +1457,10 @@ tbody tr:hover td {
   .analytics-grid {
     grid-template-columns: 1fr;
   }
+
+  .analytics-grid.investor-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1408,6 +1521,16 @@ tbody tr:hover td {
   .signal-page-header h1,
   .assistant-header h1 {
     font-size: clamp(2rem, 10vw, 3rem);
+  }
+
+  .quadrant-section-heading {
+    gap: 15px;
+    grid-template-columns: 52px minmax(0, 1fr);
+    padding-inline: 2px;
+  }
+
+  .quadrant-letter {
+    font-size: 3.2rem;
   }
 
   .last-event-block,

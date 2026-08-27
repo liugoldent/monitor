@@ -35,7 +35,7 @@ def get_positions(
 @router.get(
     "/analytics",
     response_model=BusinessAnalytics,
-    summary="取得策略營運 BI 指標與事件趨勢",
+    summary="取得 B 象限系統營運指標與 I 象限資料門檻",
 )
 def get_analytics(
     session: Annotated[Session, Depends(get_session)],

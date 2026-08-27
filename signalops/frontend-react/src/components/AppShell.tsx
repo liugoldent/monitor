@@ -8,7 +8,7 @@ type AppShellProps = {
 
 const routes = [
   { index: '01', key: 'overview', label: '策略總覽' },
-  { index: '02', key: 'analytics', label: '營運分析' },
+  { index: '02', key: 'analytics', label: 'B／I 象限' },
   { index: '03', key: 'signals', label: '事件時間軸' },
   { index: '04', key: 'assistant', label: '策略小助手' },
   { index: '05', key: 'market', label: '市場資料' },

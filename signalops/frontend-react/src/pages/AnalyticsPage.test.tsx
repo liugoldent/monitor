@@ -5,7 +5,7 @@ import { AnalyticsPage } from './AnalyticsPage'
 
 vi.mock('../hooks/useAnalytics', () => ({ useAnalytics: vi.fn() }))
 
-test('顯示 ESBI 營運指標並清楚標示資料限制', () => {
+test('分開呈現 ESBI 的 B 象限營運與 I 象限投資門檻', () => {
   vi.mocked(useAnalytics).mockReturnValue({
     status: {
       state: 'ready',
@@ -39,7 +39,10 @@ test('顯示 ESBI 營運指標並清楚標示資料限制', () => {
 
   render(<AnalyticsPage />)
 
-  expect(screen.getByRole('heading', { name: '策略營運分析' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '從系統擁有者到投資者' })).toBeInTheDocument()
+  expect(screen.getByText('BUSINESS OWNER · 大型企業／系統擁有者')).toBeInTheDocument()
+  expect(screen.getByText('INVESTOR · 投資者')).toBeInTheDocument()
   expect(screen.getByText('50%')).toBeInTheDocument()
-  expect(screen.getByText('目前不開放績效 BI')).toBeInTheDocument()
+  expect(screen.getByText('I 象限尚未開放資本配置判斷')).toBeInTheDocument()
+  expect(screen.queryByText(/Business Intelligence/i)).not.toBeInTheDocument()
 })

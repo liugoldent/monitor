@@ -2,10 +2,10 @@ import { type FormEvent, useState } from 'react'
 import { useAssistant } from '../hooks/useAssistant'
 
 const suggestions = [
-  '目前的營運 BI 與資料品質如何？',
+  '目前離 B 象限的系統化營運還缺什麼？',
+  '目前是否具備進入 I 象限的資料條件？',
   '目前有哪些策略持倉？',
   '最近有哪些反轉訊號？',
-  '整理最近五筆事件',
 ]
 
 export function AssistantPage() {
@@ -22,13 +22,13 @@ export function AssistantPage() {
     <div className="assistant-page">
       <header className="assistant-header">
         <div className="eyebrow-row">
-          <span>唯讀工具呼叫</span>
+          <span>ESBI 唯讀工具呼叫</span>
           <span className="read-only-badge">不能下單</span>
         </div>
-        <h1>策略小助手</h1>
+        <h1>B／I 象限小助手</h1>
         <p>
-          數字問題由資料庫工具回答；設定 OpenAI API key 後使用 Responses API，沒有 key
-          時仍可使用本機 deterministic 模式。
+          先協助你把策略建成可交接的 B 象限系統，再檢查是否具備 I 象限的資本配置資料；
+          所有數字都由唯讀資料庫工具回答，不把事件量冒充投資績效。
         </p>
       </header>
 
