@@ -5,14 +5,12 @@ $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $backendDir = Join-Path $projectDir 'backend-futures-py'
 $rootEnvPath = Join-Path $projectDir '.env'
-$initializer = Join-Path $PSScriptRoot 'initialize-h3-session.ps1'
 $watchScript = Join-Path $PSScriptRoot 'watch-service.ps1'
-$sessionPath = Join-Path $backendDir 'h3-ef-012-strategy\runtime\session_h3_ef_012.session'
-$markerPath = Join-Path $backendDir 'h3-ef-012-strategy\runtime\session_h3_ef_012.authorized'
 $services = @(
     'monitor-mxf',
     'webhook-server',
-    'h3-ef-012-strategy',
+    'six-strategy-listener',
+    'ef-strong-consensus-morning-flat-strategy',
     'ef-rsi60-filter-strategy',
     'cloudflared'
 )
@@ -54,7 +52,6 @@ function Test-DockerEngine {
 foreach ($requiredFile in @(
     (Join-Path $backendDir '.env'),
     (Join-Path $backendDir 'Sinopac.pfx'),
-    $initializer,
     $watchScript
 )) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -78,12 +75,12 @@ if (-not (Test-DockerEngine)) {
     }
     if (-not $ready) { throw 'Docker did not become ready within 120 seconds.' }
 }
-if (-not (Test-Path $sessionPath) -or -not (Test-Path $markerPath)) {
-    & $initializer
-}
-
 Push-Location $projectDir
 try {
+    # This service has been retired. Stop any old restart-enabled container so
+    # it cannot continue emitting H3+EF signals beside the replacement.
+    & docker compose --profile windows stop h3-ef-012-strategy
+    if ($LASTEXITCODE -ne 0) { throw "Could not stop retired H3+EF service: $LASTEXITCODE" }
     $composeArgs = @('compose', '--profile', 'windows', 'up', '--detach')
     if (-not $NoBuild) { $composeArgs += '--build' }
     $composeArgs += $services
@@ -94,7 +91,8 @@ try {
 $logWindows = @(
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
-    @{ Title = 'H3 EF 012 Strategy'; Service = 'h3-ef-012-strategy' },
+    @{ Title = 'EF Signal Listener'; Service = 'six-strategy-listener' },
+    @{ Title = 'EF Strong Morning Flat'; Service = 'ef-strong-consensus-morning-flat-strategy' },
     @{ Title = 'EF RSI60 Filter Strategy'; Service = 'ef-rsi60-filter-strategy' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' }
 )

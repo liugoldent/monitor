@@ -1,13 +1,13 @@
 {
-  "updated_at": "2026-08-27 16:30:31",
-  "trigger": "本批2筆訊號，最後訊號：H方向 多->多（部位不變）（H方向未變）",
+  "updated_at": "2026-08-27 21:30:27",
+  "trigger": "CFCTX17m 0->1",
   "U": 1,
   "h_position": 1,
-  "e_net": 2,
+  "e_net": 3,
   "f_net": -1,
   "e_direction": 1,
   "f_direction": -1,
-  "ef_net": 1,
+  "ef_net": 2,
   "ef_direction": 1,
   "consensus": 1,
   "relation": "same",
@@ -27,9 +27,9 @@
       },
       "財神列車17號": {
         "strategy_code": "CFCTX17m",
-        "position": 0,
-        "position_text": "空手",
-        "updated_at": "2026-08-26 08:53:53"
+        "position": 1,
+        "position_text": "多1口",
+        "updated_at": "2026-08-27 21:30:24"
       },
       "財神列車18號": {
         "strategy_code": "CFCTX18m",

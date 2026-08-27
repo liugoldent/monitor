@@ -6,7 +6,10 @@ $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $services = @(
     'monitor-mxf',
     'webhook-server',
+    'six-strategy-listener',
+    # Keep the retired service here so Stop always catches an old container.
     'h3-ef-012-strategy',
+    'ef-strong-consensus-morning-flat-strategy',
     'ef-rsi60-filter-strategy',
     'cloudflared'
 )

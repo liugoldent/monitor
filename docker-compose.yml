@@ -31,6 +31,22 @@ services:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
+  six-strategy-listener:
+    profiles: ["windows"]
+    build:
+      context: .
+    container_name: monitor-six-strategy-listener
+    restart: unless-stopped
+    command: ["python", "/app/backend-futures-py/monitor_and_trade_six_strategy.py"]
+    working_dir: /app/backend-futures-py
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ./backend-futures-py/session_monitor_six_strategy.session:/app/backend-futures-py/session_monitor_six_strategy.session
+
   h3-ef-012-strategy:
     profiles: ["windows"]
     build:
@@ -49,6 +65,24 @@ services:
       - ./backend-futures-py/h3-ef-012-strategy/records:/app/backend-futures-py/h3-ef-012-strategy/records
       - ./backend-futures-py/h3-ef-012-strategy/runtime:/app/backend-futures-py/h3-ef-012-strategy/runtime
       - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
+
+  ef-strong-consensus-morning-flat-strategy:
+    profiles: ["windows"]
+    build:
+      context: .
+    container_name: monitor-ef-strong-consensus-morning-flat-strategy
+    restart: unless-stopped
+    command: ["python", "/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/ef-strong-consensus-morning-flat-strategy
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
+      - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/records:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/records
+      - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime
 
   ef-rsi60-filter-strategy:
     profiles: ["windows"]
