@@ -1,13 +1,13 @@
 {
-  "updated_at": "2026-08-26 11:40:14",
-  "trigger": "CFCTX16m 0->1",
+  "updated_at": "2026-08-27 16:30:31",
+  "trigger": "本批2筆訊號，最後訊號：H方向 多->多（部位不變）（H方向未變）",
   "U": 1,
   "h_position": 1,
   "e_net": 2,
-  "f_net": 2,
+  "f_net": -1,
   "e_direction": 1,
-  "f_direction": 1,
-  "ef_net": 4,
+  "f_direction": -1,
+  "ef_net": 1,
   "ef_direction": 1,
   "consensus": 1,
   "relation": "same",
@@ -23,7 +23,7 @@
         "strategy_code": "CFC07m",
         "position": 1,
         "position_text": "多1口",
-        "updated_at": "2026-08-26 11:37:33"
+        "updated_at": "2026-08-27 09:37:34"
       },
       "財神列車17號": {
         "strategy_code": "CFCTX17m",
@@ -33,9 +33,9 @@
       },
       "財神列車18號": {
         "strategy_code": "CFCTX18m",
-        "position": 0,
-        "position_text": "空手",
-        "updated_at": "2026-08-26 08:53:55"
+        "position": -1,
+        "position_text": "空1口",
+        "updated_at": "2026-08-27 13:15:02"
       },
       "財神列車19號": {
         "strategy_code": "CFCTX19m",
@@ -51,47 +51,47 @@
       },
       "財神列車21號": {
         "strategy_code": "CFCTX21m",
-        "position": 0,
-        "position_text": "空手",
-        "updated_at": "2026-08-24 16:01:58"
+        "position": 1,
+        "position_text": "多1口",
+        "updated_at": "2026-08-27 04:21:46"
       }
     },
     "F": {
       "智能引擎1號": {
         "strategy_code": "CFCWIN01m",
-        "position": 1,
-        "position_text": "多1口",
-        "updated_at": "2026-08-26 10:30:23"
+        "position": -1,
+        "position_text": "空1口",
+        "updated_at": "2026-08-27 16:00:23"
       },
       "新財神列車3號": {
         "strategy_code": "CFCPW3m",
-        "position": 1,
-        "position_text": "多1口",
-        "updated_at": "2026-08-26 10:45:03"
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-27 13:19:56"
       },
       "財神列車6號": {
         "strategy_code": "CFCCPm",
-        "position": 0,
-        "position_text": "空手",
-        "updated_at": "2026-08-26 08:46:08"
+        "position": -1,
+        "position_text": "空1口",
+        "updated_at": "2026-08-27 12:40:02"
       },
       "財神列車16號": {
         "strategy_code": "CFCTX16m",
         "position": 1,
         "position_text": "多1口",
-        "updated_at": "2026-08-26 11:40:11"
+        "updated_at": "2026-08-27 09:40:39"
       },
       "財神列車22號": {
         "strategy_code": "CFCTX22m",
         "position": 0,
         "position_text": "空手",
-        "updated_at": "2026-08-26 09:00:06"
+        "updated_at": "2026-08-27 09:14:25"
       },
       "財神列車23號": {
         "strategy_code": "CFCTX23m",
-        "position": -1,
-        "position_text": "空1口",
-        "updated_at": "2026-08-26 11:15:22"
+        "position": 0,
+        "position_text": "空手",
+        "updated_at": "2026-08-27 09:06:49"
       }
     }
   },

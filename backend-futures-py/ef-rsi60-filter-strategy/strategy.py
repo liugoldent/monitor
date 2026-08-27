@@ -50,6 +50,13 @@ class RsiSnapshot:
 
 
 @dataclass(frozen=True)
+class ExecutionBar:
+    bar_time: datetime
+    record_time: datetime
+    open: float
+
+
+@dataclass(frozen=True)
 class FilterDecision:
     event: SignalEvent
     previous_filtered_position: int
@@ -78,7 +85,10 @@ def parse_signal_row(row: Mapping[str, object], row_number: int) -> SignalEvent 
     code = normalize_strategy_code(row.get("strategy_code") or row.get("raw_strategy_code"))
     if code not in ALL_STRATEGIES:
         return None
-    timestamp_text = str(row.get("message_time") or row.get("received_at") or "").strip()
+    # Shadow execution can only occur after the local monitor actually receives
+    # the signal.  Prefer received_at so delayed Telegram delivery is not
+    # backdated to the timestamp embedded in the source message.
+    timestamp_text = str(row.get("received_at") or row.get("message_time") or "").strip()
     try:
         timestamp = datetime.strptime(timestamp_text, TIME_FORMAT)
         previous = parse_position(row.get("previous_position"))
@@ -335,6 +345,39 @@ def load_recorded_prices(path: Path) -> tuple[list[datetime], list[float]]:
             values[recorded_at] = close
     ordered = sorted(values.items())
     return [value[0] for value in ordered], [value[1] for value in ordered]
+
+
+def load_execution_bars(path: Path) -> list[ExecutionBar]:
+    values: dict[datetime, ExecutionBar] = {}
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                bar_time = datetime.strptime(
+                    str(row["TradingView Time"]).strip(), TIME_FORMAT
+                )
+                values[bar_time] = ExecutionBar(
+                    bar_time=bar_time,
+                    record_time=datetime.strptime(
+                        str(row["Record Time"]).strip(), TIME_FORMAT
+                    ),
+                    open=float(str(row["Open"]).replace(",", "").strip()),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+    return [values[key] for key in sorted(values)]
+
+
+def next_minute_open(
+    bars: list[ExecutionBar], timestamp: datetime
+) -> ExecutionBar | None:
+    if not bars:
+        return None
+    target = timestamp.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    times = [bar.bar_time for bar in bars]
+    index = bisect.bisect_left(times, target)
+    return None if index >= len(bars) else bars[index]
 
 
 def latest_recorded_price(

@@ -11,16 +11,17 @@ from zoneinfo import ZoneInfo
 import requests
 from filelock import FileLock, Timeout
 
+from auto_trade import execute_target_position
 from strategy import (
     ALL_STRATEGIES,
     FilterDecision,
     apply_event,
-    latest_recorded_price,
     latest_rsi_snapshot,
-    load_recorded_prices,
+    load_execution_bars,
     load_rsi_snapshots,
     load_signal_rows,
     net_position,
+    next_minute_open,
     parse_signal_row,
     position_text,
     replay_events,
@@ -65,6 +66,7 @@ TRADE_FIELDS = [
     "pnl_twd",
     "quantity",
 ]
+ENABLE_ORDERS_ENV = "EF_RSI60_ENABLE_ORDERS"
 
 
 def load_env_file(path: Path) -> None:
@@ -76,6 +78,13 @@ def load_env_file(path: Path) -> None:
             continue
         key, value = stripped.split("=", 1)
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def now_text() -> str:
@@ -147,7 +156,9 @@ def write_position(positions: dict[str, int], decision: FilterDecision | None) -
         POSITION_PATH,
         {
             "strategy": "EF RSI60 Filter",
-            "mode": "shadow_only",
+            "mode": (
+                "live_api_key2" if env_flag(ENABLE_ORDERS_ENV) else "shadow_only"
+            ),
             "rule": "bull RSI14>=50; bear RSI14<=50 on last completed 60m bar",
             "net_position": net_position(positions),
             "filtered_positions": positions,
@@ -159,7 +170,8 @@ def write_position(positions: dict[str, int], decision: FilterDecision | None) -
 
 def webhook_url() -> str:
     return (
-        os.getenv("DISCORD_EF_RSI60_WEBHOOK_URL", "").strip()
+        os.getenv("DISCORD_EF_RSIFILTER_WEBHOOK_URL", "").strip()
+        or os.getenv("DISCORD_EF_RSI60_WEBHOOK_URL", "").strip()
         or os.getenv("DISCORD_MXF_ALERT_WEBHOOK_URL", "").strip()
     )
 
@@ -167,7 +179,10 @@ def webhook_url() -> str:
 def send_discord(content: str) -> bool:
     webhook = webhook_url()
     if not webhook:
-        print("⚠️ 未設定 DISCORD_EF_RSI60_WEBHOOK_URL 或 DISCORD_MXF_ALERT_WEBHOOK_URL")
+        print(
+            "⚠️ 未設定 DISCORD_EF_RSIFILTER_WEBHOOK_URL、"
+            "DISCORD_EF_RSI60_WEBHOOK_URL 或 DISCORD_MXF_ALERT_WEBHOOK_URL"
+        )
         return False
     try:
         response = requests.post(
@@ -235,7 +250,12 @@ def append_shadow_transition(
         state["shadow_entry_price"] = None
 
 
-def decision_message(decision: FilterDecision) -> str:
+def decision_message(
+    decision: FilterDecision,
+    *,
+    execution_time: datetime | None = None,
+    execution_price: float | None = None,
+) -> str:
     if decision.allowed is True:
         outcome = "✅ 允許進場"
     elif decision.allowed is False:
@@ -243,9 +263,21 @@ def decision_message(decision: FilterDecision) -> str:
     else:
         outcome = "🔄 同步出場／維持"
     rsi_text = "無可用RSI" if decision.rsi is None else f"RSI60={decision.rsi:.2f}"
+    execution_text = ""
+    if execution_time is not None and execution_price is not None:
+        execution_label = (
+            "影子模擬成交"
+            if decision.previous_filtered_position != decision.filtered_position
+            else "模擬計價基準（未成交）"
+        )
+        execution_text = (
+            f"{execution_label}：{execution_time:%Y-%m-%d %H:%M:%S} @ "
+            f"{execution_price:g}（收到訊號後下一分鐘1分K Open）\n"
+        )
     return (
         "🧪【六策略 RSI60 Shadow】\n"
-        f"時間：{decision.event.timestamp:%Y-%m-%d %H:%M:%S}\n"
+        f"收到時間：{decision.event.timestamp:%Y-%m-%d %H:%M:%S}\n"
+        f"{execution_text}"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
         f"({decision.event.strategy_code})\n"
         f"原訊號：{decision.event.previous_position} → {decision.event.new_position}\n"
@@ -257,6 +289,78 @@ def decision_message(decision: FilterDecision) -> str:
     )
 
 
+def immediate_decision_message(decision: FilterDecision, live_result: str) -> str:
+    if decision.allowed is True:
+        outcome = "✅ 允許進場"
+    elif decision.allowed is False:
+        outcome = "⛔ 阻擋進場"
+    else:
+        outcome = "🔄 同步出場／維持"
+    rsi_text = "無可用RSI" if decision.rsi is None else f"RSI60={decision.rsi:.2f}"
+    return (
+        "🚨【RSI60即時判斷｜API_KEY2實單】\n"
+        f"收到時間：{decision.event.timestamp:%Y-%m-%d %H:%M:%S}\n"
+        f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
+        f"({decision.event.strategy_code})\n"
+        f"原訊號：{decision.event.previous_position} → {decision.event.new_position}\n"
+        f"判定：{outcome}，{rsi_text}\n"
+        f"完整淨目標：{position_text(decision.previous_net_position)} → "
+        f"{position_text(decision.net_position)}\n"
+        f"原因：{decision.reason}\n"
+        f"實單結果：{live_result}\n"
+        "影子績效的下一分鐘Open會稍後另行補記。"
+    )
+
+
+def execute_live_for_decision(state: dict, decision: FilterDecision) -> str:
+    """Execute immediately; never wait for the next one-minute bar."""
+    if not env_flag(ENABLE_ORDERS_ENV):
+        return "影子模式，未送實單"
+
+    target = decision.net_position
+    started = bool(state.get("live_started"))
+    previous_attempt = state.get("last_order_attempt_target")
+    try:
+        previous_attempt = int(previous_attempt)
+    except (TypeError, ValueError):
+        previous_attempt = None
+
+    # The first EF signal after activation always reconciles the account, even
+    # if RSI blocks that child signal and the filtered target itself is unchanged.
+    if started and previous_attempt == target:
+        return f"完整目標仍為{position_text(target)}，已嘗試過相同目標，不重送"
+
+    attempted_at = now_text()
+    state["live_started"] = True
+    state["last_order_attempt_target"] = target
+    state["last_order_attempt_at"] = attempted_at
+    save_json_atomic(STATE_PATH, state)
+    try:
+        result = execute_target_position(target)
+    except Exception as exc:
+        error_text = str(exc)
+        state["last_order_error_target"] = target
+        state["last_order_error_at"] = attempted_at
+        state["last_order_error"] = error_text
+        save_json_atomic(STATE_PATH, state)
+        return f"❌ 下單失敗：{error_text}（相同目標不自動重送）"
+
+    state["last_executed_target"] = target
+    state["last_executed_at"] = now_text()
+    state.pop("last_order_error_target", None)
+    state.pop("last_order_error_at", None)
+    state.pop("last_order_error", None)
+    save_json_atomic(STATE_PATH, state)
+    if result.order_sent:
+        action = "買進" if result.side == "buy" else "賣出"
+        return (
+            f"✅ 已送{action} TMF {result.quantity}口；"
+            f"實際部位{position_text(result.previous_position)} → "
+            f"{position_text(result.actual_position)}（已回查確認）"
+        )
+    return f"帳戶已是{position_text(result.actual_position)}，無需送單"
+
+
 def rebuild_state(rows: list[dict[str, str]], events, threshold: float) -> dict:
     snapshots = load_rsi_snapshots(PRICE_PATH)
     positions, _ = replay_events(events, snapshots, threshold=threshold)
@@ -265,6 +369,9 @@ def rebuild_state(rows: list[dict[str, str]], events, threshold: float) -> dict:
         "filtered_positions": positions,
         "last_shadow_target": net_position(positions),
         "shadow_entry_price": None,
+        "pending_shadow_fills": [],
+        "live_started": False,
+        "orders_armed_after_row": len(rows),
         "rebuilt_at": now_text(),
     }
     write_position(positions, None)
@@ -280,30 +387,90 @@ def process_new_rows(
 ) -> None:
     positions = normalized_positions(state.get("filtered_positions"))
     snapshots = load_rsi_snapshots(PRICE_PATH)
-    price_times, prices = load_recorded_prices(PRICE_PATH)
+    processed_count = previous_count
     for row_number, row in enumerate(rows[previous_count:], start=previous_count + 1):
         event = parse_signal_row(row, row_number)
         if event is None:
+            processed_count = row_number
             continue
         snapshot = latest_rsi_snapshot(snapshots, event.timestamp)
         decision = apply_event(positions, event, snapshot, threshold=threshold)
         append_csv(DECISION_PATH, DECISION_FIELDS, decision_row(decision))
-        price = latest_recorded_price(price_times, prices, event.timestamp)
-        append_shadow_transition(
-            state,
-            decision.previous_net_position,
-            decision.net_position,
-            price,
-            event.timestamp,
-        )
         write_position(positions, decision)
-        message = decision_message(decision)
+        pending = state.get("pending_shadow_fills")
+        if not isinstance(pending, list):
+            pending = []
+        if decision.previous_net_position != decision.net_position:
+            pending.append(
+                {
+                    "source_row": row_number,
+                    "received_at": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    "strategy_code": event.strategy_code,
+                    "previous_target": decision.previous_net_position,
+                    "target": decision.net_position,
+                }
+            )
+        state["pending_shadow_fills"] = pending
+        state["filtered_positions"] = positions
+        state["source_row_count"] = row_number
+        # Persist the decision and cursor before contacting the broker.  The
+        # live adapter also stores its target before placing an order, so a
+        # crash cannot duplicate the same target order.
+        save_json_atomic(STATE_PATH, state)
+        live_result = execute_live_for_decision(state, decision)
+        message = immediate_decision_message(decision, live_result)
         print(message)
         send_discord(message)
-        state["last_shadow_target"] = decision.net_position
+        processed_count = row_number
     state["filtered_positions"] = positions
-    state["source_row_count"] = len(rows)
+    state["source_row_count"] = processed_count
     save_json_atomic(STATE_PATH, state)
+
+
+def process_pending_shadow_fills(state: dict) -> None:
+    pending = state.get("pending_shadow_fills")
+    if not isinstance(pending, list) or not pending:
+        return
+    bars = load_execution_bars(PRICE_PATH)
+    remaining = list(pending)
+    changed = False
+    while remaining:
+        item = remaining[0]
+        try:
+            received_at = datetime.strptime(str(item["received_at"]), "%Y-%m-%d %H:%M:%S")
+            previous = int(item["previous_target"])
+            target = int(item["target"])
+        except (KeyError, TypeError, ValueError):
+            remaining.pop(0)
+            changed = True
+            continue
+        execution_bar = next_minute_open(bars, received_at)
+        if execution_bar is None:
+            break
+        append_shadow_transition(
+            state,
+            previous,
+            target,
+            execution_bar.open,
+            execution_bar.bar_time,
+        )
+        state["last_shadow_target"] = target
+        message = (
+            "📊【RSI60影子成交補記】\n"
+            f"收到時間：{received_at:%Y-%m-%d %H:%M:%S}\n"
+            f"策略：{item.get('strategy_code', '')}\n"
+            f"影子成交：{execution_bar.bar_time:%Y-%m-%d %H:%M:%S} @ "
+            f"{execution_bar.open:g}（收到訊號後下一分鐘Open）\n"
+            f"影子總倉：{position_text(previous)} → {position_text(target)}\n"
+            "備註：此價格只用於績效對帳，實單早已在RSI判斷後立即處理。"
+        )
+        print(message)
+        send_discord(message)
+        remaining.pop(0)
+        changed = True
+    if changed:
+        state["pending_shadow_fills"] = remaining
+        save_json_atomic(STATE_PATH, state)
 
 
 def main() -> None:
@@ -317,7 +484,7 @@ def main() -> None:
     try:
         lock.acquire(timeout=0)
     except Timeout as exc:
-        raise RuntimeError("六策略RSI60 Shadow已有另一個實例執行中") from exc
+        raise RuntimeError("六策略RSI60已有另一個實例執行中") from exc
 
     try:
         rows, events = load_signal_rows(SOURCE_PATH)
@@ -325,22 +492,40 @@ def main() -> None:
         previous_count = state.get("source_row_count")
         if previous_count is None or int(previous_count) > len(rows):
             state = rebuild_state(rows, events, threshold)
+        state.setdefault("pending_shadow_fills", [])
+        state.setdefault("live_started", False)
+        state.setdefault("orders_armed_after_row", int(state.get("source_row_count") or 0))
+        save_json_atomic(STATE_PATH, state)
 
+        orders_enabled = env_flag(ENABLE_ORDERS_ENV)
+        mode_text = "API_KEY2永豐實單" if orders_enabled else "影子模式"
         send_discord(
-            "✅【開始監控｜六策略 RSI60 Shadow】\n"
+            "✅【開始監控｜六策略 RSI60 Filter】\n"
             f"時間：{now_text()}\nRSI門檻：{threshold:g}\n"
-            "規則：多單RSI60≥門檻、空單RSI60≤門檻；僅影子記錄，不送實單。"
+            f"模式：{mode_text}\n"
+            "實單口數：RSI過濾後12策略完整淨部位\n"
+            "啟動行為：不對齊舊影子部位，從下一筆新EF訊號才啟動實單\n"
+            "實單時機：收到訊號、RSI判斷後立即送單，不等分鐘準點\n"
+            "訊號基準：本機 received_at\n"
+            "影子對帳：收到訊號後下一分鐘1分K Open\n"
+            "範例：08:47:22收到 → 實單立即處理，影子價用08:48 Open\n"
+            "規則：多單RSI60≥門檻、空單RSI60≤門檻。"
         )
-        print("=== 六策略 RSI60 Shadow 監控 ===")
-        print(f"source={SOURCE_PATH} prices={PRICE_PATH} threshold={threshold:g}")
+        print(f"=== 六策略 RSI60 {mode_text} 監控 ===")
+        print(
+            f"source={SOURCE_PATH} prices={PRICE_PATH} threshold={threshold:g} "
+            f"orders_enabled={orders_enabled}"
+        )
 
         while True:
+            process_pending_shadow_fills(state)
             rows, events = load_signal_rows(SOURCE_PATH)
             previous_count = int(state.get("source_row_count") or 0)
             if len(rows) < previous_count:
                 state = rebuild_state(rows, events, threshold)
             elif len(rows) > previous_count:
                 process_new_rows(state, rows, previous_count, threshold)
+                process_pending_shadow_fills(state)
             time.sleep(poll_seconds)
     finally:
         lock.release()

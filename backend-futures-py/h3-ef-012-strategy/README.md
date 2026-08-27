@@ -58,7 +58,7 @@ cd /Users/kt/Desktop/self/monitor/backend-futures-py/h3-ef-012-strategy
 
 兩份交易紀錄的欄位皆為`timestamp,action,side,price,pnl,quantity`。`side`使用`bull`或`bear`，`action`使用`enter`或`exiting`；平倉損益沿用既有`h_trade.csv`算法，以每口點數乘以10計算，口數另外保存在`quantity`。加碼或減碼時，會在同一時間先結束原本的整段部位，再以新口數開一段，讓1口與2口期間可以分開統計。
 
-價格只會讀取`tv_doc/webhook_data_1min.csv`中「訊號收到時間以前」最新一筆已記錄的一分鐘收盤價，不會拿之後才出現的K棒回填。2026-08-20建立初始空單時並不知道真正進場價，因此初始價格留白，第一次平倉損益也會留白；從下一次有即時價格的進場開始才會正常計算損益。
+價格只會讀取`tv_doc/webhook_data_1min.csv`中「訊號收到時間以前」最新一筆已記錄的一分鐘收盤價，不會拿之後才出現的K棒回填。2026-08-20以前缺少的H3事件已由TradingView策略交易CSV補錄；補錄區間採CSV成交價，與即時Telegram紀錄銜接後則繼續採訊號收到前的最新一分鐘收盤價。
 
 每次收到Telegram訊號時，程式先把變化追加至對應CSV；準備模擬下單時，再從頭讀取兩個CSV並重建最新H與十二套E/F部位，最後才執行0/U/2U判斷。計算結果先寫入`records/combined_position.json`，下單階段會重新讀取這個總和檔的`final_target_position`，不會直接使用記憶體裡的計算結果。
 

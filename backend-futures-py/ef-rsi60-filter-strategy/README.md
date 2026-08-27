@@ -4,8 +4,11 @@
 shadow 策略。它讀取十二套 E/F 策略的原始進出事件，在每次「新方向進場」時加入
 TradingView 台指期近一 60 分 RSI14 方向過濾。
 
-目前只產生獨立判斷、影子倉位、Discord 通知及影子績效紀錄，**不會查詢永豐部位，
-也沒有任何實單下單程式**。
+目前會產生獨立判斷、影子倉位、Discord 通知及影子績效紀錄。開啟
+EF_RSI60_ENABLE_ORDERS 時，會使用 API_KEY2／SECRET_KEY2 對應帳號，將實際
+TMF 部位調整成 RSI 過濾後十二套策略的完整淨部位。實單在收到新 EF 訊號後立即
+使用可用 RSI 判斷並送單；下一分鐘 Open 只供影子績效對帳。啟動時不追趕既有
+影子目標，從啟動後下一筆新 EF 訊號才開始對齊實際帳號。
 
 ## 規則
 
@@ -17,6 +20,8 @@ TradingView 台指期近一 60 分 RSI14 方向過濾。
 - 若目前盤中應有的上一根 60 分 K 尚未完整寫入，一律阻擋新進場，避免價格 webhook
   停更時沿用過時 RSI；出場不受影響。
 - 十二套策略各自過濾後再加總，因此影子總倉範圍是空 12 口到多 12 口。
+- 訊號時間以本機實際收到的 `received_at` 為準，模擬成交使用其下一分鐘的
+  1 分 K Open；例如 `08:47:22` 收到訊號，使用 `08:48` Open。
 
 60 分 K 依台指期 TradingView session 切分：日盤從 `08:45` 起算，夜盤從
 `15:00` 起算並跨午夜。RSI 使用 Wilder RMA 算法，且歷史重播會等該根 K 的最後一筆
@@ -103,6 +108,9 @@ cd /Users/kt/Desktop/self/monitor/backend-futures-py/ef-rsi60-filter-strategy
 ../.venv/bin/python backtest.py
 ../.venv/bin/python monitor_and_trade.py
 ```
+
+Docker shadow 會優先讀取 `DISCORD_EF_RSIFILTER_WEBHOOK_URL`，並等待訊號
+嚴格下一根1分K出現後，使用該根 Open 記錄影子成交。
 
 `backtest.py` 使用訊號當下以前五分鐘內最新、已寫入的一分鐘收盤代理成交價，輸出
 原始六策略和 RSI60 過濾版本的已平倉交易比較；不扣手續費、交易稅與滑價。

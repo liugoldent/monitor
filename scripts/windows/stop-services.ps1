@@ -7,7 +7,7 @@ $services = @(
     'monitor-mxf',
     'webhook-server',
     'h3-ef-012-strategy',
-    'ef-strong-consensus-strategy',
+    'ef-rsi60-filter-strategy',
     'cloudflared'
 )
 

@@ -36,3 +36,5 @@ PATH=/Users/kt/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin
 # 自動化單一入口
 cd /Users/kt/Desktop/self/monitor
 bash scripts/build-institutional-report.sh YYYY-MM-DD
+
+# 使用 $signal-replay-backtest 回測目前策略

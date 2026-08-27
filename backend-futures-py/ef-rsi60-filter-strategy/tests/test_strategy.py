@@ -226,6 +226,42 @@ class ParsingTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.strategy_code, "CFCWIN01m")
 
+    def test_prefers_received_time_for_actionable_execution(self):
+        parsed = parse_signal_row(
+            {
+                "message_time": "2026-08-26 10:30:00",
+                "received_at": "2026-08-26 10:31:15",
+                "strategy_code": "CFC07m",
+                "previous_position": "0",
+                "new_position": "1",
+            },
+            1,
+        )
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.timestamp, datetime(2026, 8, 26, 10, 31, 15))
+
+
+class ExecutionPriceTests(unittest.TestCase):
+    def test_signal_0845_uses_0846_open(self):
+        from strategy import ExecutionBar, next_minute_open
+
+        bars = [
+            ExecutionBar(
+                datetime(2026, 8, 27, 8, 45),
+                datetime(2026, 8, 27, 8, 46),
+                46157,
+            ),
+            ExecutionBar(
+                datetime(2026, 8, 27, 8, 46),
+                datetime(2026, 8, 27, 8, 47),
+                46150,
+            ),
+        ]
+        result = next_minute_open(bars, datetime(2026, 8, 27, 8, 45, 4))
+        self.assertIsNotNone(result)
+        self.assertEqual(result.bar_time, datetime(2026, 8, 27, 8, 46))
+        self.assertEqual(result.open, 46150)
+
 
 if __name__ == "__main__":
     unittest.main()

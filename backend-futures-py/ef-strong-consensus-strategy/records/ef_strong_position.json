@@ -4,10 +4,10 @@
   "threshold": 2,
   "U": 1,
   "e_net": 2,
-  "f_net": 2,
-  "target_position": 1,
+  "f_net": 1,
+  "target_position": 0,
   "ready": true,
-  "reason": "E淨部位2、F淨部位2，兩組皆達多方強共識門檻2",
-  "trigger": "CFCTX16m 0→1",
-  "updated_at": "2026-08-26 11:40:13"
+  "reason": "E淨部位2、F淨部位1，未形成雙方至少2票的同向強共識",
+  "trigger": "CFCPW3m 1→0",
+  "updated_at": "2026-08-27 13:19:57"
 }

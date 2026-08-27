@@ -13,7 +13,7 @@ $services = @(
     'monitor-mxf',
     'webhook-server',
     'h3-ef-012-strategy',
-    'ef-strong-consensus-strategy',
+    'ef-rsi60-filter-strategy',
     'cloudflared'
 )
 
@@ -95,7 +95,7 @@ $logWindows = @(
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'H3 EF 012 Strategy'; Service = 'h3-ef-012-strategy' },
-    @{ Title = 'EF Strong Consensus Strategy'; Service = 'ef-strong-consensus-strategy' },
+    @{ Title = 'EF RSI60 Filter Strategy'; Service = 'ef-rsi60-filter-strategy' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue

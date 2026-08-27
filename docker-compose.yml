@@ -50,14 +50,14 @@ services:
       - ./backend-futures-py/h3-ef-012-strategy/runtime:/app/backend-futures-py/h3-ef-012-strategy/runtime
       - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
 
-  ef-strong-consensus-strategy:
+  ef-rsi60-filter-strategy:
     profiles: ["windows"]
     build:
       context: .
-    container_name: monitor-ef-strong-consensus-strategy
+    container_name: monitor-ef-rsi60-filter-strategy
     restart: unless-stopped
-    command: ["python", "/app/backend-futures-py/ef-strong-consensus-strategy/monitor_and_trade.py"]
-    working_dir: /app/backend-futures-py/ef-strong-consensus-strategy
+    command: ["python", "/app/backend-futures-py/ef-rsi60-filter-strategy/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/ef-rsi60-filter-strategy
     environment:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
@@ -65,8 +65,8 @@ services:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
-      - ./backend-futures-py/ef-strong-consensus-strategy/records:/app/backend-futures-py/ef-strong-consensus-strategy/records
-      - ./backend-futures-py/ef-strong-consensus-strategy/runtime:/app/backend-futures-py/ef-strong-consensus-strategy/runtime
+      - ./backend-futures-py/ef-rsi60-filter-strategy/records:/app/backend-futures-py/ef-rsi60-filter-strategy/records
+      - ./backend-futures-py/ef-rsi60-filter-strategy/runtime:/app/backend-futures-py/ef-rsi60-filter-strategy/runtime
 
   cloudflared:
     profiles: ["windows"]
