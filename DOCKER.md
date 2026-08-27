@@ -14,7 +14,7 @@ scripts/run-services-docker.sh
 
 ## 啟動
 
-### 既有整合容器
+### 單純訊號接收模式（預設）
 
 在 repo 根目錄執行：
 
@@ -28,10 +28,19 @@ docker compose up --build
 docker compose up -d --build
 ```
 
+Windows 也可直接執行：
+
+```text
+run-windows-services.cmd
+```
+
+它只啟動純記錄服務，並開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、
+`Webhook Server`、`Cloudflare Tunnel` 四個 log 頁籤；舊策略會先被停止。
+
 看 log：
 
 ```bash
-docker compose logs -f monitor
+docker compose logs -f telegram-signal-relay
 ```
 
 停止：
@@ -40,17 +49,43 @@ docker compose logs -f monitor
 docker compose down
 ```
 
-### Windows 分離服務
+預設啟動 `telegram-signal-relay`、`webhook-server` 與 `monitor-mxf`。
+它們不計算交易策略、不連券商、不下單，只維持四份核心資料：
 
-Windows 平常直接執行根目錄 `run-windows-services.cmd`。若要手動操作：
-
-```powershell
-docker compose --profile windows up -d --build `
-  monitor-mxf webhook-server h3-ef-012-strategy cloudflared
+```text
+Telethon H  訊號 -> DISCORD_H_TRADE_WEBHOOK_URL
+Telethon EF 訊號 -> DISCORD_SIX_STRATEGY_WEBHOOK_URL
+EF 訊號 -> backend-futures-py/tv_doc/six_strategy_signal_events.csv
+H 進出場 -> backend-futures-py/tv_doc/h_trade.csv
+H 原始部位事件 -> backend-futures-py/h3-ef-012-strategy/records/h3_position_events.csv
+EF 原始部位事件 -> backend-futures-py/h3-ef-012-strategy/records/ef_position_events.csv
+TradingView 1 分 K -> backend-futures-py/tv_doc/webhook_data_1min.csv
+MXF 籌碼 -> backend-futures-py/tv_doc/mxf_value.csv
+Telegram 稽核紀錄 -> backend-futures-py/telegram-relay-records/telegram_signal_events.jsonl
 ```
 
-這些服務放在 `windows` profile，不會改變原本不帶 profile 的
-`docker compose up` 行為。
+`cloudflared` 仍是手動啟動，避免 Docker 啟動時未經確認就對外開放服務。
+需要既有 tunnel 時執行：
+
+```powershell
+docker compose --profile tunnel up -d cloudflared
+```
+
+原本的整合容器已移到 `legacy` profile，除非明確執行以下命令才會啟動：
+
+```bash
+docker compose --profile legacy up monitor
+```
+
+### 已停用的策略服務
+
+策略已放入獨立 `strategies` profile，不會隨一般 Docker 啟動。若日後要明確恢復：
+
+```powershell
+docker compose --profile strategies up -d --build
+```
+
+一般 `docker compose up` 不會啟動這個 profile。
 
 ## 對外 port
 

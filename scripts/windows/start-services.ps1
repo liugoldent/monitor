@@ -7,12 +7,16 @@ $backendDir = Join-Path $projectDir 'backend-futures-py'
 $rootEnvPath = Join-Path $projectDir '.env'
 $watchScript = Join-Path $PSScriptRoot 'watch-service.ps1'
 $services = @(
+    'telegram-signal-relay',
     'monitor-mxf',
     'webhook-server',
-    'six-strategy-listener',
-    'ef-strong-consensus-morning-flat-strategy',
-    'ef-rsi60-filter-strategy',
     'cloudflared'
+)
+$retiredStrategyServices = @(
+    'six-strategy-listener',
+    'h3-ef-012-strategy',
+    'ef-strong-consensus-morning-flat-strategy',
+    'ef-rsi60-filter-strategy'
 )
 
 function Get-RootEnvValue([string]$Name) {
@@ -77,11 +81,11 @@ if (-not (Test-DockerEngine)) {
 }
 Push-Location $projectDir
 try {
-    # This service has been retired. Stop any old restart-enabled container so
-    # it cannot continue emitting H3+EF signals beside the replacement.
-    & docker compose --profile windows stop h3-ef-012-strategy
-    if ($LASTEXITCODE -ne 0) { throw "Could not stop retired H3+EF service: $LASTEXITCODE" }
-    $composeArgs = @('compose', '--profile', 'windows', 'up', '--detach')
+    # Pure recording mode: make sure no old restart-enabled strategy container
+    # can run beside the Telegram relay.
+    & docker compose --profile strategies stop @retiredStrategyServices
+    if ($LASTEXITCODE -ne 0) { throw "Could not stop retired strategy services: $LASTEXITCODE" }
+    $composeArgs = @('compose', '--profile', 'tunnel', 'up', '--detach')
     if (-not $NoBuild) { $composeArgs += '--build' }
     $composeArgs += $services
     & docker @composeArgs
@@ -89,11 +93,9 @@ try {
 } finally { Pop-Location }
 
 $logWindows = @(
+    @{ Title = 'Telegram H-EF Relay'; Service = 'telegram-signal-relay' },
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
-    @{ Title = 'EF Signal Listener'; Service = 'six-strategy-listener' },
-    @{ Title = 'EF Strong Morning Flat'; Service = 'ef-strong-consensus-morning-flat-strategy' },
-    @{ Title = 'EF RSI60 Filter Strategy'; Service = 'ef-rsi60-filter-strategy' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue

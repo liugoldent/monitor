@@ -12,4 +12,4 @@ $services = $ServiceNames.Split(',', [System.StringSplitOptions]::RemoveEmptyEnt
 Set-Location -LiteralPath $ProjectDir
 Write-Host "[$Title] Live Docker logs." -ForegroundColor Cyan
 Write-Host "Closing this window does not stop: $($services -join ', ')" -ForegroundColor DarkGray
-& docker compose --profile windows logs --follow --tail 100 @services
+& docker compose logs --follow --tail 100 @services
