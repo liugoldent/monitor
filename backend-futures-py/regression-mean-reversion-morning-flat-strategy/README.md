@@ -2,10 +2,10 @@
 
 這是與 `ef-strong-consensus-morning-flat-strategy` 相同目錄架構的獨立策略：
 `strategy.py` 是共用規則與狀態機，`backtest.py` 做無偷看未來的分鐘重播，
-`monitor_and_trade.py` 監控新 1 分 K，`auto_trade.py` 只使用第四帳號憑證。
+`monitor_and_trade.py` 監控新 1 分 K，`auto_trade.py` 只使用第二帳號憑證。
 
 預設永遠是 shadow。只有明確設定 `MEAN_REVERSION_ENABLE_ORDERS=true` 才會查詢
-`API_KEY4` 帳號的 TMF 實際淨部位、送差額 IOC 市價單並回查。
+`API_KEY2` 帳號的 TMF 實際淨部位、送差額 IOC 市價單並回查。
 
 ## 已固定的規則
 
@@ -64,14 +64,15 @@ tv_doc/research_outputs/regression_mean_reversion_2026_08.csv
 沿用上一層 `.env`，但第四帳號不回退到其他 API key：
 
 ```dotenv
-DISCORD_MEAN_REVERSION_WEBHOOK_URL=
+DISCORD_MEAN_REVERSION=
 
-API_KEY4=
-SECRET_KEY4=
+API_KEY2=
+SECRET_KEY2=
 PERSON_ID=
 CA_PATH=
 
 MEAN_REVERSION_ENABLE_ORDERS=false
+MEAN_REVERSION_POSITION_UNIT=1
 MEAN_REVERSION_LENGTH=60
 MEAN_REVERSION_CHANNEL_WIDTH=2.0
 MEAN_REVERSION_STOP_POINTS=100
@@ -103,3 +104,10 @@ python monitor_and_trade.py
 與目前部位；`runtime/` 保存重啟狀態與鎖檔。實單模式會在啟動時先對帳；同一目標無論
 成功或失敗都不自動重送，必須等策略目標改變。停機期間漏掉的 K 只補算影子狀態，
 不逐筆補送舊委託；補算完成後只對帳一次最終目標。
+
+所有實單對帳嘗試都會追加到
+`records/regression_mean_reversion_order_attempts.csv`，包含開始嘗試、成功送單並回查、
+帳戶已符合目標、永豐失敗與防重送略過。
+
+`MEAN_REVERSION_POSITION_UNIT` 是 U，允許 1～20。策略內部方向仍是 -1/0/1，
+永豐最終目標會縮放成 -U/0/+U；修改 U 後重啟會依新口數對帳。

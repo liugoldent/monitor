@@ -47,12 +47,15 @@ H3+EF融合服務已停用，Telegram收訊改由獨立的
 records/ef_strong_morning_flat_position.json
 records/ef_strong_morning_flat_decisions.csv
 records/ef_strong_morning_flat_shadow_trade.csv
+records/ef_strong_morning_flat_order_attempts.csv
 runtime/ef_strong_morning_flat_state.json
 runtime/ef_strong_morning_flat.lock
 ```
 
 `records/` 保存目前組合部位、每筆判斷及影子交易；`runtime/` 保存來源 CSV
 讀取進度、原始十二策略部位、組合進場價及重啟狀態。
+`ef_strong_morning_flat_order_attempts.csv` 是追加式實單稽核，包含開始嘗試、成功送單
+並回查、帳戶已符合目標、永豐失敗與防重送略過。
 
 影子交易的 `pnl_points` 為指數點；`pnl_twd` 預設按 TMF 每點 NT$10 計算。
 
@@ -72,12 +75,16 @@ CA_PATH=
 
 # 預設false；只有true才查實倉與下單。
 EF_STRONG_MORNING_FLAT_ENABLE_ORDERS=false
+EF_STRONG_MORNING_FLAT_POSITION_UNIT=1
 
 # 研究固定值為 2；除非重新回測，不建議調整。
 EF_STRONG_MORNING_FLAT_MIN_GROUP_NET=2
 
 EF_STRONG_MORNING_FLAT_POLL_SECONDS=2
 ```
+
+`EF_STRONG_MORNING_FLAT_POSITION_UNIT` 是 U，允許 1～20。強共識方向仍是
+-1/0/1，永豐最終目標會縮放成 -U/0/+U；修改 U 後重啟會依新口數對帳。
 
 ## 測試
 

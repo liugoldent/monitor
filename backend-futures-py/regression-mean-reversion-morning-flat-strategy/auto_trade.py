@@ -1,4 +1,4 @@
-"""Verified Shioaji adapter for the fourth-account mean-reversion strategy."""
+"""Verified Shioaji adapter for the API_KEY2 mean-reversion strategy."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
 SHARED_ADAPTER_PATH = BACKEND_DIR / "h3-ef-012-strategy" / "auto_trade.py"
+POSITION_UNIT_ENV = "MEAN_REVERSION_POSITION_UNIT"
+MAX_POSITION_UNIT = 20
 
 
 def _load_shared_adapter():
@@ -41,12 +43,22 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _position_unit() -> int:
+    try:
+        unit = int(os.getenv(POSITION_UNIT_ENV, "1"))
+    except ValueError as exc:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數") from exc
+    if not 1 <= unit <= MAX_POSITION_UNIT:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數")
+    return unit
+
+
 def _login(sj: Any) -> Any:
     ca_path = Path(os.getenv("CA_PATH") or BACKEND_DIR / "Sinopac.pfx")
     if not ca_path.is_file():
         raise FileNotFoundError(f"找不到永豐憑證檔: {ca_path}")
     api = sj.Shioaji(simulation=False)
-    api.login(_required_env("API_KEY4"), _required_env("SECRET_KEY4"))
+    api.login(_required_env("API_KEY2"), _required_env("SECRET_KEY2"))
     person_id = _required_env("PERSON_ID")
     api.activate_ca(
         ca_path=str(ca_path),
@@ -62,8 +74,11 @@ def execute_target_position(
     api: Any = None,
     sj: Any = None,
 ) -> OrderResult:
-    if target_position not in {-1, 0, 1} or isinstance(target_position, bool):
-        raise ValueError(f"均值回歸目標只能是-1、0或1口，目前為{target_position!r}")
+    unit = _position_unit()
+    if target_position not in {-unit, 0, unit} or isinstance(target_position, bool):
+        raise ValueError(
+            f"均值回歸實單目標只能是-{unit}、0或{unit}口，目前為{target_position!r}"
+        )
     if api is not None:
         return _shared.execute_target_position(target_position, api=api, sj=sj)
     if sj is None:

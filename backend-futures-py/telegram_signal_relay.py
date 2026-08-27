@@ -405,12 +405,16 @@ def _discord_chunks(prefix: str, text: str) -> list[str]:
     return [prefix + part for part in (parts or [""])]
 
 
-def send_to_discord(webhook_url: str, route: str, text: str) -> tuple[bool, str]:
-    prefix = f"[Telegram {route.upper()} 原始訊號]\n"
+def send_discord_notice(
+    webhook_url: str,
+    content: str,
+    *,
+    prefix: str = "",
+) -> tuple[bool, str]:
     last_error = "Discord delivery failed"
     for attempt in range(1, DISCORD_MAX_ATTEMPTS + 1):
         try:
-            for chunk in _discord_chunks(prefix, text):
+            for chunk in _discord_chunks(prefix, content):
                 response = requests.post(webhook_url, json={"content": chunk}, timeout=15)
                 response.raise_for_status()
             return True, f"delivered (attempt {attempt})"
@@ -420,6 +424,39 @@ def send_to_discord(webhook_url: str, route: str, text: str) -> tuple[bool, str]
             if attempt < DISCORD_MAX_ATTEMPTS:
                 time.sleep(attempt)
     return False, f"{last_error} after {DISCORD_MAX_ATTEMPTS} attempts"
+
+
+def send_to_discord(webhook_url: str, route: str, text: str) -> tuple[bool, str]:
+    return send_discord_notice(
+        webhook_url,
+        text,
+        prefix=f"[Telegram {route.upper()} 原始訊號]\n",
+    )
+
+
+def send_startup_notifications() -> None:
+    started_at = _now_text()
+    for route, webhook_url in WEBHOOKS.items():
+        content = (
+            "✅【服務啟動｜Telegram H/EF Relay】\n"
+            f"時間：{started_at}\n"
+            f"接收路由：{route.upper()}\n"
+            "模式：只接收、記錄並轉送；不計算策略、不下單。"
+        )
+        delivered, detail = send_discord_notice(webhook_url, content)
+        append_event(
+            {
+                "received_at": _now_text(),
+                "event": "startup_notification",
+                "route": route,
+                "delivered": delivered,
+                "detail": detail,
+            }
+        )
+        print(
+            f"Discord {route.upper()} 啟動通知"
+            f"{'成功' if delivered else '失敗'} ({detail})"
+        )
 
 
 load_env_file()
@@ -506,10 +543,14 @@ def main() -> None:
     print(f"EF position events: {EF_POSITION_EVENT_PATH}")
     print(f"H -> {H_WEBHOOK_ENV}; EF -> {EF_WEBHOOK_ENV}")
     print("策略計算與券商下單：停用")
+    startup_notifications_sent = False
     while True:
         try:
             client.start()
             print("Telethon 已連線，開始接收 H/EF 訊號...")
+            if not startup_notifications_sent:
+                send_startup_notifications()
+                startup_notifications_sent = True
             client.run_until_disconnected()
         except (ConnectionError, OSError, TimeoutError) as exc:
             print(f"Telegram 連線中斷：{type(exc).__name__}，{RECONNECT_DELAY_SECONDS} 秒後重連")

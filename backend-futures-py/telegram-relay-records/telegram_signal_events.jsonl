@@ -1,0 +1,4 @@
+{"received_at": "2026-08-27T22:46:42+08:00", "event": "startup_notification", "route": "h", "delivered": true, "detail": "delivered (attempt 1)"}
+{"received_at": "2026-08-27T22:46:42+08:00", "event": "startup_notification", "route": "ef", "delivered": true, "detail": "delivered (attempt 1)"}
+{"received_at": "2026-08-27T23:09:32+08:00", "event": "startup_notification", "route": "h", "delivered": true, "detail": "delivered (attempt 1)"}
+{"received_at": "2026-08-27T23:09:33+08:00", "event": "startup_notification", "route": "ef", "delivered": true, "detail": "delivered (attempt 1)"}

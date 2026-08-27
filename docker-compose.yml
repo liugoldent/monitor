@@ -47,6 +47,28 @@ services:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
+  regression-mean-reversion-morning-flat-strategy:
+    build:
+      context: .
+    container_name: monitor-regression-mean-reversion-morning-flat-strategy
+    restart: unless-stopped
+    command: ["python", "/app/backend-futures-py/regression-mean-reversion-morning-flat-strategy/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/regression-mean-reversion-morning-flat-strategy
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+      CA_PATH: /app/backend-futures-py/Sinopac.pfx
+      MEAN_REVERSION_ENABLE_ORDERS: "true"
+    depends_on:
+      - telegram-signal-relay
+      - webhook-server
+    volumes:
+      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
+      - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ./backend-futures-py/regression-mean-reversion-morning-flat-strategy/records:/app/backend-futures-py/regression-mean-reversion-morning-flat-strategy/records
+      - ./backend-futures-py/regression-mean-reversion-morning-flat-strategy/runtime:/app/backend-futures-py/regression-mean-reversion-morning-flat-strategy/runtime
+
   six-strategy-listener:
     profiles: ["strategies"]
     build:
@@ -83,7 +105,6 @@ services:
       - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
 
   ef-strong-consensus-morning-flat-strategy:
-    profiles: ["strategies"]
     build:
       context: .
     container_name: monitor-ef-strong-consensus-morning-flat-strategy
@@ -93,6 +114,11 @@ services:
     environment:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
+      CA_PATH: /app/backend-futures-py/Sinopac.pfx
+      EF_STRONG_MORNING_FLAT_ENABLE_ORDERS: "true"
+    depends_on:
+      - telegram-signal-relay
+      - webhook-server
     volumes:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro

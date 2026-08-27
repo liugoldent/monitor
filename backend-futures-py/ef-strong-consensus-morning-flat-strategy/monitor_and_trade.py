@@ -4,6 +4,7 @@ import csv
 import json
 import os
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -40,6 +41,7 @@ RECORDS_DIR = BASE_DIR / "records"
 POSITION_PATH = RECORDS_DIR / "ef_strong_morning_flat_position.json"
 DECISION_PATH = RECORDS_DIR / "ef_strong_morning_flat_decisions.csv"
 TRADE_PATH = RECORDS_DIR / "ef_strong_morning_flat_shadow_trade.csv"
+ORDER_ATTEMPT_PATH = RECORDS_DIR / "ef_strong_morning_flat_order_attempts.csv"
 RUNTIME_DIR = BASE_DIR / "runtime"
 STATE_PATH = RUNTIME_DIR / "ef_strong_morning_flat_state.json"
 LOCK_PATH = RUNTIME_DIR / "ef_strong_morning_flat.lock"
@@ -76,7 +78,13 @@ TRADE_FIELDS = [
     "quantity",
     "trigger",
 ]
+ORDER_ATTEMPT_FIELDS = [
+    "timestamp", "attempt_id", "event", "trigger", "target_position",
+    "previous_position", "actual_position", "side", "quantity", "detail",
+]
 ENABLE_ORDERS_ENV = "EF_STRONG_MORNING_FLAT_ENABLE_ORDERS"
+POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
+MAX_POSITION_UNIT = 20
 
 
 def load_env_file(path: Path) -> None:
@@ -95,6 +103,22 @@ def env_flag(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def position_unit() -> int:
+    try:
+        unit = int(os.getenv(POSITION_UNIT_ENV, "1"))
+    except ValueError as exc:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數") from exc
+    if not 1 <= unit <= MAX_POSITION_UNIT:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數")
+    return unit
+
+
+def scaled_target(base_target: int) -> int:
+    if base_target not in {-1, 0, 1} or isinstance(base_target, bool):
+        raise ValueError(f"策略基礎目標只能是-1、0或1，目前為{base_target!r}")
+    return base_target * position_unit()
 
 
 def now_local() -> datetime:
@@ -163,6 +187,32 @@ def send_discord(content: str) -> bool:
         return False
 
 
+def append_order_event(
+    *,
+    attempt_id: str,
+    event: str,
+    trigger: str,
+    target: int,
+    previous: object = "",
+    actual: object = "",
+    side: object = "",
+    quantity: object = "",
+    detail: str = "",
+) -> None:
+    append_csv(ORDER_ATTEMPT_PATH, ORDER_ATTEMPT_FIELDS, {
+        "timestamp": text_time(now_local()),
+        "attempt_id": attempt_id,
+        "event": event,
+        "trigger": trigger,
+        "target_position": target,
+        "previous_position": previous,
+        "actual_position": actual,
+        "side": side,
+        "quantity": quantity,
+        "detail": detail,
+    })
+
+
 def record_transition(
     state: dict,
     *,
@@ -181,7 +231,7 @@ def record_transition(
         pnl_twd: float | str = ""
         try:
             pnl_points = round((price - float(entry_price)) * previous, 2)
-            pnl_twd = round(float(pnl_points) * 10, 2)
+            pnl_twd = round(float(pnl_points) * 10 * position_unit(), 2)
         except (TypeError, ValueError):
             pass
         if persist:
@@ -195,7 +245,7 @@ def record_transition(
                     "price": price,
                     "pnl_points": pnl_points,
                     "pnl_twd": pnl_twd,
-                    "quantity": 1,
+                    "quantity": position_unit(),
                     "trigger": trigger,
                 },
             )
@@ -210,7 +260,7 @@ def record_transition(
                 "price": price,
                 "pnl_points": "",
                 "pnl_twd": "",
-                "quantity": 1,
+                "quantity": position_unit(),
                 "trigger": trigger,
             },
         )
@@ -228,42 +278,88 @@ def execute_live_target(
     if not env_flag(ENABLE_ORDERS_ENV):
         return "影子模式，未送實單"
 
+    broker_target = scaled_target(target)
+    attempt_id = uuid.uuid4().hex
+
     attempted = state.get("last_order_attempt_target")
     try:
         attempted = int(attempted)
     except (TypeError, ValueError):
         attempted = None
-    if not force_reconcile and attempted == target:
-        return f"相同實單目標{position_text(target)}已嘗試過，不重送"
+    if not force_reconcile and attempted == broker_target:
+        append_order_event(
+            attempt_id=attempt_id,
+            event="skipped_duplicate",
+            trigger=trigger,
+            target=broker_target,
+            detail="相同目標已嘗試過，防重送",
+        )
+        return f"相同實單目標{position_text(broker_target)}已嘗試過，不重送"
+
+    append_order_event(
+        attempt_id=attempt_id,
+        event="attempt_started",
+        trigger=trigger,
+        target=broker_target,
+        detail="準備登入永豐、查詢TMF部位並對帳",
+    )
 
     attempted_at = text_time(now_local())
-    state["last_order_attempt_target"] = target
+    state["last_order_attempt_target"] = broker_target
     state["last_order_attempt_at"] = attempted_at
     state["last_order_trigger"] = trigger
     save_json_atomic(STATE_PATH, state)
     try:
-        result = execute_target_position(target)
+        result = execute_target_position(broker_target)
     except Exception as exc:
         error_text = str(exc)
+        append_order_event(
+            attempt_id=attempt_id,
+            event="failed",
+            trigger=trigger,
+            target=broker_target,
+            detail=f"{type(exc).__name__}: {error_text}",
+        )
         state["last_order_error_target"] = target
         state["last_order_error_at"] = attempted_at
         state["last_order_error"] = error_text
         save_json_atomic(STATE_PATH, state)
         return f"❌ 下單失敗：{error_text}（相同目標不自動重送）"
 
-    state["last_executed_target"] = target
+    state["last_executed_target"] = broker_target
     state["last_executed_at"] = text_time(now_local())
     state.pop("last_order_error_target", None)
     state.pop("last_order_error_at", None)
     state.pop("last_order_error", None)
     save_json_atomic(STATE_PATH, state)
     if result.order_sent:
+        append_order_event(
+            attempt_id=attempt_id,
+            event="order_sent_confirmed",
+            trigger=trigger,
+            target=broker_target,
+            previous=result.previous_position,
+            actual=result.actual_position,
+            side=result.side or "",
+            quantity=result.quantity,
+            detail="永豐委託完成且已回查目標部位",
+        )
         action = "買進" if result.side == "buy" else "賣出"
         return (
             f"✅ 已送{action} TMF {result.quantity}口；"
             f"實際部位{position_text(result.previous_position)} → "
             f"{position_text(result.actual_position)}（已回查確認）"
         )
+    append_order_event(
+        attempt_id=attempt_id,
+        event="no_order_needed",
+        trigger=trigger,
+        target=broker_target,
+        previous=result.previous_position,
+        actual=result.actual_position,
+        quantity=0,
+        detail="永豐帳戶原本已符合策略目標",
+    )
     return f"帳戶已是{position_text(result.actual_position)}，無需送單"
 
 
@@ -278,6 +374,8 @@ def write_position(state: dict, reason: str) -> None:
             "mode": (
                 "live_api_key" if env_flag(ENABLE_ORDERS_ENV) else "shadow_only"
             ),
+            "position_unit": position_unit(),
+            "broker_target_position": scaled_target(target),
             "rule": "E/F each net >=2; one contract; 04:59 flatten; wait for new signal",
             "e_net": e_net,
             "f_net": f_net,
@@ -320,14 +418,17 @@ def append_signal_decision(decision: ConsensusDecision) -> None:
 
 
 def decision_message(decision: ConsensusDecision, live_result: str) -> str:
+    previous_final = scaled_target(decision.previous_position)
+    target_final = scaled_target(decision.target_position)
     action = (
         "目標未變"
         if decision.previous_position == decision.target_position
-        else f"{position_text(decision.previous_position)} → {position_text(decision.target_position)}"
+        else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
     return (
         "🚨【策略訊號｜EF強共識＋04:59清倉】\n"
         f"訊號時間：{text_time(decision.event.timestamp)}\n"
+        f"收到訊號後【最終口數】：{position_text(target_final)}\n"
         f"模擬成交：{text_time(decision.execution_time)} @ {decision.execution_price:g}\n"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
         f"({decision.event.strategy_code})\n"
@@ -336,19 +437,22 @@ def decision_message(decision: ConsensusDecision, live_result: str) -> str:
         f"組合部位：{action}\n"
         f"原因：{decision.reason}\n"
         f"執行：{live_result}\n"
-        "備註：固定最多1口。"
+        f"備註：目前U={position_unit()}。"
     )
 
 
 def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str:
+    previous_final = scaled_target(decision.previous_position)
+    target_final = scaled_target(decision.target_position)
     action = (
         "目標未變"
         if decision.previous_position == decision.target_position
-        else f"{position_text(decision.previous_position)} → {position_text(decision.target_position)}"
+        else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
     return (
         "🚨【即時實單判斷｜EF強共識＋04:59清倉】\n"
         f"收到時間：{text_time(decision.event.timestamp)}\n"
+        f"收到訊號後【最終口數】：{position_text(target_final)}\n"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
         f"({decision.event.strategy_code})\n"
         f"原訊號：{decision.event.previous_position} → {decision.event.new_position}\n"
@@ -449,7 +553,8 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> None:
     message = (
         "🌅【04:59即時實單清倉｜EF強共識】\n"
         f"排程時間：{text_time(boundary)}\n"
-        f"組合目標：{position_text(previous)} → 空手\n"
+        "收到訊號後【最終口數】：空手\n"
+        f"組合目標：{position_text(scaled_target(previous))} → 空手\n"
         f"執行：{result}\n"
         "08:45不自動恢復，等待新的E/F訊號。"
     )
@@ -503,8 +608,9 @@ def apply_flatten_bar(
         message = (
             "🌅【04:59清倉｜EF強共識】\n"
             f"時間：{text_time(boundary.bar_time)}\n"
+            "收到訊號後【最終口數】：空手\n"
             f"模擬成交價：{boundary.open:g}\n"
-            f"組合部位：{position_text(previous)} → 空手\n"
+            f"組合部位：{position_text(scaled_target(previous))} → 空手\n"
             "08:45不自動恢復，等待新的E/F訊號。\n"
             f"執行：{live_result}"
         )
@@ -655,14 +761,9 @@ def main() -> None:
             save_json_atomic(STATE_PATH, state)
             write_position(state, "startup threshold sync")
 
-        startup_message = (
-            "✅【開始監控｜EF強共識＋04:59清倉】\n"
-            f"時間：{text_time(now_local())}\n"
-            f"規則：E/F兩組淨部位皆至少{threshold}票同向才持有1口。\n"
-            "04:59清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
-            "成交：received_at後嚴格下一根1分K開盤價。\n"
-            f"模式：{'API_KEY永豐實單' if env_flag(ENABLE_ORDERS_ENV) else '影子模式'}。"
-        )
+        unit = position_unit()
+        startup_result = ""
+        startup_base_target = int(state.get("position") or 0)
         if env_flag(ENABLE_ORDERS_ENV):
             initialize_live_cursor(state, rows)
             current_time = now_local()
@@ -672,12 +773,23 @@ def main() -> None:
                     current_time.replace(hour=4, minute=59, second=0, microsecond=0)
                 )
                 save_json_atomic(STATE_PATH, state)
+            startup_base_target = int(state.get("live_target_position") or 0)
             startup_result = execute_live_target(
                 state,
-                int(state.get("live_target_position") or 0),
+                startup_base_target,
                 trigger="startup_reconcile",
                 force_reconcile=True,
             )
+        startup_message = (
+            "✅【開始監控｜EF強共識＋04:59清倉】\n"
+            f"時間：{text_time(now_local())}\n"
+            f"收到訊號後【最終口數】：{position_text(scaled_target(startup_base_target))}\n"
+            f"規則：E/F兩組淨部位皆至少{threshold}票同向才成立；U={unit}。\n"
+            "04:59清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
+            "成交：received_at後嚴格下一根1分K開盤價。\n"
+            f"模式：{'API_KEY永豐實單' if env_flag(ENABLE_ORDERS_ENV) else '影子模式'}。"
+        )
+        if startup_result:
             startup_message += f"\n啟動對帳：{startup_result}"
         print(startup_message)
         send_discord(startup_message)

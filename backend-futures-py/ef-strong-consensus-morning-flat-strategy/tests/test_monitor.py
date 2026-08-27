@@ -91,36 +91,88 @@ class LiveOrderTests(unittest.TestCase):
         result = SimpleNamespace(
             order_sent=True,
             side="buy",
-            quantity=1,
+            quantity=2,
             previous_position=0,
-            actual_position=1,
+            actual_position=2,
         )
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             monitor.os.environ,
-            {monitor.ENABLE_ORDERS_ENV: "true"},
+            {monitor.ENABLE_ORDERS_ENV: "true", monitor.POSITION_UNIT_ENV: "2"},
             clear=False,
         ), patch.object(
             monitor, "STATE_PATH", Path(directory) / "state.json"
+        ), patch.object(
+            monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
         ), patch.object(
             monitor, "execute_target_position", return_value=result
         ) as execute:
             text = monitor.execute_live_target(state, 1, trigger="test")
 
-        execute.assert_called_once_with(1)
-        self.assertEqual(state["last_executed_target"], 1)
+        execute.assert_called_once_with(2)
+        self.assertEqual(state["last_executed_target"], 2)
         self.assertIn("已回查確認", text)
+
+    def test_webhook_places_scaled_final_quantity_below_time(self):
+        decision = SimpleNamespace(
+            previous_position=0,
+            target_position=-1,
+            event=SimpleNamespace(
+                timestamp=datetime(2026, 8, 28, 9, 1, 15),
+                strategy_name="test",
+                strategy_code="CFC07m",
+                previous_position=0,
+                new_position=-1,
+            ),
+            execution_time=datetime(2026, 8, 28, 9, 2),
+            execution_price=46000,
+            e_net=-2,
+            f_net=-2,
+            reason="test consensus",
+        )
+        with patch.dict(
+            monitor.os.environ, {monitor.POSITION_UNIT_ENV: "2"}, clear=False
+        ):
+            message = monitor.immediate_live_message(decision, "ok")
+        self.assertIn(
+            "收到時間：2026-08-28 09:01:15\n收到訊號後【最終口數】：空2口",
+            message,
+        )
 
     def test_same_failed_or_successful_target_is_not_resent(self):
         state = {"last_order_attempt_target": -1}
-        with patch.dict(
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
             monitor.os.environ,
             {monitor.ENABLE_ORDERS_ENV: "true"},
             clear=False,
+        ), patch.object(
+            monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
         ), patch.object(monitor, "execute_target_position") as execute:
             text = monitor.execute_live_target(state, -1, trigger="test")
 
         execute.assert_not_called()
         self.assertIn("不重送", text)
+
+    def test_failed_broker_attempt_is_persisted(self):
+        state = {}
+        with tempfile.TemporaryDirectory() as directory:
+            order_path = Path(directory) / "orders.csv"
+            with patch.dict(
+                monitor.os.environ,
+                {monitor.ENABLE_ORDERS_ENV: "true"},
+                clear=False,
+            ), patch.object(
+                monitor, "STATE_PATH", Path(directory) / "state.json"
+            ), patch.object(
+                monitor, "ORDER_ATTEMPT_PATH", order_path
+            ), patch.object(
+                monitor, "execute_target_position", side_effect=RuntimeError("broker down")
+            ):
+                text = monitor.execute_live_target(state, 1, trigger="test_failure")
+            with order_path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        self.assertIn("下單失敗", text)
+        self.assertEqual([row["event"] for row in rows], ["attempt_started", "failed"])
+        self.assertEqual(rows[-1]["trigger"], "test_failure")
 
     def test_new_signal_executes_immediately_without_waiting_for_price_bar(self):
         positions = {code: 0 for code in ALL_STRATEGIES}

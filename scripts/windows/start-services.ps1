@@ -10,12 +10,13 @@ $services = @(
     'telegram-signal-relay',
     'monitor-mxf',
     'webhook-server',
-    'cloudflared'
+    'cloudflared',
+    'regression-mean-reversion-morning-flat-strategy',
+    'ef-strong-consensus-morning-flat-strategy'
 )
 $retiredStrategyServices = @(
     'six-strategy-listener',
     'h3-ef-012-strategy',
-    'ef-strong-consensus-morning-flat-strategy',
     'ef-rsi60-filter-strategy'
 )
 
@@ -96,7 +97,9 @@ $logWindows = @(
     @{ Title = 'Telegram H-EF Relay'; Service = 'telegram-signal-relay' },
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
-    @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' }
+    @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
+    @{ Title = 'Mean Reversion LIVE - API KEY2'; Service = 'regression-mean-reversion-morning-flat-strategy' },
+    @{ Title = 'EF Strong Consensus LIVE - API KEY'; Service = 'ef-strong-consensus-morning-flat-strategy' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {

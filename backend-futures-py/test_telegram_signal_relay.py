@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from unittest.mock import Mock, patch
 
 
 os.environ.setdefault("API_ID", "1")
@@ -34,6 +35,19 @@ class TelegramSignalRelayTests(unittest.TestCase):
         chunks = _discord_chunks("prefix\n", "x" * 5000)
         self.assertEqual(len(chunks), 3)
         self.assertTrue(all(len(chunk) <= 2000 for chunk in chunks))
+
+    def test_startup_notice_delivery_uses_supplied_content(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        with patch.object(relay.requests, "post", return_value=response) as post:
+            delivered, detail = relay.send_discord_notice(
+                "https://example.test/webhook",
+                "startup content",
+            )
+        self.assertTrue(delivered)
+        self.assertIn("attempt 1", detail)
+        post.assert_called_once()
+        self.assertEqual(post.call_args.kwargs["json"], {"content": "startup content"})
 
     def test_records_ef_in_existing_csv_format(self):
         with tempfile.TemporaryDirectory() as directory:

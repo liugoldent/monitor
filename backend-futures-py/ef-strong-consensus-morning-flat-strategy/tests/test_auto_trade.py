@@ -42,6 +42,19 @@ class AutoTradeCredentialTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "-1、0或1"):
             auto_trade.execute_target_position(2, api=Mock(), sj=Mock())
 
+    def test_u_two_allows_two_contract_target(self):
+        api = Mock()
+        sj = Mock()
+        expected = Mock()
+        with patch.dict(
+            os.environ, {auto_trade.POSITION_UNIT_ENV: "2"}, clear=False
+        ), patch.object(
+            auto_trade._shared, "execute_target_position", return_value=expected
+        ) as execute:
+            result = auto_trade.execute_target_position(-2, api=api, sj=sj)
+        self.assertIs(result, expected)
+        execute.assert_called_once_with(-2, api=api, sj=sj)
+
     def test_reconciliation_delegates_to_shared_verified_adapter(self):
         api = Mock()
         sj = Mock()

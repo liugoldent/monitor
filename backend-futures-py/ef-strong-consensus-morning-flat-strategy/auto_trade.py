@@ -16,6 +16,8 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
 SHARED_ADAPTER_PATH = BACKEND_DIR / "h3-ef-012-strategy" / "auto_trade.py"
+POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
+MAX_POSITION_UNIT = 20
 
 
 def _load_shared_adapter():
@@ -45,6 +47,16 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _position_unit() -> int:
+    try:
+        unit = int(os.getenv(POSITION_UNIT_ENV, "1"))
+    except ValueError as exc:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數") from exc
+    if not 1 <= unit <= MAX_POSITION_UNIT:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數")
+    return unit
+
+
 def _login(sj: Any) -> Any:
     ca_path = Path(os.getenv("CA_PATH") or BACKEND_DIR / "Sinopac.pfx")
     if not ca_path.is_file():
@@ -68,8 +80,11 @@ def execute_target_position(
     sj: Any = None,
 ) -> OrderResult:
     """Reconcile API_KEY's real TMF position to the one-contract target."""
-    if target_position not in {-1, 0, 1} or isinstance(target_position, bool):
-        raise ValueError(f"強共識目標只能是-1、0或1口，目前為{target_position!r}")
+    unit = _position_unit()
+    if target_position not in {-unit, 0, unit} or isinstance(target_position, bool):
+        raise ValueError(
+            f"強共識實單目標只能是-{unit}、0或{unit}口，目前為{target_position!r}"
+        )
     if api is not None:
         return _shared.execute_target_position(target_position, api=api, sj=sj)
     if sj is None:
