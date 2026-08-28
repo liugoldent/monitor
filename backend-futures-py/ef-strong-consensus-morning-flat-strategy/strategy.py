@@ -61,6 +61,8 @@ class ConsensusDecision:
     threshold: int
     relation: str
     reason: str
+    e_positions: tuple[tuple[str, int], ...] = ()
+    f_positions: tuple[tuple[str, int], ...] = ()
 
 
 def parse_time(value: object) -> datetime:
@@ -264,6 +266,8 @@ def evaluate_event(
         threshold=threshold,
         relation=relation,
         reason=reason,
+        e_positions=tuple((code, positions[code]) for code in PORTFOLIO_E),
+        f_positions=tuple((code, positions[code]) for code in PORTFOLIO_F),
     )
 
 

@@ -167,7 +167,12 @@ def main() -> None:
     parser.add_argument("--width", type=float, default=2.0)
     parser.add_argument("--stop", type=float, default=100.0)
     parser.add_argument("--max-slope", type=float, default=2.5)
-    parser.add_argument("--one-way-cost", type=float, default=2.0)
+    parser.add_argument(
+        "--one-way-cost",
+        type=float,
+        default=2.4,
+        help="One-way cost in points; 2.4 points on TMF is NT$24, or NT$48 round trip.",
+    )
     parser.add_argument("--point-value", type=float, default=10.0)
     parser.add_argument("--trades-out", type=Path)
     args = parser.parse_args()

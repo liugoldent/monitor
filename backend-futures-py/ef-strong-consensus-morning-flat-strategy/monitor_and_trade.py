@@ -16,6 +16,8 @@ from auto_trade import execute_target_position
 from strategy import (
     ALL_STRATEGIES,
     ConsensusDecision,
+    PORTFOLIO_E,
+    PORTFOLIO_F,
     PriceBar,
     evaluate_event,
     latest_morning_boundary,
@@ -42,6 +44,7 @@ POSITION_PATH = RECORDS_DIR / "ef_strong_morning_flat_position.json"
 DECISION_PATH = RECORDS_DIR / "ef_strong_morning_flat_decisions.csv"
 TRADE_PATH = RECORDS_DIR / "ef_strong_morning_flat_shadow_trade.csv"
 ORDER_ATTEMPT_PATH = RECORDS_DIR / "ef_strong_morning_flat_order_attempts.csv"
+CLOCK_EVENT_PATH = RECORDS_DIR / "ef_strong_morning_flat_clock_events.csv"
 RUNTIME_DIR = BASE_DIR / "runtime"
 STATE_PATH = RUNTIME_DIR / "ef_strong_morning_flat_state.json"
 LOCK_PATH = RUNTIME_DIR / "ef_strong_morning_flat.lock"
@@ -81,6 +84,11 @@ TRADE_FIELDS = [
 ORDER_ATTEMPT_FIELDS = [
     "timestamp", "attempt_id", "event", "trigger", "target_position",
     "previous_position", "actual_position", "side", "quantity", "detail",
+]
+CLOCK_EVENT_FIELDS = [
+    "scheduled_at", "triggered_at", "completed_at", "trigger_delay_seconds",
+    "deadline_at", "started_before_deadline", "completed_before_deadline",
+    "mode", "previous_target", "target_position", "result",
 ]
 ENABLE_ORDERS_ENV = "EF_STRONG_MORNING_FLAT_ENABLE_ORDERS"
 POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
@@ -417,6 +425,18 @@ def append_signal_decision(decision: ConsensusDecision) -> None:
     )
 
 
+def position_breakdown(
+    positions: object,
+    codes: tuple[str, ...],
+    expected_net: int,
+) -> str:
+    if not positions:
+        return f"明細未提供（合計{expected_net:+d}）"
+    values = dict(positions or ())
+    details = " + ".join(f"{code}({int(values.get(code, 0)):+d})" for code in codes)
+    return f"{details} = {expected_net:+d}"
+
+
 def decision_message(decision: ConsensusDecision, live_result: str) -> str:
     previous_final = scaled_target(decision.previous_position)
     target_final = scaled_target(decision.target_position)
@@ -434,6 +454,8 @@ def decision_message(decision: ConsensusDecision, live_result: str) -> str:
         f"({decision.event.strategy_code})\n"
         f"原訊號：{decision.event.previous_position} → {decision.event.new_position}\n"
         f"E淨部位：{decision.e_net}；F淨部位：{decision.f_net}\n"
+        f"E明細：{position_breakdown(getattr(decision, 'e_positions', ()), PORTFOLIO_E, decision.e_net)}\n"
+        f"F明細：{position_breakdown(getattr(decision, 'f_positions', ()), PORTFOLIO_F, decision.f_net)}\n"
         f"組合部位：{action}\n"
         f"原因：{decision.reason}\n"
         f"執行：{live_result}\n"
@@ -457,6 +479,8 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         f"({decision.event.strategy_code})\n"
         f"原訊號：{decision.event.previous_position} → {decision.event.new_position}\n"
         f"E淨部位：{decision.e_net}；F淨部位：{decision.f_net}\n"
+        f"E明細：{position_breakdown(getattr(decision, 'e_positions', ()), PORTFOLIO_E, decision.e_net)}\n"
+        f"F明細：{position_breakdown(getattr(decision, 'f_positions', ()), PORTFOLIO_F, decision.f_net)}\n"
         f"組合目標：{action}\n"
         f"原因：{decision.reason}\n"
         f"執行：{live_result}\n"
@@ -531,28 +555,64 @@ def process_live_rows(
     save_json_atomic(STATE_PATH, state)
 
 
-def apply_live_clock_flatten(state: dict, current_time: datetime) -> None:
-    if not env_flag(ENABLE_ORDERS_ENV):
-        return
+def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
     boundary = current_time.replace(hour=4, minute=59, second=0, microsecond=0)
     reopen = current_time.replace(hour=8, minute=45, second=0, microsecond=0)
     if not boundary <= current_time < reopen:
-        return
+        return False
     if str(state.get("last_live_flat_time") or "").startswith(boundary.strftime("%Y-%m-%d")):
-        return
+        return False
+    triggered_at = current_time
+    deadline = boundary + timedelta(seconds=30)
+    trigger_delay = (triggered_at - boundary).total_seconds()
     previous = int(state.get("live_target_position", state.get("position") or 0))
     state["live_target_position"] = 0
     state["last_live_flat_time"] = text_time(boundary)
+    state["last_live_flat_triggered_at"] = text_time(triggered_at)
+    state["last_live_flat_trigger_delay_seconds"] = trigger_delay
     save_json_atomic(STATE_PATH, state)
-    result = execute_live_target(
-        state,
-        0,
-        trigger="04:59_live_clock_flat",
-        force_reconcile=True,
+    if env_flag(ENABLE_ORDERS_ENV):
+        result = execute_live_target(
+            state,
+            0,
+            trigger="04:59_live_clock_flat",
+            force_reconcile=True,
+        )
+        mode = "live_api_key"
+    else:
+        result = "Discord／影子模式：已記錄04:59目標空手，未連線永豐、未送委託"
+        mode = "shadow_only"
+    completed_at = max(now_local(), triggered_at)
+    started_ok = triggered_at < deadline
+    completed_ok = completed_at < deadline
+    state["last_live_flat_completed_at"] = text_time(completed_at)
+    state["last_live_flat_started_before_deadline"] = started_ok
+    state["last_live_flat_completed_before_deadline"] = completed_ok
+    save_json_atomic(STATE_PATH, state)
+    append_csv(CLOCK_EVENT_PATH, CLOCK_EVENT_FIELDS, {
+        "scheduled_at": text_time(boundary),
+        "triggered_at": text_time(triggered_at),
+        "completed_at": text_time(completed_at),
+        "trigger_delay_seconds": f"{trigger_delay:.3f}",
+        "deadline_at": text_time(deadline),
+        "started_before_deadline": started_ok,
+        "completed_before_deadline": completed_ok,
+        "mode": mode,
+        "previous_target": scaled_target(previous),
+        "target_position": 0,
+        "result": result,
+    })
+    deadline_text = (
+        "✅ 04:59:30前已完成下單／對帳流程"
+        if completed_ok
+        else "🚨 已超過04:59:30完成期限，請立即人工核對"
     )
     message = (
-        "🌅【04:59即時實單清倉｜EF強共識】\n"
+        "🌅【04:59時鐘清倉｜EF強共識】\n"
         f"排程時間：{text_time(boundary)}\n"
+        f"實際觸發：{text_time(triggered_at)}（延遲{trigger_delay:.3f}秒）\n"
+        f"流程完成：{text_time(completed_at)}\n"
+        f"期限：{text_time(deadline)}；{deadline_text}\n"
         "收到訊號後【最終口數】：空手\n"
         f"組合目標：{position_text(scaled_target(previous))} → 空手\n"
         f"執行：{result}\n"
@@ -560,6 +620,7 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> None:
     )
     print(message)
     send_discord(message)
+    return True
 
 
 def apply_flatten_bar(
@@ -766,14 +827,12 @@ def main() -> None:
         startup_base_target = int(state.get("position") or 0)
         if env_flag(ENABLE_ORDERS_ENV):
             initialize_live_cursor(state, rows)
-            current_time = now_local()
-            if signal_is_in_morning_block(current_time, current_time):
-                state["live_target_position"] = 0
-                state["last_live_flat_time"] = text_time(
-                    current_time.replace(hour=4, minute=59, second=0, microsecond=0)
-                )
-                save_json_atomic(STATE_PATH, state)
+        clock_flatten_applied = apply_live_clock_flatten(state, now_local())
+        if clock_flatten_applied:
+            startup_base_target = 0
+        elif env_flag(ENABLE_ORDERS_ENV):
             startup_base_target = int(state.get("live_target_position") or 0)
+        if env_flag(ENABLE_ORDERS_ENV) and not clock_flatten_applied:
             startup_result = execute_live_target(
                 state,
                 startup_base_target,
@@ -795,12 +854,16 @@ def main() -> None:
         send_discord(startup_message)
 
         while True:
+            # Check the hard clock boundary before file I/O and signal processing.
+            # With the default two-second poll this normally starts by 04:59:02.
+            apply_live_clock_flatten(state, now_local())
             cutoff = now_local()
             rows = load_signal_rows(SOURCE_PATH)
             bars = load_price_bars(PRICE_PATH)
+            # Catch a boundary crossed while reading the shared files.
+            apply_live_clock_flatten(state, now_local())
             if env_flag(ENABLE_ORDERS_ENV):
                 initialize_live_cursor(state, rows)
-                apply_live_clock_flatten(state, cutoff)
                 process_live_rows(state, rows, threshold)
             previous_count = int(state.get("source_row_count") or 0)
             if len(rows) < previous_count:

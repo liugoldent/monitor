@@ -138,6 +138,31 @@ class LiveOrderTests(unittest.TestCase):
             message,
         )
 
+    def test_webhook_lists_each_strategy_behind_group_net(self):
+        e_positions = tuple((code, 1 if index < 3 else 0) for index, code in enumerate(PORTFOLIO_E))
+        f_positions = tuple((code, -1 if index == 0 else 0) for index, code in enumerate(PORTFOLIO_F))
+        decision = SimpleNamespace(
+            previous_position=0,
+            target_position=0,
+            event=SimpleNamespace(
+                timestamp=datetime(2026, 8, 28, 9, 1, 15),
+                strategy_name="test",
+                strategy_code=PORTFOLIO_E[0],
+                previous_position=0,
+                new_position=1,
+            ),
+            e_net=3,
+            f_net=-1,
+            e_positions=e_positions,
+            f_positions=f_positions,
+            reason="未形成雙組同向強共識",
+        )
+        message = monitor.immediate_live_message(decision, "ok")
+        self.assertIn(f"E明細：{PORTFOLIO_E[0]}(+1)", message)
+        self.assertIn("= +3", message)
+        self.assertIn(f"F明細：{PORTFOLIO_F[0]}(-1)", message)
+        self.assertIn("= -1", message)
+
     def test_same_failed_or_successful_target_is_not_resent(self):
         state = {"last_order_attempt_target": -1}
         with tempfile.TemporaryDirectory() as directory, patch.dict(
@@ -234,6 +259,28 @@ class LiveOrderTests(unittest.TestCase):
         )
         self.assertEqual(state["live_target_position"], 0)
         self.assertEqual(state["last_live_flat_time"], "2026-08-28 04:59:00")
+
+    def test_0459_shadow_mode_is_still_audited(self):
+        state = {"position": 1}
+        current = datetime(2026, 8, 28, 4, 59, 2)
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ,
+            {monitor.ENABLE_ORDERS_ENV: "false"},
+            clear=False,
+        ), patch.object(
+            monitor, "STATE_PATH", Path(directory) / "state.json"
+        ), patch.object(
+            monitor, "CLOCK_EVENT_PATH", Path(directory) / "clock.csv"
+        ), patch.object(
+            monitor, "execute_live_target"
+        ) as execute, patch.object(monitor, "send_discord"), patch("builtins.print"):
+            applied = monitor.apply_live_clock_flatten(state, current)
+            self.assertTrue(applied)
+            execute.assert_not_called()
+            with (Path(directory) / "clock.csv").open(newline="", encoding="utf-8") as handle:
+                row = next(csv.DictReader(handle))
+            self.assertEqual(row["mode"], "shadow_only")
+            self.assertEqual(row["target_position"], "0")
 
 
 if __name__ == "__main__":

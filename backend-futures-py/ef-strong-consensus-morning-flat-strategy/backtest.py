@@ -199,7 +199,12 @@ def main() -> None:
     parser.add_argument("--start", default="2026-06-24 00:00:00")
     parser.add_argument("--end", required=True)
     parser.add_argument("--threshold", type=int, default=2)
-    parser.add_argument("--one-way-cost", type=float, default=2.0)
+    parser.add_argument(
+        "--one-way-cost",
+        type=float,
+        default=2.4,
+        help="One-way cost in points; 2.4 points on TMF is NT$24, or NT$48 round trip.",
+    )
     parser.add_argument("--point-value", type=float, default=10.0)
     args = parser.parse_args()
 

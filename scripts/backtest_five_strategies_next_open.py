@@ -146,6 +146,61 @@ def load_h_events(path: Path) -> list[HEvent]:
     return sorted(events, key=lambda event: event.timestamp)
 
 
+def load_h_tradingview_events(path: Path) -> list[HEvent]:
+    """Load the complete TradingView H3 trade export from its Entry rows."""
+    events: list[HEvent] = []
+    position = 0
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            trade_type = str(row.get("類型") or "").strip()
+            if trade_type not in {"Entry Long", "Entry Short"}:
+                continue
+            try:
+                timestamp = datetime.strptime(
+                    f"{row['日期'].strip()} {row['時間'].strip()}",
+                    "%Y/%m/%d %H:%M:%S",
+                )
+                price = float(str(row["價格"]).replace(",", ""))
+            except (KeyError, TypeError, ValueError):
+                continue
+            target = 1 if trade_type == "Entry Long" else -1
+            events.append(HEvent(timestamp, position, target, price))
+            position = target
+    return sorted(events, key=lambda event: event.timestamp)
+
+
+def load_h_source(path: Path) -> list[HEvent]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        header = next(csv.reader(handle), [])
+    if "類型" in header and "日期" in header and "價格" in header:
+        return load_h_tradingview_events(path)
+    return load_h_events(path)
+
+
+def load_h_reported_closed_pnls(
+    path: Path, start: datetime, end: datetime
+) -> tuple[list[float], int]:
+    """Return TradingView's exit-date P&L figures and invalid exit-row count."""
+    pnls: list[float] = []
+    invalid = 0
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if not str(row.get("類型") or "").strip().startswith("Exit"):
+                continue
+            try:
+                timestamp = datetime.strptime(
+                    f"{row['日期'].strip()} {row['時間'].strip()}",
+                    "%Y/%m/%d %H:%M:%S",
+                )
+                pnl = float(str(row["獲利($)"]).replace(",", ""))
+            except (KeyError, TypeError, ValueError):
+                invalid += 1
+                continue
+            if start <= timestamp <= end:
+                pnls.append(pnl)
+    return pnls, invalid
+
+
 class PriceLookup:
     def __init__(self, bars: list[PriceBar]) -> None:
         self.bars = bars
@@ -457,7 +512,7 @@ def backtest_h(
     start_price: float,
     end_price: float,
     execution_price: Callable[[datetime], float | None],
-    units: int = 2,
+    units: int = 1,
 ) -> Result:
     position = 0
     for event in h_events:
@@ -490,7 +545,14 @@ def backtest_h(
         if not position or entry is None
         else (end_price - entry) * position * units * 10
     )
-    return Result("pure_h_2", realized, unrealized, one_way, position * units, closed_pnls)
+    return Result(
+        f"h_execution_replay_{units}",
+        realized,
+        unrealized,
+        one_way,
+        position * units,
+        closed_pnls,
+    )
 
 
 def main() -> None:
@@ -498,6 +560,19 @@ def main() -> None:
     parser.add_argument("--start", default="2026-08-01 00:00:00")
     parser.add_argument("--end", default="")
     parser.add_argument("--rsi-threshold", type=float, default=50.0)
+    parser.add_argument(
+        "--h-source",
+        type=Path,
+        default=Path.home() / "Downloads" / "h3.csv",
+        help="Complete TradingView H3 CSV; falls back to the legacy event file if absent.",
+    )
+    parser.add_argument("--h-units", type=int, default=1)
+    parser.add_argument(
+        "--one-way-cost-twd",
+        type=float,
+        default=24.0,
+        help="Qunyi cost per one-way fill; NT$24 equals NT$48 per round trip.",
+    )
     parser.add_argument(
         "--fill-mode",
         choices=("strict-next", "signal-minute", "visible-next"),
@@ -515,11 +590,14 @@ def main() -> None:
     backend = root / "backend-futures-py"
     price_path = backend / "tv_doc" / "webhook_data_1min.csv"
     signal_path = backend / "tv_doc" / "six_strategy_signal_events.csv"
-    h_path = backend / "h3-ef-012-strategy" / "records" / "h3_position_events.csv"
+    legacy_h_path = (
+        backend / "h3-ef-012-strategy" / "records" / "h3_position_events.csv"
+    )
+    h_path = args.h_source if args.h_source.exists() else legacy_h_path
     bars = load_prices(price_path)
     lookup = PriceLookup(bars)
     events = load_ef_events(signal_path, event_time=args.event_time)
-    h_events = load_h_events(h_path)
+    h_events = load_h_source(h_path)
     start = parse_time(args.start)
     if args.end:
         requested_end = parse_time(args.end)
@@ -549,10 +627,11 @@ def main() -> None:
         start_price=start_price,
         end_price=end_price,
         execution_price=execution_price,
+        units=args.h_units,
     )
 
     pure_ef = backtest_separate_book(
-        name="pure_ef_raw_12",
+        name="ef_signal_replay_12_theoretical",
         events=events,
         filtered_targets=None,
         lookup=lookup,
@@ -688,11 +767,19 @@ def main() -> None:
         f"period={start.strftime(TIME_FORMAT)}..{end.strftime(TIME_FORMAT)} "
         f"start_price={start_price:.0f} end_price={end_price:.0f} "
         f"ef_event_time={args.event_time} "
-        f"ef_fill={args.fill_mode}_1m_open rsi_threshold={args.rsi_threshold:g}"
+        f"ef_fill={args.fill_mode}_1m_open rsi_threshold={args.rsi_threshold:g} "
+        f"h_source={h_path} h_units={args.h_units} "
+        f"one_way_cost_twd={args.one_way_cost_twd:g}"
     )
+    if h_events and h_events[-1].timestamp < end:
+        print(
+            "h_source_last_event="
+            f"{h_events[-1].timestamp.strftime(TIME_FORMAT)} "
+            "warning=no H source rows after this timestamp; later P&L is hold-to-mark only"
+        )
     print(
         "strategy gross_profit_twd gross_loss_twd profit_factor closed_trades "
-        "realized_twd unrealized_twd total_twd one_way end_position"
+        "realized_twd unrealized_twd total_twd one_way estimated_net_twd end_position"
     )
     for result in results:
         print(
@@ -705,7 +792,34 @@ def main() -> None:
             round(result.unrealized),
             round(result.total),
             result.one_way,
+            round(result.total - result.one_way * args.one_way_cost_twd),
             result.ending_position,
+        )
+    with h_path.open(newline="", encoding="utf-8-sig") as handle:
+        h_header = next(csv.reader(handle), [])
+    if "獲利($)" in h_header:
+        reported_pnls, invalid_h_exits = load_h_reported_closed_pnls(
+            h_path, start, end
+        )
+        reported_profit = sum(pnl for pnl in reported_pnls if pnl > 0)
+        reported_loss = -sum(pnl for pnl in reported_pnls if pnl < 0)
+        reported_realized = reported_profit - reported_loss
+        reported_cost = len(reported_pnls) * args.one_way_cost_twd * 2
+        print(
+            "h_tradingview_exit_basis",
+            f"closed_trades={len(reported_pnls)}",
+            f"gross_profit_twd={reported_profit:.0f}",
+            f"gross_loss_twd={reported_loss:.0f}",
+            "profit_factor="
+            + (
+                "inf"
+                if reported_loss == 0
+                else f"{reported_profit / reported_loss:.2f}"
+            ),
+            f"realized_twd={reported_realized:.0f}",
+            f"estimated_cost_twd={reported_cost:.0f}",
+            f"estimated_net_twd={reported_realized - reported_cost:.0f}",
+            f"invalid_exit_rows={invalid_h_exits}",
         )
     all_five_gross_profit = sum(result.gross_profit for result in results)
     all_five_gross_loss = sum(result.gross_loss for result in results)
@@ -719,6 +833,10 @@ def main() -> None:
         round(sum(result.unrealized for result in results)),
         round(sum(result.total for result in results)),
         sum(result.one_way for result in results),
+        round(
+            sum(result.total for result in results)
+            - sum(result.one_way for result in results) * args.one_way_cost_twd
+        ),
         sum(result.ending_position for result in results),
     )
     print("pure_ef_break_policy total_twd one_way end_position")

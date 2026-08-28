@@ -31,6 +31,9 @@ E 組與 F 組各包含六套既有策略。無論同向票數多高，組合最
 - `04:59～08:45` 的訊號只更新原始 E/F 狀態，不建立組合部位。
 - `13:45～15:00` 不清倉，部位正常延續。
 - 04:59實單清倉由本機時鐘排程立即對帳，不等待K棒檔案寫入；K棒只負責稍後補記 shadow 成交價。
+- 時鐘排程會記錄預定時間、實際觸發時間、完成時間，以及是否在04:59:30前完成；
+  即使是Discord／shadow模式也會留下清倉事件並通知，但不會假裝已送永豐委託。
+- 每次E/F判斷通知會列出兩組各六套策略的目前部位與加總，方便核對淨部位來源。
 
 ## EF訊號資料流
 
@@ -48,6 +51,7 @@ records/ef_strong_morning_flat_position.json
 records/ef_strong_morning_flat_decisions.csv
 records/ef_strong_morning_flat_shadow_trade.csv
 records/ef_strong_morning_flat_order_attempts.csv
+records/ef_strong_morning_flat_clock_events.csv
 runtime/ef_strong_morning_flat_state.json
 runtime/ef_strong_morning_flat.lock
 ```
