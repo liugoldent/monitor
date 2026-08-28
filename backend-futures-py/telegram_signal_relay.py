@@ -28,6 +28,7 @@ TV_DOC_DIR = BASE_DIR / "tv_doc"
 EF_SIGNAL_LOG_PATH = TV_DOC_DIR / "six_strategy_signal_events.csv"
 H_TRADE_LOG_PATH = TV_DOC_DIR / "h_trade.csv"
 WEBHOOK_DATA_1MIN_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
+MXF_VALUE_CSV_PATH = TV_DOC_DIR / "mxf_value.csv"
 H3_RECORDS_DIR = BASE_DIR / "h3-ef-012-strategy" / "records"
 H_POSITION_EVENT_PATH = H3_RECORDS_DIR / "h3_position_events.csv"
 EF_POSITION_EVENT_PATH = H3_RECORDS_DIR / "ef_position_events.csv"
@@ -70,6 +71,9 @@ STRATEGY_NAMES = {
     "CFCTX16m": "財神列車16號",
     "CFCTX22m": "財神列車22號",
     "CFCTX23m": "財神列車23號",
+}
+PORTFOLIO_E = {
+    "CFC07m", "CFCTX17m", "CFCTX18m", "CFCTX19m", "CFCTX20m", "CFCTX21m",
 }
 EF_SIGNAL_FIELDS = [
     "received_at", "message_time", "account", "strategy_code",
@@ -313,6 +317,72 @@ def _latest_mxf_close(cutoff: datetime) -> float | None:
     return latest_close
 
 
+def _display_number(value: object) -> str:
+    try:
+        number = float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return "-"
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:.2f}".rstrip("0").rstrip(".")
+
+
+def _latest_mxf_chips(cutoff: datetime) -> tuple[str, str, str]:
+    """Return the latest tank, guerrilla and retail values available at cutoff."""
+    latest_at = None
+    latest_values = ("-", "-", "-")
+    if not MXF_VALUE_CSV_PATH.exists():
+        return latest_values
+    with MXF_VALUE_CSV_PATH.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                recorded_at = datetime.strptime(
+                    row.get("time", ""), "%Y-%m-%d %H:%M:%S"
+                ).replace(tzinfo=TZ)
+            except (TypeError, ValueError):
+                continue
+            if recorded_at <= cutoff and (latest_at is None or recorded_at > latest_at):
+                latest_at = recorded_at
+                latest_values = (
+                    _display_number(row.get("tx_bvav")),
+                    _display_number(row.get("mtx_bvav")),
+                    _display_number(row.get("mtx_tbta")),
+                )
+    return latest_values
+
+
+def build_ef_discord_message(text: str, received_at: datetime) -> str | None:
+    """Build the former winner-portfolio notice, including current MXF data."""
+    match = EF_POSITION_PATTERN.search(text)
+    if not match:
+        return None
+    raw_code = match.group("strategy")
+    strategy_code = STRATEGY_ALIASES.get(raw_code, raw_code)
+    previous = _parse_position(match.group("old"))
+    new = _parse_position(match.group("new"))
+    if strategy_code not in STRATEGY_NAMES or previous is None or new is None:
+        return None
+
+    net_position = sum(_latest_ef_event_positions().values())
+    if net_position > 0:
+        net_position_text = f"多{net_position}口"
+    elif net_position < 0:
+        net_position_text = f"空{abs(net_position)}口"
+    else:
+        net_position_text = "空手"
+
+    price_text = _display_number(_latest_mxf_close(received_at))
+    tank, guerrilla, retail = _latest_mxf_chips(received_at)
+    portfolio = "贏家E投組" if strategy_code in PORTFOLIO_E else "贏家F投組"
+    return (
+        f"[{received_at.strftime('%H:%M:%S')}]：{portfolio}。"
+        f"{STRATEGY_NAMES[strategy_code]}({strategy_code}) "
+        f"{float(previous):.1f} -> {float(new):.1f}。"
+        f"下單價位：{price_text}，下單後策略倉位：{net_position_text}\n"
+        f"籌碼：坦克 {tank}，游擊 {guerrilla}，散戶 {retail}"
+    )
+
+
 def record_h_trade(text: str, received_at: datetime) -> bool:
     match = H_POSITION_PATTERN.search(text)
     if not match:
@@ -427,6 +497,8 @@ def send_discord_notice(
 
 
 def send_to_discord(webhook_url: str, route: str, text: str) -> tuple[bool, str]:
+    if route == "ef":
+        return send_discord_notice(webhook_url, text)
     return send_discord_notice(
         webhook_url,
         text,
@@ -514,11 +586,14 @@ async def telegram_message_handler(event) -> None:
         f"{event.chat_id}:{event.id} ({record_detail})"
     )
 
+    discord_content = text
+    if route == "ef" and recorded:
+        discord_content = build_ef_discord_message(text, received_at) or text
     delivered, detail = await asyncio.to_thread(
         send_to_discord,
         WEBHOOKS[route],
         route,
-        text,
+        discord_content,
     )
     append_event(
         {

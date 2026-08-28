@@ -49,6 +49,52 @@ class TelegramSignalRelayTests(unittest.TestCase):
         post.assert_called_once()
         self.assertEqual(post.call_args.kwargs["json"], {"content": "startup content"})
 
+    def test_formats_ef_discord_notice_with_price_position_and_all_chips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory_path = Path(directory)
+            original_events = relay.EF_POSITION_EVENT_PATH
+            original_prices = relay.WEBHOOK_DATA_1MIN_PATH
+            original_chips = relay.MXF_VALUE_CSV_PATH
+            relay.EF_POSITION_EVENT_PATH = directory_path / "ef_position_events.csv"
+            relay.WEBHOOK_DATA_1MIN_PATH = directory_path / "webhook_data_1min.csv"
+            relay.MXF_VALUE_CSV_PATH = directory_path / "mxf_value.csv"
+            relay.EF_POSITION_EVENT_PATH.write_text(
+                "strategy_code,new_position\nCFC07m,0\nCFCTX16m,-1\n",
+                encoding="utf-8",
+            )
+            relay.WEBHOOK_DATA_1MIN_PATH.write_text(
+                "Record Time,Close\n2026-08-28 12:52:00,46095\n",
+                encoding="utf-8",
+            )
+            relay.MXF_VALUE_CSV_PATH.write_text(
+                "time,tx_bvav,mtx_bvav,mtx_tbta\n"
+                "2026-08-28 12:52:00,-645,-584,219\n",
+                encoding="utf-8",
+            )
+            try:
+                message = relay.build_ef_discord_message(
+                    "【訊號通知】【群益】【6008770】"
+                    "《策略》CFCTX16m《倉位》0.0 -> -1.0",
+                    datetime(2026, 8, 28, 12, 53, 22, tzinfo=ZoneInfo("Asia/Taipei")),
+                )
+            finally:
+                relay.EF_POSITION_EVENT_PATH = original_events
+                relay.WEBHOOK_DATA_1MIN_PATH = original_prices
+                relay.MXF_VALUE_CSV_PATH = original_chips
+
+        self.assertEqual(
+            message,
+            "[12:53:22]：贏家F投組。財神列車16號(CFCTX16m) "
+            "0.0 -> -1.0。下單價位：46095，下單後策略倉位：空1口\n"
+            "籌碼：坦克 -645，游擊 -584，散戶 219",
+        )
+
+    def test_ef_delivery_does_not_add_raw_signal_prefix(self):
+        with patch.object(relay, "send_discord_notice", return_value=(True, "ok")) as send:
+            result = relay.send_to_discord("https://example.test/ef", "ef", "舊格式")
+        self.assertEqual(result, (True, "ok"))
+        send.assert_called_once_with("https://example.test/ef", "舊格式")
+
     def test_records_ef_in_existing_csv_format(self):
         with tempfile.TemporaryDirectory() as directory:
             original = relay.EF_SIGNAL_LOG_PATH
