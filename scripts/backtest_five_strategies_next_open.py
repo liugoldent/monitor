@@ -3,9 +3,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import csv
-import importlib.util
 import re
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -476,33 +474,6 @@ def run_target_strategy(
     return Result(name, realized, unrealized, one_way, target, closed_pnls)
 
 
-def load_rsi_targets(
-    strategy_path: Path,
-    price_path: Path,
-    events: list[EfEvent],
-    threshold: float,
-) -> dict[int, int]:
-    spec = importlib.util.spec_from_file_location("rsi60_strategy_for_backtest", strategy_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load {strategy_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    signal_events = [
-        module.SignalEvent(
-            row_number=event.row_number,
-            timestamp=event.timestamp,
-            strategy_code=event.strategy_code,
-            previous_position=event.previous_position,
-            new_position=event.new_position,
-        )
-        for event in events
-    ]
-    snapshots = module.load_rsi_snapshots(price_path)
-    _, decisions = module.replay_events(signal_events, snapshots, threshold=threshold)
-    return {decision.event.row_number: decision.filtered_position for decision in decisions}
-
-
 def backtest_h(
     *,
     h_events: list[HEvent],
@@ -559,7 +530,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", default="2026-08-01 00:00:00")
     parser.add_argument("--end", default="")
-    parser.add_argument("--rsi-threshold", type=float, default=50.0)
     parser.add_argument(
         "--h-source",
         type=Path,
@@ -634,24 +604,6 @@ def main() -> None:
         name="ef_signal_replay_12_theoretical",
         events=events,
         filtered_targets=None,
-        lookup=lookup,
-        start=start,
-        end=end,
-        start_price=start_price,
-        end_price=end_price,
-        execution_price=execution_price,
-    )
-
-    rsi_targets = load_rsi_targets(
-        backend / "ef-rsi60-filter-strategy" / "strategy.py",
-        price_path,
-        events,
-        args.rsi_threshold,
-    )
-    rsi = backtest_separate_book(
-        name=f"rsi{args.rsi_threshold:g}_filtered_12",
-        events=events,
-        filtered_targets=rsi_targets,
         lookup=lookup,
         start=start,
         end=end,
@@ -747,7 +699,7 @@ def main() -> None:
         end_price=end_price,
     )
 
-    results = [pure_h, pure_ef, combined, strong, rsi]
+    results = [pure_h, pure_ef, combined, strong]
     break_results = [
         backtest_ef_break_policy(
             events=events,
@@ -767,7 +719,7 @@ def main() -> None:
         f"period={start.strftime(TIME_FORMAT)}..{end.strftime(TIME_FORMAT)} "
         f"start_price={start_price:.0f} end_price={end_price:.0f} "
         f"ef_event_time={args.event_time} "
-        f"ef_fill={args.fill_mode}_1m_open rsi_threshold={args.rsi_threshold:g} "
+        f"ef_fill={args.fill_mode}_1m_open "
         f"h_source={h_path} h_units={args.h_units} "
         f"one_way_cost_twd={args.one_way_cost_twd:g}"
     )
@@ -821,13 +773,13 @@ def main() -> None:
             f"estimated_net_twd={reported_realized - reported_cost:.0f}",
             f"invalid_exit_rows={invalid_h_exits}",
         )
-    all_five_gross_profit = sum(result.gross_profit for result in results)
-    all_five_gross_loss = sum(result.gross_loss for result in results)
+    all_active_gross_profit = sum(result.gross_profit for result in results)
+    all_active_gross_loss = sum(result.gross_loss for result in results)
     print(
-        "all_five",
-        round(all_five_gross_profit),
-        round(all_five_gross_loss),
-        "inf" if all_five_gross_loss == 0 else f"{all_five_gross_profit / all_five_gross_loss:.2f}",
+        "all_active",
+        round(all_active_gross_profit),
+        round(all_active_gross_loss),
+        "inf" if all_active_gross_loss == 0 else f"{all_active_gross_profit / all_active_gross_loss:.2f}",
         sum(len(result.closed_pnls) for result in results),
         round(sum(result.realized for result in results)),
         round(sum(result.unrealized for result in results)),

@@ -1,8 +1,7 @@
-"""Shioaji execution adapter for the EF strong-consensus strategy.
+"""Verified Shioaji adapter for the EF dual-session guard strategy.
 
-The broker reconciliation logic is intentionally shared with H3+EF, while this
-adapter logs in with the second API credential pair so the two strategies do
-not reconcile the same futures account.
+Live mode deliberately requires its own API credential names so this strategy
+cannot accidentally reconcile the H3, strong-consensus, or RSI account.
 """
 
 from __future__ import annotations
@@ -17,10 +16,11 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
 SHARED_ADAPTER_PATH = BACKEND_DIR / "h3-ef-012-strategy" / "auto_trade.py"
+MAX_ABS_TARGET = 10
 
 
 def _load_shared_adapter():
-    module_name = "_h3_ef_012_auto_trade_shared"
+    module_name = "_h3_ef_012_auto_trade_shared_for_dual_session_guard"
     existing = sys.modules.get(module_name)
     if existing is not None:
         return existing
@@ -47,13 +47,23 @@ def _required_env(name: str) -> str:
 
 
 def _login(sj: Any) -> Any:
-    ca_path = Path(os.getenv("CA_PATH") or BACKEND_DIR / "Sinopac.pfx")
+    ca_path = Path(
+        os.getenv("EF_DUAL_SESSION_CA_PATH")
+        or os.getenv("CA_PATH")
+        or BACKEND_DIR / "Sinopac.pfx"
+    )
     if not ca_path.is_file():
         raise FileNotFoundError(f"找不到永豐憑證檔: {ca_path}")
 
     api = sj.Shioaji(simulation=False)
-    api.login(_required_env("API_KEY2"), _required_env("SECRET_KEY2"))
-    person_id = _required_env("PERSON_ID")
+    api.login(
+        _required_env("EF_DUAL_SESSION_API_KEY"),
+        _required_env("EF_DUAL_SESSION_SECRET_KEY"),
+    )
+    person_id = (
+        os.getenv("EF_DUAL_SESSION_PERSON_ID", "").strip()
+        or _required_env("PERSON_ID")
+    )
     api.activate_ca(
         ca_path=str(ca_path),
         ca_passwd=person_id,
@@ -62,15 +72,26 @@ def _login(sj: Any) -> Any:
     return api
 
 
+def validate_target(target_position: object) -> int:
+    if isinstance(target_position, bool) or not isinstance(target_position, int):
+        raise ValueError("EF雙時段策略目標口數必須是整數")
+    if abs(target_position) > MAX_ABS_TARGET:
+        raise ValueError(
+            f"EF雙時段策略目標不得超過正負{MAX_ABS_TARGET}口，目前為{target_position}"
+        )
+    return target_position
+
+
 def execute_target_position(
     target_position: int,
     *,
     api: Any = None,
     sj: Any = None,
 ) -> OrderResult:
-    """Reconcile API_KEY2's real TMF position to ``target_position``."""
+    """Reconcile the dedicated account to the complete filtered EF net target."""
+    target = validate_target(target_position)
     if api is not None:
-        return _shared.execute_target_position(target_position, api=api, sj=sj)
+        return _shared.execute_target_position(target, api=api, sj=sj)
     if sj is None:
         try:
             import shioaji as sj  # type: ignore[no-redef]
@@ -79,7 +100,7 @@ def execute_target_position(
 
     api = _login(sj)
     try:
-        return _shared.execute_target_position(target_position, api=api, sj=sj)
+        return _shared.execute_target_position(target, api=api, sj=sj)
     finally:
         try:
             api.logout()

@@ -42,3 +42,10 @@
 *.session-journal
 private-runtime-files.zip
 *.zip
+
+# Terraform local cache and generated state
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log

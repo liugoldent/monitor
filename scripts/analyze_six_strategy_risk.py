@@ -216,24 +216,6 @@ def separate_ef_actions(
     return start_position, start_gross, actions
 
 
-def cap_separate_targets(
-    events: list[base.EfEvent], targets: dict[int, int], max_gross: int
-) -> dict[int, int]:
-    positions: dict[str, int] = {}
-    capped: dict[int, int] = {}
-    for event in events:
-        previous = positions.get(event.strategy_code, 0)
-        requested = targets[event.row_number]
-        proposed_gross = (
-            sum(abs(value) for code, value in positions.items() if code != event.strategy_code)
-            + abs(requested)
-        )
-        target = requested if requested == 0 or proposed_gross <= max_gross else previous
-        positions[event.strategy_code] = target
-        capped[event.row_number] = target
-    return capped
-
-
 def target_strategy_actions(
     *,
     updates: list[tuple[datetime, str, object]],
@@ -466,32 +448,12 @@ def main() -> None:
         end=end,
     )
 
-    rsi_targets = base.load_rsi_targets(
-        backend / "ef-rsi60-filter-strategy" / "strategy.py", price_path, events, 50.0
-    )
-    rsi_cap2_targets = cap_separate_targets(events, rsi_targets, 2)
-    rsi = separate_ef_actions(
-        events=events,
-        lookup=lookup,
-        start=start,
-        end=end,
-        targets=rsi_targets,
-    )
-    rsi_cap2 = separate_ef_actions(
-        events=events,
-        lookup=lookup,
-        start=start,
-        end=end,
-        targets=rsi_cap2_targets,
-    )
     morning = morning_flat_actions(events, bars, lookup, start, end)
 
     portfolios.extend(
         [
             ("h3_ef_u1", *combined),
             ("ef_strong_threshold2", *strong),
-            ("rsi60_filtered_12", *rsi),
-            ("rsi60_max_gross_2", *rsi_cap2),
             ("ef_0459_flat_wait", *morning),
         ]
     )
@@ -546,10 +508,7 @@ def main() -> None:
         combined_portfolio("base_h_plus_ef", pure_h, pure_ef),
         combined_portfolio("base_plus_h3ef", pure_h, pure_ef, combined),
         combined_portfolio("base_plus_strong", pure_h, pure_ef, strong),
-        combined_portfolio("base_plus_rsi60", pure_h, pure_ef, rsi),
-        combined_portfolio("base_plus_rsi60_cap2", pure_h, pure_ef, rsi_cap2),
         combined_portfolio("base_plus_0459", pure_h, pure_ef, morning),
-        combined_portfolio("base_plus_h3ef_plus_rsi60", pure_h, pure_ef, combined, rsi),
         combined_portfolio("base_plus_h3ef_plus_0459", pure_h, pure_ef, combined, morning),
     ]
     for result in combinations:

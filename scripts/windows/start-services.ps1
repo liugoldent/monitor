@@ -16,8 +16,7 @@ $services = @(
 )
 $retiredStrategyServices = @(
     'six-strategy-listener',
-    'h3-ef-012-strategy',
-    'ef-rsi60-filter-strategy'
+    'h3-ef-012-strategy'
 )
 
 function Get-RootEnvValue([string]$Name) {

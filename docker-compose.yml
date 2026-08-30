@@ -126,23 +126,26 @@ services:
       - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/records:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/records
       - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime
 
-  ef-rsi60-filter-strategy:
+  ef-dual-session-guard-strategy:
     profiles: ["strategies"]
     build:
       context: .
-    container_name: monitor-ef-rsi60-filter-strategy
+    container_name: monitor-ef-dual-session-guard-strategy
     restart: unless-stopped
-    command: ["python", "/app/backend-futures-py/ef-rsi60-filter-strategy/monitor_and_trade.py"]
-    working_dir: /app/backend-futures-py/ef-rsi60-filter-strategy
+    command: ["python", "/app/backend-futures-py/ef-dual-session-guard-strategy/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/ef-dual-session-guard-strategy
     environment:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
+    depends_on:
+      - telegram-signal-relay
+      - webhook-server
     volumes:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
-      - ./backend-futures-py/ef-rsi60-filter-strategy/records:/app/backend-futures-py/ef-rsi60-filter-strategy/records
-      - ./backend-futures-py/ef-rsi60-filter-strategy/runtime:/app/backend-futures-py/ef-rsi60-filter-strategy/runtime
+      - ./backend-futures-py/ef-dual-session-guard-strategy/records:/app/backend-futures-py/ef-dual-session-guard-strategy/records
+      - ./backend-futures-py/ef-dual-session-guard-strategy/runtime:/app/backend-futures-py/ef-dual-session-guard-strategy/runtime
 
   cloudflared:
     profiles: ["tunnel"]
