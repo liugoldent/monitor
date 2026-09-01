@@ -1,0 +1,28 @@
+{
+  "source_row_count": 756,
+  "filtered_positions": {
+    "CFC07m": 0,
+    "CFCTX17m": 1,
+    "CFCTX18m": 0,
+    "CFCTX19m": 0,
+    "CFCTX20m": 1,
+    "CFCTX21m": 1,
+    "CFCWIN01m": 0,
+    "CFCPW3m": 0,
+    "CFCCPm": 0,
+    "CFCTX16m": 0,
+    "CFCTX22m": 0,
+    "CFCTX23m": 0
+  },
+  "last_shadow_target": 3,
+  "shadow_entry_price": 46050.0,
+  "rebuilt_at": "2026-08-27 15:46:21",
+  "pending_shadow_fills": [],
+  "live_started": true,
+  "orders_armed_after_row": 753,
+  "last_order_attempt_target": 3,
+  "last_order_attempt_at": "2026-08-27 21:57:36",
+  "last_order_error_target": 3,
+  "last_order_error_at": "2026-08-27 21:57:36",
+  "last_order_error": "永豐拒絕委託（99Q9）：可委託金額不足"
+}

@@ -1,0 +1,22 @@
+{
+  "strategy": "EF RSI60 Filter",
+  "mode": "live_api_key2",
+  "rule": "bull RSI14>=50; bear RSI14<=50 on last completed 60m bar",
+  "net_position": 3,
+  "filtered_positions": {
+    "CFC07m": 0,
+    "CFCTX17m": 1,
+    "CFCTX18m": 0,
+    "CFCTX19m": 0,
+    "CFCTX20m": 1,
+    "CFCTX21m": 1,
+    "CFCWIN01m": 0,
+    "CFCPW3m": 0,
+    "CFCCPm": 0,
+    "CFCTX16m": 0,
+    "CFCTX22m": 0,
+    "CFCTX23m": 0
+  },
+  "last_reason": "原策略出場，無條件關閉此策略的影子部位",
+  "updated_at": "2026-08-27 21:57:36"
+}

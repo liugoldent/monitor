@@ -1,0 +1,5 @@
+timestamp,source_row,strategy_code,strategy_name,raw_previous_position,raw_new_position,rsi_bar_time,rsi14,allowed,previous_filtered_position,filtered_position,previous_net_position,net_position,reason
+2026-08-27 16:00:01,753,CFCWIN01m,智能引擎1號,1,-1,2026-08-27 12:45:00,57.712178,False,1,0,5,4,60分RSI14=57.71，需≤50，阻擋新進場
+2026-08-27 21:30:24,754,CFCTX17m,財神列車17號,0,1,2026-08-27 20:00:00,58.969383,True,0,1,4,5,60分RSI14=58.97，需≥50，允許新進場
+2026-08-27 21:57:03,755,CFCTX16m,財神列車16號,1,0,2026-08-27 20:00:00,58.969383,,1,0,5,4,原策略出場，無條件關閉此策略的影子部位
+2026-08-27 21:57:31,756,CFC07m,財神列車7號,1,0,2026-08-27 20:00:00,58.969383,,1,0,4,3,原策略出場，無條件關閉此策略的影子部位
