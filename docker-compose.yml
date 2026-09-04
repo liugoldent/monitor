@@ -48,6 +48,7 @@ services:
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
   regression-mean-reversion-morning-flat-strategy:
+    profiles: ["strategies"]
     build:
       context: .
     container_name: monitor-regression-mean-reversion-morning-flat-strategy
@@ -68,6 +69,20 @@ services:
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
       - ./backend-futures-py/regression-mean-reversion-morning-flat-strategy/records:/app/backend-futures-py/regression-mean-reversion-morning-flat-strategy/records
       - ./backend-futures-py/regression-mean-reversion-morning-flat-strategy/runtime:/app/backend-futures-py/regression-mean-reversion-morning-flat-strategy/runtime
+
+  options-level-monitor:
+    build:
+      context: .
+    container_name: monitor-options-level-monitor
+    restart: unless-stopped
+    command: ["python", "/app/backend-futures-py/options-level-monitor/monitor.py", "--clear-screen"]
+    working_dir: /app/backend-futures-py/options-level-monitor
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./backend-futures-py/options-level-monitor/runtime:/app/backend-futures-py/options-level-monitor/runtime
+      - ./backend-futures-py/tv/_doc:/app/backend-futures-py/tv/_doc
 
   six-strategy-listener:
     profiles: ["strategies"]

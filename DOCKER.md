@@ -35,8 +35,8 @@ run-windows-services.cmd
 ```
 
 它會開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、`Webhook Server`、
-`Cloudflare Tunnel`，以及 `Mean Reversion LIVE - API KEY2`、
-`EF Strong Consensus LIVE - API KEY` 六個 log 頁籤；其他舊策略會先被停止。
+`Cloudflare Tunnel`、`EF Strong Consensus LIVE - API KEY`，以及
+`TX Options Level Monitor` 六個頁籤；均值回歸與其他舊策略會先被停止。
 
 看 log：
 
@@ -50,8 +50,9 @@ docker compose logs -f telegram-signal-relay
 docker compose down
 ```
 
-預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`，以及兩個
-已授權實單策略：回歸通道均值回歸（API KEY2）與 EF 強共識（API KEY）。
+預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`、
+`options-level-monitor`，以及已授權的 EF 強共識實單策略（API KEY）。
+均值回歸已改為選用的 `strategies` profile，不會由預設啟動流程啟動。
 前三個服務維持核心資料：
 
 ```text
@@ -66,7 +67,7 @@ MXF 籌碼 -> backend-futures-py/tv_doc/mxf_value.csv
 Telegram 稽核紀錄 -> backend-futures-py/telegram-relay-records/telegram_signal_events.jsonl
 ```
 
-每次服務程序啟動時，H relay、EF relay、均值回歸與 EF 強共識各自會向專用
+每次服務程序啟動時，H relay、EF relay 與 EF 強共識各自會向專用
 Discord webhook 發送一次啟動通知；relay 的通知結果也會寫入稽核 JSONL。
 
 `cloudflared` 仍是手動啟動，避免 Docker 啟動時未經確認就對外開放服務。

@@ -22,9 +22,9 @@ run-windows-services.cmd
 
 1. 檢查必要檔案與 Docker。
 2. 必要時啟動 Docker Desktop並等待引擎就緒。
-3. 第一次使用時初始化 H3+EF Telegram session。
-4. 啟動 `monitor-mxf`、`webhook-server`、`h3-ef-012-strategy`、`cloudflared`。
-5. 在 Windows Terminal 分頁顯示各服務 log；沒有 Windows Terminal 時改開 PowerShell。
+3. 停止均值回歸與其他舊策略容器。
+4. 啟動五個原有 Docker 服務與 `options-level-monitor`。
+5. 在 Windows Terminal 開六個分頁顯示各服務 log；沒有 Windows Terminal 時改開 PowerShell。
 
 不重新 build image：
 

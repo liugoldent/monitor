@@ -11,12 +11,13 @@ $services = @(
     'monitor-mxf',
     'webhook-server',
     'cloudflared',
-    'regression-mean-reversion-morning-flat-strategy',
-    'ef-strong-consensus-morning-flat-strategy'
+    'ef-strong-consensus-morning-flat-strategy',
+    'options-level-monitor'
 )
 $retiredStrategyServices = @(
     'six-strategy-listener',
-    'h3-ef-012-strategy'
+    'h3-ef-012-strategy',
+    'regression-mean-reversion-morning-flat-strategy'
 )
 
 function Get-RootEnvValue([string]$Name) {
@@ -97,8 +98,12 @@ $logWindows = @(
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
-    @{ Title = 'Mean Reversion LIVE - API KEY2'; Service = 'regression-mean-reversion-morning-flat-strategy' },
-    @{ Title = 'EF Strong Consensus LIVE - API KEY'; Service = 'ef-strong-consensus-morning-flat-strategy' }
+    @{ Title = 'EF Strong Consensus LIVE - API KEY'; Service = 'ef-strong-consensus-morning-flat-strategy' },
+    @{
+        Title = 'TX Options Level Monitor'
+        Service = 'options-level-monitor'
+        ClearMarker = '__OPTIONS_LEVEL_MONITOR_CLEAR__'
+    }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {
@@ -106,6 +111,9 @@ foreach ($item in $logWindows) {
         '-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', $watchScript,
         '-Title', $item.Title, '-ServiceNames', $item.Service, '-ProjectDir', $projectDir
     )
+    if ($item.ClearMarker) {
+        $watchArgs += @('-ClearMarker', $item.ClearMarker)
+    }
     if ($terminal) {
         $terminalArgs = @(
             '--window', 'monitor-services', 'new-tab',
@@ -128,6 +136,9 @@ foreach ($item in $logWindows) {
             '-ServiceNames', ('"{0}"' -f $item.Service),
             '-ProjectDir', ('"{0}"' -f $projectDir)
         )
+        if ($item.ClearMarker) {
+            $quotedWatchArgs += @('-ClearMarker', ('"{0}"' -f $item.ClearMarker))
+        }
         Start-Process powershell.exe -ArgumentList $quotedWatchArgs
     }
     Start-Sleep -Milliseconds 300
