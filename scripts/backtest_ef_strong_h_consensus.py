@@ -20,7 +20,7 @@ DAY_OPEN = time(8, 45)
 class HEvent:
     timestamp: datetime
     position: int
-    price: float
+    price: float | None
 
 
 @dataclass(frozen=True)
@@ -96,11 +96,10 @@ def load_continuous_h(tv_export: Path, live_events_path: Path) -> tuple[list[HEv
         raise RuntimeError(f"No H events in {tv_export}")
     cutoff = historical[-1].timestamp
     combined: dict[datetime, HEvent] = {}
-    skipped_without_price = 0
+    proxied_without_price = 0
     for event in historical:
         if event.exact_price is None:
-            skipped_without_price += 1
-            continue
+            proxied_without_price += 1
         combined[event.timestamp] = HEvent(
             event.timestamp, event.new_position, event.exact_price
         )
@@ -108,12 +107,11 @@ def load_continuous_h(tv_export: Path, live_events_path: Path) -> tuple[list[HEv
         if event.timestamp <= cutoff:
             continue
         if event.exact_price is None:
-            skipped_without_price += 1
-            continue
+            proxied_without_price += 1
         combined[event.timestamp] = HEvent(
             event.timestamp, event.new_position, event.exact_price
         )
-    return [combined[key] for key in sorted(combined)], skipped_without_price
+    return [combined[key] for key in sorted(combined)], proxied_without_price
 
 
 def load_h_export(path: Path) -> tuple[list[HEvent], int]:
@@ -234,7 +232,18 @@ def build_actions(
             actions.append(Action(bar.bar_time, 0, "flatten", bar.open))
     for event in h_events:
         if warmup <= event.timestamp <= end:
-            actions.append(Action(event.timestamp, 1, "h", event.price, event))
+            if event.price is not None:
+                actions.append(Action(event.timestamp, 1, "h", event.price, event))
+                continue
+            target_time = event.timestamp.replace(second=0, microsecond=0) + timedelta(
+                minutes=1
+            )
+            index = bisect.bisect_left(times, target_time)
+            if index >= len(bars) or bars[index].bar_time > end:
+                missing += 1
+                continue
+            fill = bars[index]
+            actions.append(Action(fill.bar_time, 1, "h", fill.open, event))
     for event in ef_events:
         if event.timestamp < warmup or event.timestamp > end:
             continue
@@ -393,20 +402,21 @@ def main() -> None:
     )
     if args.h_source is not None:
         h_path_text = str(args.h_source)
-        h_events, h_skipped = load_h_export(args.h_source)
+        h_events, h_proxied = load_h_export(args.h_source)
     else:
         tv_export = Path.home() / "Downloads" / "h3.csv"
         live_events_path = backend / "h3-ef-012-strategy" / "records" / "h3_position_events.csv"
         h_path_text = f"{tv_export}+{live_events_path}"
-        h_events, h_skipped = load_continuous_h(tv_export, live_events_path)
+        h_events, h_proxied = load_continuous_h(tv_export, live_events_path)
     start = base.parse_time(args.start)
     end = base.parse_time(args.end)
 
     print(
         f"period={start}..{end} ef_event_time=received_at ef_fill=strict_next_1m_open "
-        f"h_source={h_path_text} h_fill=recorded_exact_price point_value={POINT_VALUE:g} "
+        f"h_source={h_path_text} h_fill=recorded_exact_or_strict_next_1m_open "
+        f"point_value={POINT_VALUE:g} "
         f"one_way_cost_twd={args.one_way_cost_twd:g} untimed_skipped={untimed} "
-        f"duplicate_events={duplicates} h_without_price_skipped={h_skipped} "
+        f"duplicate_events={duplicates} h_without_price_proxied={h_proxied} "
         f"h_last={h_events[-1].timestamp}"
     )
     print(

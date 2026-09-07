@@ -40,6 +40,7 @@ class Result:
     marked_bars: int = 0
     scheduled_flats: int = 0
     scheduled_reopens: int = 0
+    missing_fills: int = 0
 
     @property
     def total(self) -> float:
@@ -66,8 +67,9 @@ def build_actions(
     h_events: list[HEvent],
     warmup: datetime,
     end: datetime,
-) -> list[Action]:
+) -> tuple[list[Action], int]:
     actions: list[Action] = []
+    missing_fills = 0
     if policy != "hold":
         day_open_bars = [bar for bar in bars if bar.bar_time.time() == DAY_OPEN]
         day_open_times = [bar.bar_time for bar in day_open_bars]
@@ -88,10 +90,25 @@ def build_actions(
                     actions.append(
                         Action(reopen_bar.bar_time, 2, "reopen", reopen_bar.open)
                     )
+    bar_times = [bar.bar_time for bar in bars]
     for event in h_events:
         if warmup <= event.timestamp <= end:
-            actions.append(Action(event.timestamp, 1, "h", event.price, event))
-    return sorted(actions, key=lambda action: (action.timestamp, action.priority))
+            if event.price is not None:
+                actions.append(Action(event.timestamp, 1, "h", event.price, event))
+                continue
+            target_time = event.timestamp.replace(second=0, microsecond=0) + timedelta(
+                minutes=1
+            )
+            index = bisect.bisect_left(bar_times, target_time)
+            if index >= len(bars) or bars[index].bar_time > end:
+                missing_fills += 1
+                continue
+            fill = bars[index]
+            actions.append(Action(fill.bar_time, 1, "h", fill.open, event))
+    return (
+        sorted(actions, key=lambda action: (action.timestamp, action.priority)),
+        missing_fills,
+    )
 
 
 def action_target(
@@ -137,7 +154,7 @@ def run(
         h_position = event.position
     position = h_position if policy == "hold" else 0
     waiting = policy == "wait"
-    actions = build_actions(
+    actions, missing_fills = build_actions(
         policy=policy,
         bars=bars,
         h_events=h_events,
@@ -155,7 +172,11 @@ def run(
         action_index += 1
 
     entry_price: float | None = eligible[0].open if position else None
-    result = Result(name=name, ending_position=position)
+    result = Result(
+        name=name,
+        ending_position=position,
+        missing_fills=missing_fills,
+    )
     realized = 0.0
     peak = 0.0
     current_position = position
@@ -230,25 +251,27 @@ def main() -> None:
     bars = base.load_prices(backend / "tv_doc" / "webhook_data_1min.csv")
     if args.h_source is not None:
         h_path_text = str(args.h_source)
-        h_events, h_skipped = load_h_export(args.h_source)
+        h_events, h_proxied = load_h_export(args.h_source)
     else:
         tv_export = Path.home() / "Downloads" / "h3.csv"
         live_events_path = backend / "h3-ef-012-strategy" / "records" / "h3_position_events.csv"
         h_path_text = f"{tv_export}+{live_events_path}"
-        h_events, h_skipped = load_continuous_h(tv_export, live_events_path)
+        h_events, h_proxied = load_continuous_h(tv_export, live_events_path)
     start = base.parse_time(args.start)
     end = base.parse_time(args.end)
 
     print(
-        f"period={start}..{end} h_source={h_path_text} h_signal_fill=recorded_exact_price "
+        f"period={start}..{end} h_source={h_path_text} "
+        f"h_signal_fill=recorded_exact_or_strict_next_1m_open "
         f"flat_fill=04:59_open reopen_fill=08:45_open point_value={POINT_VALUE:g} "
-        f"one_way_cost_twd={args.one_way_cost_twd:g} h_without_price_skipped={h_skipped} "
+        f"one_way_cost_twd={args.one_way_cost_twd:g} "
+        f"h_without_price_proxied={h_proxied} "
         f"h_last={h_events[-1].timestamp}"
     )
     print(
         "policy gross_profit_twd gross_loss_twd PF closed_legs realized_twd "
         "unrealized_twd total_twd turnover estimated_net_twd max_drawdown_twd "
-        "ending_position exposure flats reopens"
+        "ending_position exposure flats reopens missing_fills"
     )
     for name, policy in (
         ("hold_through_break", "hold"),
@@ -282,6 +305,7 @@ def main() -> None:
             f"{exposure:.3f}",
             result.scheduled_flats,
             result.scheduled_reopens,
+            result.missing_fills,
         )
 
 

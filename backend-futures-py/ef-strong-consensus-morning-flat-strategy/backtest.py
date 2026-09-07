@@ -3,8 +3,9 @@ from __future__ import annotations
 import argparse
 import bisect
 import math
+import statistics
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, time
 from pathlib import Path
 
 from strategy import (
@@ -42,6 +43,7 @@ class Result:
     marked_bars: int = 0
     missing_fills: int = 0
     trade_pnls: list[float] = field(default_factory=list)
+    equity_curve: list[tuple[datetime, float, int]] = field(default_factory=list)
 
     @property
     def total(self) -> float:
@@ -176,6 +178,7 @@ def run(
         result.max_drawdown = min(result.max_drawdown, equity - peak)
         result.marked_bars += 1
         result.unrealized = unrealized
+        result.equity_curve.append((bar.bar_time, equity, result.turnover))
 
     result.realized = realized
     result.ending_position = position
@@ -188,6 +191,64 @@ def run(
 
 def fmt(value: float) -> str:
     return "inf" if math.isinf(value) else f"{value:.2f}"
+
+
+def daily_net_points(
+    result: Result,
+    bars: list[PriceBar],
+    *,
+    start: datetime,
+    end: datetime,
+    one_way_cost: float,
+) -> list[tuple[date, float]]:
+    """Attribute marked-to-market P&L to each completed Taiwan day session.
+
+    A Taiwan futures trading day includes the preceding night session.  Only
+    dates with an observed 08:45-13:45 day session are reported, so a partial
+    night session at the end of a live file is not mislabeled as a completed
+    trading day.
+    """
+    open_dates = sorted(
+        {
+            bar.bar_time.date()
+            for bar in bars
+            if start <= bar.bar_time <= end
+            and time(8, 45) <= bar.bar_time.time() <= time(13, 45)
+        }
+    )
+    if not open_dates:
+        return []
+    open_date_set = set(open_dates)
+    end_equity: dict[date, float] = {}
+    for timestamp, gross_equity, turnover in result.equity_curve:
+        if timestamp.time() >= time(15, 0):
+            index = bisect.bisect_right(open_dates, timestamp.date())
+            if index >= len(open_dates):
+                continue
+            trading_date = open_dates[index]
+        elif timestamp.date() in open_date_set:
+            trading_date = timestamp.date()
+        else:
+            continue
+        end_equity[trading_date] = gross_equity - turnover * one_way_cost
+
+    daily: list[tuple[date, float]] = []
+    prior_equity = 0.0
+    for trading_date in open_dates:
+        if trading_date not in end_equity:
+            continue
+        current = end_equity[trading_date]
+        daily.append((trading_date, current - prior_equity))
+        prior_equity = current
+    return daily
+
+
+def max_consecutive_negative(values: list[float]) -> int:
+    worst = current = 0
+    for value in values:
+        current = current + 1 if value < 0 else 0
+        worst = max(worst, current)
+    return worst
 
 
 def main() -> None:
@@ -206,6 +267,11 @@ def main() -> None:
         help="One-way cost in points; 2.4 points on TMF is NT$24, or NT$48 round trip.",
     )
     parser.add_argument("--point-value", type=float, default=10.0)
+    parser.add_argument(
+        "--daily-report",
+        action="store_true",
+        help="Report marked-to-market net points per completed Taiwan trading day.",
+    )
     args = parser.parse_args()
 
     start = parse_time(args.start)
@@ -255,6 +321,29 @@ def main() -> None:
         f"estimated_net_twd={estimated_net * args.point_value:.2f} "
         f"max_drawdown_twd={result.max_drawdown * args.point_value:.2f}"
     )
+    if args.daily_report:
+        daily = daily_net_points(
+            result,
+            bars,
+            start=start,
+            end=end,
+            one_way_cost=args.one_way_cost,
+        )
+        values = [value for _, value in daily]
+        if values:
+            print(
+                "daily_completed="
+                f"{len(values)} average_net_points={statistics.fmean(values):.2f} "
+                f"median_net_points={statistics.median(values):.2f} "
+                f"completed_net_points={sum(values):.2f} "
+                f"active_days={sum(value != 0 for value in values)} "
+                f"positive_days={sum(value > 0 for value in values)} "
+                f"days_ge_50={sum(value >= 50 for value in values)} "
+                f"best_day={max(values):.2f} worst_day={min(values):.2f} "
+                f"max_consecutive_negative={max_consecutive_negative(values)}"
+            )
+            for trading_date, value in daily:
+                print(f"daily {trading_date.isoformat()} {value:.2f}")
 
 
 if __name__ == "__main__":
