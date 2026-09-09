@@ -86,6 +86,28 @@ class WebhookTests(unittest.TestCase):
 
 
 class LiveOrderTests(unittest.TestCase):
+    def test_atomic_json_save_retries_transient_replace_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            original_replace = Path.replace
+            calls = 0
+
+            def replace_after_one_lock(source, target):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise PermissionError("temporarily locked")
+                return original_replace(source, target)
+
+            with patch.object(Path, "replace", replace_after_one_lock), patch.object(
+                monitor.time, "sleep"
+            ):
+                saved = monitor.save_json_atomic(path, {"position": 1})
+
+            self.assertTrue(saved)
+            self.assertEqual(calls, 2)
+            self.assertEqual(monitor.load_json(path, {}), {"position": 1})
+
     def test_live_target_uses_verified_reconciliation(self):
         state = {}
         result = SimpleNamespace(
@@ -198,6 +220,48 @@ class LiveOrderTests(unittest.TestCase):
         self.assertIn("下單失敗", text)
         self.assertEqual([row["event"] for row in rows], ["attempt_started", "failed"])
         self.assertEqual(rows[-1]["trigger"], "test_failure")
+
+    def test_order_is_blocked_when_duplicate_guard_cannot_be_persisted(self):
+        state = {}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ,
+            {monitor.ENABLE_ORDERS_ENV: "true"},
+            clear=False,
+        ), patch.object(
+            monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
+        ), patch.object(
+            monitor, "save_json_atomic", return_value=False
+        ), patch.object(monitor, "execute_target_position") as execute:
+            text = monitor.execute_live_target(state, 1, trigger="test")
+
+        execute.assert_not_called()
+        self.assertIn("基於安全未送單", text)
+
+    def test_idle_poll_does_not_rewrite_state(self):
+        positions = {code: 0 for code in ALL_STRATEGIES}
+        state = {
+            "live_source_row_count": 0,
+            "live_raw_positions": positions,
+            "live_target_position": 0,
+            "source_row_count": 0,
+            "raw_positions": positions,
+            "position": 0,
+        }
+        with patch.dict(
+            monitor.os.environ,
+            {monitor.ENABLE_ORDERS_ENV: "true"},
+            clear=False,
+        ), patch.object(monitor, "save_json_atomic") as save:
+            monitor.process_live_rows(state, [], threshold=2)
+            monitor.process_new_rows(
+                state,
+                [],
+                [],
+                datetime(2026, 9, 9, 11, 0),
+                threshold=2,
+            )
+
+        save.assert_not_called()
 
     def test_new_signal_executes_immediately_without_waiting_for_price_bar(self):
         positions = {code: 0 for code in ALL_STRATEGIES}

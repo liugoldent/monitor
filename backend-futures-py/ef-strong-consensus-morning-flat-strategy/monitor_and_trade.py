@@ -93,6 +93,8 @@ CLOCK_EVENT_FIELDS = [
 ENABLE_ORDERS_ENV = "EF_STRONG_MORNING_FLAT_ENABLE_ORDERS"
 POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
+STATE_SAVE_ATTEMPTS = 8
+STATE_SAVE_RETRY_SECONDS = 0.05
 
 
 def load_env_file(path: Path) -> None:
@@ -147,11 +149,32 @@ def load_json(path: Path, default: dict) -> dict:
     return value if isinstance(value, dict) else dict(default)
 
 
-def save_json_atomic(path: Path, value: dict) -> None:
+def save_json_atomic(path: Path, value: dict) -> bool:
+    """Persist JSON without letting a transient OneDrive lock stop the monitor."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    payload = json.dumps(value, ensure_ascii=False, indent=2)
+    last_error: OSError | None = None
+    for attempt in range(STATE_SAVE_ATTEMPTS):
+        temporary = path.with_name(
+            f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            temporary.write_text(payload, encoding="utf-8")
+            temporary.replace(path)
+            return True
+        except OSError as exc:
+            last_error = exc
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if attempt + 1 < STATE_SAVE_ATTEMPTS:
+                time.sleep(STATE_SAVE_RETRY_SECONDS * (attempt + 1))
+    print(
+        f"⚠️ 狀態檔暫時無法寫入，監控將繼續但不會冒險送出新委託："
+        f"{path} ({last_error})"
+    )
+    return False
 
 
 def append_csv(path: Path, fields: list[str], row: dict[str, object]) -> None:
@@ -316,7 +339,15 @@ def execute_live_target(
     state["last_order_attempt_target"] = broker_target
     state["last_order_attempt_at"] = attempted_at
     state["last_order_trigger"] = trigger
-    save_json_atomic(STATE_PATH, state)
+    if not save_json_atomic(STATE_PATH, state):
+        append_order_event(
+            attempt_id=attempt_id,
+            event="blocked_state_persistence",
+            trigger=trigger,
+            target=broker_target,
+            detail="防重送狀態無法安全寫入，基於安全未呼叫券商下單",
+        )
+        return "❌ 狀態檔無法安全寫入，基於安全未送單"
     try:
         result = execute_target_position(broker_target)
     except Exception as exc:
@@ -510,6 +541,7 @@ def process_live_rows(
 ) -> None:
     if not env_flag(ENABLE_ORDERS_ENV):
         return
+    state_before = json.dumps(state, ensure_ascii=False, sort_keys=True)
     previous_count = int(state.get("live_source_row_count") or 0)
     positions = normalized_positions(state.get("live_raw_positions"))
     current = int(state.get("live_target_position", state.get("position") or 0))
@@ -552,7 +584,8 @@ def process_live_rows(
     state["live_raw_positions"] = positions
     state["live_source_row_count"] = len(rows)
     state["live_target_position"] = current
-    save_json_atomic(STATE_PATH, state)
+    if json.dumps(state, ensure_ascii=False, sort_keys=True) != state_before:
+        save_json_atomic(STATE_PATH, state)
 
 
 def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
@@ -751,6 +784,7 @@ def process_new_rows(
     cutoff: datetime,
     threshold: int,
 ) -> None:
+    state_before = json.dumps(state, ensure_ascii=False, sort_keys=True)
     previous_count = int(state.get("source_row_count") or 0)
     raw_positions = normalized_positions(state.get("raw_positions"))
     for row_number, row in enumerate(rows[previous_count:], start=previous_count + 1):
@@ -792,7 +826,8 @@ def process_new_rows(
         send_discord(message)
     apply_due_flatten(state, bars, cutoff)
     state["raw_positions"] = raw_positions
-    save_json_atomic(STATE_PATH, state)
+    if json.dumps(state, ensure_ascii=False, sort_keys=True) != state_before:
+        save_json_atomic(STATE_PATH, state)
 
 
 def main() -> None:
@@ -837,7 +872,6 @@ def main() -> None:
                 state,
                 startup_base_target,
                 trigger="startup_reconcile",
-                force_reconcile=True,
             )
         startup_message = (
             "✅【開始監控｜EF強共識＋04:59清倉】\n"
