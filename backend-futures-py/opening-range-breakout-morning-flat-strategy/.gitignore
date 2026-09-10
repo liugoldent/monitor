@@ -1,7 +1,0 @@
-records/*
-!records/.gitkeep
-runtime/*
-!runtime/.gitkeep
-__pycache__/
-tests/__pycache__/
-

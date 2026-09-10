@@ -14,11 +14,6 @@ $services = @(
     'ef-strong-consensus-morning-flat-strategy',
     'options-level-monitor'
 )
-$retiredStrategyServices = @(
-    'six-strategy-listener',
-    'regression-mean-reversion-morning-flat-strategy'
-)
-
 function Get-RootEnvValue([string]$Name) {
     if (-not (Test-Path -LiteralPath $rootEnvPath -PathType Leaf)) { return $null }
     foreach ($line in Get-Content -LiteralPath $rootEnvPath) {
@@ -81,10 +76,6 @@ if (-not (Test-DockerEngine)) {
 }
 Push-Location $projectDir
 try {
-    # Pure recording mode: make sure no old restart-enabled strategy container
-    # can run beside the Telegram relay.
-    & docker compose --profile strategies stop @retiredStrategyServices
-    if ($LASTEXITCODE -ne 0) { throw "Could not stop retired strategy services: $LASTEXITCODE" }
     $composeArgs = @('compose', '--profile', 'tunnel', 'up', '--detach')
     if (-not $NoBuild) { $composeArgs += '--build' }
     $composeArgs += $services

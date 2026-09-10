@@ -51,6 +51,7 @@ backend-futures-py/telegram-relay-runtime/
 backend-futures-py/telegram-relay-records/h_position_events.csv
 backend-futures-py/telegram-relay-records/ef_position_events.csv
 backend-futures-py/tv_doc/research_outputs/pure_ef_second_account_hedge_plan_*.md
+backend-futures-py/.retired-data/
 
 # Terraform local cache and generated state
 **/.terraform/

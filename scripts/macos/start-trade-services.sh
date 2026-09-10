@@ -17,7 +17,7 @@ on run argv
     tell current session of mainWindow
       write text "cd " & quoted form of backendDir
       write text "source .venv/bin/activate"
-      write text "python monitor_and_trade_six_strategy.py"
+      write text "python telegram_signal_relay.py"
     end tell
 
     set strategyWindow to (create window with default profile)

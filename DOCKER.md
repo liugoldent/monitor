@@ -36,7 +36,7 @@ run-windows-services.cmd
 
 它會開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、`Webhook Server`、
 `Cloudflare Tunnel`、`EF Strong Consensus LIVE - API KEY`，以及
-`TX Options Level Monitor` 六個頁籤；均值回歸與其他舊策略會先被停止。
+`TX Options Level Monitor` 六個頁籤。
 
 看 log：
 
@@ -52,7 +52,6 @@ docker compose down
 
 預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`、
 `options-level-monitor`，以及已授權的 EF 強共識實單策略（API KEY）。
-均值回歸已改為選用的 `strategies` profile，不會由預設啟動流程啟動。
 前三個服務維持核心資料：
 
 ```text
@@ -82,17 +81,6 @@ docker compose --profile tunnel up -d cloudflared
 ```bash
 docker compose --profile legacy up monitor
 ```
-
-### 其他已停用的策略服務
-
-其他舊策略已放入獨立 `strategies` profile，不會隨一般 Docker 啟動。
-若日後要明確恢復：
-
-```powershell
-docker compose --profile strategies up -d --build
-```
-
-一般 `docker compose up` 不會啟動這個 profile。
 
 ## 對外 port
 
@@ -125,7 +113,6 @@ Docker image 不會打包 `.env` 和 `.pfx`，避免憑證被 bake 進 image。
 ```text
 backend-futures-py/.env
 backend-futures-py/Sinopac.pfx
-backend-futures-py/session_monitor_six_strategy.session
 backend-heyu-node/.env
 frontend-vue/.env
 ```
@@ -156,7 +143,7 @@ SERVICE_FILTER=webhook-server,mongo-market-api,frontend-vue docker compose up --
 服務名稱：
 
 ```text
-six-strategy
+telegram-relay
 heyu-node
 monitor-mxf
 monitor-stock-futures

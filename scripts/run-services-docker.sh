@@ -49,7 +49,7 @@ stop_services() {
 
 trap stop_services INT TERM EXIT
 
-start_service "six-strategy" "backend-futures-py" python monitor_and_trade_six_strategy.py
+start_service "telegram-relay" "backend-futures-py" python telegram_signal_relay.py
 start_service "heyu-node" "backend-heyu-node" node index.js
 start_service "monitor-mxf" "backend-futures-py" python monitor_mxf.py
 start_service "monitor-stock-futures" "backend-futures-py" python monitor_stock_futures.py

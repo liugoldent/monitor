@@ -37,10 +37,9 @@ E 組與 F 組各包含六套既有策略。無論同向票數多高，組合最
 
 ## EF訊號資料流
 
-H3+EF融合服務已停用，Telegram收訊改由獨立的
-`six-strategy-listener` 服務負責。它持續將有效E/F事件寫入
-`tv_doc/six_strategy_signal_events.csv`；本策略和其他EF策略只讀取這份共用事件檔。
-獨立收訊服務的舊版下單開關固定關閉，不會與新強共識帳號重複下單。
+Telegram 收訊由獨立的 `telegram-signal-relay` 服務負責。它只記錄與轉發訊號，
+持續將有效 E/F 事件寫入 `tv_doc/six_strategy_signal_events.csv`，不會使用券商帳戶
+或送出委託；本策略只讀取這份共用事件檔。
 
 ## 目錄與輸出
 
