@@ -561,7 +561,7 @@ def main() -> None:
     price_path = backend / "tv_doc" / "webhook_data_1min.csv"
     signal_path = backend / "tv_doc" / "six_strategy_signal_events.csv"
     legacy_h_path = (
-        backend / "h3-ef-012-strategy" / "records" / "h3_position_events.csv"
+        backend / "telegram-relay-records" / "h_position_events.csv"
     )
     h_path = args.h_source if args.h_source.exists() else legacy_h_path
     bars = load_prices(price_path)

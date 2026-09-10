@@ -16,7 +16,6 @@ $services = @(
 )
 $retiredStrategyServices = @(
     'six-strategy-listener',
-    'h3-ef-012-strategy',
     'regression-mean-reversion-morning-flat-strategy'
 )
 

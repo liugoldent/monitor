@@ -1,4 +1,4 @@
-"""Shioaji execution adapter for the H3 + EF target-position strategy.
+"""Shared Shioaji execution adapter for TMF target-position strategies.
 
 This module deliberately knows nothing about Telegram or strategy decisions.  Its
 only public operation reconciles the account's TMF position to a requested net
@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import Any
 
 
-BASE_DIR = Path(__file__).resolve().parent
-BACKEND_DIR = BASE_DIR.parent
+BACKEND_DIR = Path(__file__).resolve().parent
 ORDER_TIMEOUT_MS = 30_000
 ORDER_CALLBACK_TIMEOUT_SECONDS = 5
 POSITION_VERIFY_ATTEMPTS = 5

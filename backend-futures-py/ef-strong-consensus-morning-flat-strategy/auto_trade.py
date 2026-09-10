@@ -1,7 +1,7 @@
 """Verified Shioaji adapter for EF strong consensus + 04:59 morning flat.
 
-The order reconciliation implementation is shared with H3+EF. This strategy
-uses the primary API credential pair selected by the operator.
+The order reconciliation implementation is shared by active TMF strategies.
+This strategy uses the primary API credential pair selected by the operator.
 """
 
 from __future__ import annotations
@@ -15,13 +15,13 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
-SHARED_ADAPTER_PATH = BACKEND_DIR / "h3-ef-012-strategy" / "auto_trade.py"
+SHARED_ADAPTER_PATH = BACKEND_DIR / "shioaji_tmf_target.py"
 POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
 
 
 def _load_shared_adapter():
-    module_name = "_h3_ef_012_auto_trade_shared_for_ef_strong_morning_flat"
+    module_name = "_shioaji_tmf_target_shared_for_ef_strong_morning_flat"
     existing = sys.modules.get(module_name)
     if existing is not None:
         return existing

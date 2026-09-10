@@ -29,9 +29,8 @@ EF_SIGNAL_LOG_PATH = TV_DOC_DIR / "six_strategy_signal_events.csv"
 H_TRADE_LOG_PATH = TV_DOC_DIR / "h_trade.csv"
 WEBHOOK_DATA_1MIN_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
 MXF_VALUE_CSV_PATH = TV_DOC_DIR / "mxf_value.csv"
-H3_RECORDS_DIR = BASE_DIR / "h3-ef-012-strategy" / "records"
-H_POSITION_EVENT_PATH = H3_RECORDS_DIR / "h3_position_events.csv"
-EF_POSITION_EVENT_PATH = H3_RECORDS_DIR / "ef_position_events.csv"
+H_POSITION_EVENT_PATH = RECORDS_DIR / "h_position_events.csv"
+EF_POSITION_EVENT_PATH = RECORDS_DIR / "ef_position_events.csv"
 SESSION_PATH = Path(
     os.getenv(
         "TELEGRAM_RELAY_SESSION_PATH",

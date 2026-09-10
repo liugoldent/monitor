@@ -26,10 +26,11 @@ Cloudflare token 依序讀取：
 ## 啟動的正式服務
 
 ```text
+monitor_and_trade_six_strategy.py
+ef-strong-consensus-morning-flat-strategy/monitor_and_trade.py
 monitor_mxf.py
 webhook_server.py
 cloudflared tunnel
-h3-ef-012-strategy/monitor_and_trade.py
 ```
 
 `monitor_and_trade_six_strategy.py` 與 `monitor_render_ping.py` 已退出正式啟動清單。

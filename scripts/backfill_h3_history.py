@@ -32,7 +32,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--records-dir",
         type=Path,
-        default=root / "backend-futures-py" / "h3-ef-012-strategy" / "records",
+        default=root / "backend-futures-py" / "telegram-relay-records",
+    )
+    parser.add_argument(
+        "--backup-dir",
+        type=Path,
+        default=root / "backend-futures-py" / "telegram-relay-runtime" / "backups",
     )
     parser.add_argument(
         "--prices",
@@ -58,8 +63,7 @@ def write_csv_atomic(
     temporary.replace(path)
 
 
-def backup_once(path: Path) -> Path:
-    backup_dir = path.parent.parent / "runtime" / "backups"
+def backup_once(path: Path, backup_dir: Path) -> Path:
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup = backup_dir / f"{path.stem}.before_h3_csv_backfill{path.suffix}"
     if not backup.exists():
@@ -210,7 +214,7 @@ def rebuild_trade_rows(
 def main() -> None:
     args = parse_args()
     start = datetime.strptime(args.from_date, "%Y-%m-%d")
-    position_path = args.records_dir / "h3_position_events.csv"
+    position_path = args.records_dir / "h_position_events.csv"
     trade_path = args.records_dir / "h3_trade.csv"
     entries = source_entries(args.source, start)
     historical_rows, source_prices = historical_position_rows(entries)
@@ -236,8 +240,8 @@ def main() -> None:
     price_times, prices = load_recorded_prices(args.prices)
     trades = rebuild_trade_rows(merged, source_prices, price_times, prices)
 
-    position_backup = backup_once(position_path)
-    trade_backup = backup_once(trade_path)
+    position_backup = backup_once(position_path, args.backup_dir)
+    trade_backup = backup_once(trade_path, args.backup_dir)
     write_csv_atomic(position_path, POSITION_FIELDS, merged)
     write_csv_atomic(trade_path, TRADE_FIELDS, trades)
 

@@ -8,8 +8,6 @@ $services = @(
     'monitor-mxf',
     'webhook-server',
     'six-strategy-listener',
-    # Keep the retired service here so Stop always catches an old container.
-    'h3-ef-012-strategy',
     'regression-mean-reversion-morning-flat-strategy',
     'ef-strong-consensus-morning-flat-strategy',
     'ef-dual-session-guard-strategy',

@@ -9,13 +9,13 @@ services:
     environment:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
-      TELEGRAM_RELAY_SESSION_PATH: /app/backend-futures-py/h3-ef-012-strategy/runtime/session_h3_ef_012
+      TELEGRAM_RELAY_SESSION_PATH: /app/backend-futures-py/telegram-relay-runtime/session_h_ef_relay
     volumes:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
-      - ./backend-futures-py/h3-ef-012-strategy/runtime:/app/backend-futures-py/h3-ef-012-strategy/runtime
-      - ./backend-futures-py/h3-ef-012-strategy/records:/app/backend-futures-py/h3-ef-012-strategy/records
+      - ./backend-futures-py/telegram-relay-runtime:/app/backend-futures-py/telegram-relay-runtime
       - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
 
   monitor-mxf:
     build:
@@ -99,25 +99,6 @@ services:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
       - ./backend-futures-py/session_monitor_six_strategy.session:/app/backend-futures-py/session_monitor_six_strategy.session
-
-  h3-ef-012-strategy:
-    profiles: ["strategies"]
-    build:
-      context: .
-    container_name: monitor-h3-ef-012-strategy
-    restart: unless-stopped
-    command: ["python", "/app/backend-futures-py/h3-ef-012-strategy/monitor_and_trade.py"]
-    working_dir: /app/backend-futures-py/h3-ef-012-strategy
-    environment:
-      TZ: Asia/Taipei
-      PYTHONUNBUFFERED: "1"
-    volumes:
-      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
-      - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
-      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
-      - ./backend-futures-py/h3-ef-012-strategy/records:/app/backend-futures-py/h3-ef-012-strategy/records
-      - ./backend-futures-py/h3-ef-012-strategy/runtime:/app/backend-futures-py/h3-ef-012-strategy/runtime
-      - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
 
   ef-strong-consensus-morning-flat-strategy:
     build:

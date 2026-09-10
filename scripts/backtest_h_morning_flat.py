@@ -254,7 +254,7 @@ def main() -> None:
         h_events, h_proxied = load_h_export(args.h_source)
     else:
         tv_export = Path.home() / "Downloads" / "h3.csv"
-        live_events_path = backend / "h3-ef-012-strategy" / "records" / "h3_position_events.csv"
+        live_events_path = backend / "telegram-relay-records" / "h_position_events.csv"
         h_path_text = f"{tv_export}+{live_events_path}"
         h_events, h_proxied = load_continuous_h(tv_export, live_events_path)
     start = base.parse_time(args.start)

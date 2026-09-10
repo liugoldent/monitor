@@ -43,7 +43,7 @@ stop-windows-services.cmd
 ## 單獨初始化 Telegram
 
 ```text
-initialize-h3-ef-012-session.cmd
+initialize-telegram-relay-session.cmd
 ```
 
 輸入電話時可使用 `09xxxxxxxx` 或 `+8869xxxxxxxx`。

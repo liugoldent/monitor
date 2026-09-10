@@ -11,13 +11,13 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
-SHARED_ADAPTER_PATH = BACKEND_DIR / "h3-ef-012-strategy" / "auto_trade.py"
+SHARED_ADAPTER_PATH = BACKEND_DIR / "shioaji_tmf_target.py"
 POSITION_UNIT_ENV = "MEAN_REVERSION_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
 
 
 def _load_shared_adapter():
-    module_name = "_h3_ef_012_auto_trade_shared_for_regression_mean_reversion"
+    module_name = "_shioaji_tmf_target_shared_for_regression_mean_reversion"
     existing = sys.modules.get(module_name)
     if existing is not None:
         return existing

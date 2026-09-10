@@ -12,13 +12,13 @@
 
 ## 正式服務清單
 
-macOS 與 Windows 平台入口都以同一組四個服務為目標：
+跨平台核心服務如下；Windows 入口另啟動 EF 強共識實單與選擇權價位監控：
 
 ```text
+telegram-signal-relay
 monitor-mxf
 webhook-server
 cloudflared
-h3-ef-012-strategy
 ```
 
 ## 變更原則

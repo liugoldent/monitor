@@ -1,9 +1,9 @@
-# restart
+# restart Telegram signal relay
 cd "$HOME\OneDrive\桌面\monitor"
-docker compose --profile windows up -d --build h3-ef-012-strategy
+docker compose up -d --build telegram-signal-relay
 
 # start(看logs)
-docker compose logs -f --tail 0 h3-ef-012-strategy
+docker compose logs -f --tail 0 telegram-signal-relay
 
 # stop
-docker compose stop h3-ef-012-strategy
+docker compose stop telegram-signal-relay

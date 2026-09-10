@@ -60,8 +60,8 @@ Telethon H  訊號 -> DISCORD_H_TRADE_WEBHOOK_URL
 Telethon EF 訊號 -> DISCORD_SIX_STRATEGY_WEBHOOK_URL
 EF 訊號 -> backend-futures-py/tv_doc/six_strategy_signal_events.csv
 H 進出場 -> backend-futures-py/tv_doc/h_trade.csv
-H 原始部位事件 -> backend-futures-py/h3-ef-012-strategy/records/h3_position_events.csv
-EF 原始部位事件 -> backend-futures-py/h3-ef-012-strategy/records/ef_position_events.csv
+H 原始部位事件 -> backend-futures-py/telegram-relay-records/h_position_events.csv
+EF 原始部位事件 -> backend-futures-py/telegram-relay-records/ef_position_events.csv
 TradingView 1 分 K -> backend-futures-py/tv_doc/webhook_data_1min.csv
 MXF 籌碼 -> backend-futures-py/tv_doc/mxf_value.csv
 Telegram 稽核紀錄 -> backend-futures-py/telegram-relay-records/telegram_signal_events.jsonl
@@ -132,11 +132,17 @@ frontend-vue/.env
 
 Windows 那台如果缺其中任何一個檔案，請先補齊。
 
-H3+EF 服務另會使用下列本機 runtime 目錄；內容已由該策略的 `.gitignore`
-排除：
+Telegram relay 會使用下列本機 runtime 目錄；session 內容由根目錄
+`.gitignore` 排除：
 
 ```text
-backend-futures-py/h3-ef-012-strategy/runtime/
+backend-futures-py/telegram-relay-runtime/
+```
+
+需要重新授權 Telegram 時，在 Windows 執行：
+
+```text
+initialize-telegram-relay-session.cmd
 ```
 
 ## 只跑部分服務

@@ -357,7 +357,7 @@ def main() -> None:
         event_time=args.event_time,
     )
     h_events = base.load_h_events(
-        backend / "h3-ef-012-strategy" / "records" / "h3_position_events.csv"
+        backend / "telegram-relay-records" / "h_position_events.csv"
     )
     start = base.parse_time(args.start)
     end = base.parse_time(args.end) if args.end else bars[-1].bar_time

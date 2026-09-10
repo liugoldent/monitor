@@ -1,7 +1,7 @@
 """Verified Shioaji adapter for the EF dual-session guard strategy.
 
 Live mode deliberately requires its own API credential names so this strategy
-cannot accidentally reconcile the H3, strong-consensus, or RSI account.
+cannot accidentally reconcile the primary strong-consensus account.
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
-SHARED_ADAPTER_PATH = BACKEND_DIR / "h3-ef-012-strategy" / "auto_trade.py"
+SHARED_ADAPTER_PATH = BACKEND_DIR / "shioaji_tmf_target.py"
 MAX_ABS_TARGET = 10
 
 
 def _load_shared_adapter():
-    module_name = "_h3_ef_012_auto_trade_shared_for_dual_session_guard"
+    module_name = "_shioaji_tmf_target_shared_for_dual_session_guard"
     existing = sys.modules.get(module_name)
     if existing is not None:
         return existing
