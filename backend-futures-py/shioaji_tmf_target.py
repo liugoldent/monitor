@@ -12,7 +12,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -178,7 +178,8 @@ def _login(sj: Any) -> Any:
     return api
 
 
-def execute_target_position(target_position: int, *, api: Any = None, sj: Any = None) -> OrderResult:
+def execute_target_position(target_position: int, *, api: Any = None, sj: Any = None,
+                            before_order: Callable[[], None] | None = None) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
@@ -222,7 +223,10 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
 
         api.set_order_callback(capture_order_event)
         print("委託內容", order)
-        trade = api.place_order(_contract(api), order, timeout=ORDER_TIMEOUT_MS)
+        contract = _contract(api)
+        if before_order is not None:
+            before_order()
+        trade = api.place_order(contract, order, timeout=ORDER_TIMEOUT_MS)
         print("委託回傳內容", trade)
         order_event.wait(ORDER_CALLBACK_TIMEOUT_SECONDS)
 
