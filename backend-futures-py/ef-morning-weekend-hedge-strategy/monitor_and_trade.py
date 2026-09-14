@@ -17,6 +17,8 @@ from filelock import FileLock
 from auto_trade import execute_target_position
 from strategy import Calendar, integer, latest_closure, pure_position
 
+RETRY_SECONDS = 10
+
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
 sys.path.insert(0, str(BACKEND))
@@ -103,16 +105,44 @@ class Monitor:
                    datetime.fromisoformat(self.state.get("ready_since", self.state["boot"])))
         since = closure.reopen if closure else boot
         path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
-        return pure_position(path, now, since, calendar,
-                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot)
+        # Explicit, dated operator catch-up. It expires before morning flattening
+        # and never restores previous-day legs on a later trading day.
+        catch_up_path = self.root / "config/catch_up.json"
+        catch_up = None
+        if catch_up_path.exists():
+            request = json.loads(catch_up_path.read_text(encoding="utf-8"))
+            start = datetime.fromisoformat(request["signal_since"])
+            end = datetime.fromisoformat(request["expires_at"])
+            if start >= end or end - start > timedelta(days=1):
+                raise ValueError("補倉設定必須限制於一天內")
+            if start <= now < end:
+                since, boot = start, None
+                catch_up = request["id"]
+        result = pure_position(path, now, since, calendar,
+                               integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot)
+        if catch_up:
+            result["catch_up"] = catch_up
+        return result
 
     def action(self, key: str, target: int, contract: str, deadline: datetime) -> bool:
         attempt = self.state.get("attempt", {})
-        if attempt.get("key") == key:
-            if attempt.get("status") == "done":
-                return True
-            self.alert("上次委託失敗或結果不明，已停止本動作重送；請對帳後使用 --retry-failed")
-            return False
+        if attempt.get("status") in {"pending", "failed"}:
+            # Persisted time also throttles recovery after a process restart.
+            retry_at = datetime.fromisoformat(attempt.get("retry_at") or attempt["at"])
+            if "retry_at" not in attempt:
+                retry_at += timedelta(seconds=RETRY_SECONDS)
+            urgent_flat = key.endswith("/flat") and attempt.get("key") != key
+            if self.clock() < retry_at and not urgent_flat:
+                return False
+            append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
+                         clock=self.clock, attempt_id=attempt.get("id", ""),
+                         event="automatic_reconcile", trigger=key, target_position=target,
+                         detail="前次未確認；重新查券商庫存與未結委託，以最新目標計算差額")
+            # perform_order persists the new intent before executing. The executor
+            # always checks broker orders/inventory before submitting any delta.
+            self.state.pop("attempt")
+        elif attempt.get("key") == key and attempt.get("status") == "done":
+            return True
         def record(**row):
             append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
                          clock=self.clock, **row)
@@ -132,6 +162,7 @@ class Monitor:
                 detail = "影子模式，未送實單"
                 record(attempt_id=uuid.uuid4().hex, event="shadow_target", trigger=key,
                        target_position=target, quantity=quantity, detail=detail)
+            self.last_alert = None
             self.state["position"] = actual
             self.persist()
             self.event("confirmed" if self.live else "shadow_target", target=target,
@@ -140,11 +171,14 @@ class Monitor:
                                           detail, clock=self.clock))
             return True
         except Exception as exc:
+            failed = self.state.get("attempt", {})
+            failed["status"] = "failed"
+            failed["retry_at"] = (self.clock() + timedelta(seconds=RETRY_SECONDS)).isoformat()
+            self.state["attempt"] = failed
+            self.persist()
             self.event("order_failed", key=key, error_type=type(exc).__name__)
-            self.notify(execution_message("純EF＋04:59清倉", self.mode, key, target,
-                        f"❌ 下單失敗：{type(exc).__name__}；請對帳後使用 --retry-failed（不重送）",
-                        clock=self.clock))
-            self.alert(f"{key} 委託未確認（{type(exc).__name__}），請查券商庫存與委託")
+            self.alert(f"目標 {target} 口委託未確認（{type(exc).__name__}）；"
+                       f"持續監控，{RETRY_SECONDS} 秒後自動重新對帳並依最新目標補差額")
             return False
 
     def tick(self, now: datetime | None = None):
@@ -164,16 +198,13 @@ class Monitor:
             if not self.action(cycle + "/flat", 0, contract, self.session_deadline(now)):
                 return
             self.state["flat_cycle"] = cycle
-            self.state["ready_since"] = now.isoformat()
+            self.state["ready_since"] = self.clock().isoformat()
             self.persist()
             self.startup_reconciled = True
         # Weekends/holidays remain flat; calendar updates are read on every tick.
         if closure and now < closure.reopen:
             return
         if not calendar.is_open(now) or now >= self.session_deadline(now):
-            return
-        if self.state.get("attempt", {}).get("status") in {"pending", "failed"}:
-            self.alert("仍有未確認委託；請對帳後使用 --retry-failed")
             return
         source = self.source(now)
         target = integer(source["net_position"])
@@ -182,7 +213,8 @@ class Monitor:
             raise ValueError("純 EF 口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
         # Reconcile once per process, then only when the strategy target changes.
         # Polling the local signal file must not repeatedly log in to the broker.
-        if target != self.state.get("target", 0) or not self.startup_reconciled:
+        recovering = self.state.get("attempt", {}).get("status") in {"pending", "failed"}
+        if target != self.state.get("target", 0) or not self.startup_reconciled or recovering:
             deadline = self.session_deadline(now)
             # Entry must stop exactly at 04:59, even if CSV reading/login is slow.
             if deadline.time() == day_time(4, 59, 40):
@@ -209,7 +241,7 @@ class Monitor:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="執行一次目前時鐘檢查")
-    parser.add_argument("--retry-failed", action="store_true", help="對帳後解除失敗動作鎖定；執行器仍檢查未結束委託")
+    parser.add_argument("--retry-failed", action="store_true", help="對帳後立即解除重試等待；預設會自動重新對帳")
     args = parser.parse_args()
     load_env(BACKEND / ".env")
     # This entry point always runs account 2 in live trading mode.

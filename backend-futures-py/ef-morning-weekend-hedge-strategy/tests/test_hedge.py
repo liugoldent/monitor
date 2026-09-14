@@ -192,7 +192,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [0, 0])
         self.assertEqual(m.notify.call_count, 1)
 
-    def test_failed_signal_remains_locked_after_five_minutes_and_restart(self):
+    def test_failed_signal_retries_after_cooldown_and_restart(self):
         m = self.monitor()
         m.tick()
         self.signal("2026-09-14 09:01:00")
@@ -202,7 +202,126 @@ class MonitorTests(unittest.TestCase):
         self.now += timedelta(minutes=10)
         m.tick()
         self.monitor().tick()
-        self.assertEqual(self.execute.call_count, 2)
+        self.assertEqual(self.execute.call_count, 3)
+        self.now += timedelta(seconds=10)
+        self.monitor().tick()
+        self.assertEqual(self.execute.call_count, 4)
+
+    def test_dated_catch_up_includes_preboot_legs_then_expires(self):
+        (self.root / "config").mkdir()
+        (self.root / "config/catch_up.json").write_text(
+            (BASE / "config/catch_up.json").read_text())
+        for code in ("CFC07m", "CFCTX16m", "CFCTX23m", "CFCTX18m"):
+            self.signal("2026-09-14 10:00:00", code)
+        self.now = datetime(2026, 9, 14, 22, 30)
+        m = self.monitor()
+        m.tick()
+        self.assertEqual(self.orders, [0, 4])
+        self.assertIn("catch_up", m.state["source"])
+        # New signals override the catch-up snapshot; never hardcode four.
+        self.now += timedelta(seconds=1)
+        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), "CFCTX18m", 0)
+        m.tick()
+        self.assertEqual(self.orders[-1], 3)
+        self.now = datetime(2026, 9, 15, 4, 59)
+        m.tick()
+        self.assertEqual(self.orders[-1], 0)
+        self.now = datetime(2026, 9, 15, 8, 45)
+        self.signal("2026-09-15 08:45:00", "CFCTX16m")
+        m.tick()
+        self.assertEqual(self.orders[-1], 1)
+        self.assertNotIn("catch_up", m.state["source"])
+
+    def test_expired_catch_up_does_not_restore_old_legs(self):
+        (self.root / "config").mkdir()
+        (self.root / "config/catch_up.json").write_text(
+            (BASE / "config/catch_up.json").read_text())
+        self.signal("2026-09-14 22:00:00")
+        self.now = datetime(2026, 9, 15, 9)
+        m = self.monitor()
+        m.tick()
+        self.assertEqual(self.orders, [0])
+        self.assertEqual(m.read_source(self.now)["net_position"], 0)
+
+    def test_all_six_transitions(self):
+        m = self.monitor()
+        m.tick()
+        # 0->1, 1->0, 0->-1, -1->0, 1->-1, -1->1.
+        for position in (1, 0, -1, 0, 1, -1, 1):
+            self.now += timedelta(seconds=1)
+            self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), position=position)
+            m.tick()
+        self.assertEqual(self.orders, [0, 1, 0, -1, 0, 1, -1, 1])
+
+    def test_uncertain_fill_recovers_to_latest_target_without_duplicate(self):
+        m = self.monitor()
+        m.tick()
+        actual = 0
+        deltas = []
+        fail = True
+        def broker(target, **kwargs):
+            nonlocal actual, fail
+            previous = actual
+            delta = target - previous
+            deltas.append(delta)
+            actual = target  # Filled, but the first acknowledgement is lost.
+            if fail:
+                fail = False
+                raise auto_trade.BrokerOrderError("uncertain fill")
+            return NS(previous_position=previous, actual_position=actual,
+                      quantity=abs(delta), side="buy" if delta > 0 else "sell")
+        self.execute.side_effect = broker
+        self.now += timedelta(minutes=1)
+        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"))
+        m.tick()
+        self.now += timedelta(seconds=2)
+        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), "CFCTX16m")
+        m.tick()
+        self.assertEqual(deltas, [1])
+        self.now += timedelta(seconds=8)
+        self.monitor().tick()
+        self.assertEqual(deltas, [1, 1])
+        self.assertEqual(actual, 2)
+
+    def test_failed_target_returning_to_previous_target_still_reconciles(self):
+        m = self.monitor()
+        m.tick()
+        successful = self.execute.side_effect
+        self.execute.side_effect = RuntimeError("uncertain")
+        self.now += timedelta(minutes=1)
+        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"))
+        m.tick()
+        self.now += timedelta(seconds=10)
+        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), position=0)
+        self.execute.side_effect = successful
+        m.tick()
+        self.assertEqual(self.orders, [0, 0])
+        self.assertEqual(m.state["attempt"]["status"], "done")
+
+    def test_flat_overrides_failed_entry_cooldown(self):
+        m = self.monitor()
+        m.tick()
+        successful = self.execute.side_effect
+        self.now = datetime(2026, 9, 15, 4, 58, 59)
+        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"))
+        self.execute.side_effect = RuntimeError("uncertain")
+        m.tick()
+        self.now = datetime(2026, 9, 15, 4, 59)
+        self.execute.side_effect = successful
+        with patch.object(m, "source", side_effect=AssertionError("flat first")):
+            m.tick()
+        self.assertEqual(self.orders, [0, 0])
+        self.assertEqual(m.state["attempt"]["status"], "done")
+
+    def test_pending_attempt_from_crash_automatically_recovers(self):
+        m = self.monitor()
+        m.tick()
+        m.state["attempt"] = {"key": "interrupted", "status": "pending",
+                              "at": self.now.isoformat(), "target": 1}
+        m.persist()
+        self.now += timedelta(seconds=10)
+        self.monitor().tick()
+        self.assertEqual(self.orders, [0, 0])
 
     def test_missed_flat_recovers_before_accepting_signals(self):
         m = self.monitor()
@@ -218,7 +337,7 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(self.orders[-1], -1)
 
-    def test_failed_flat_never_opens_or_blindly_retries(self):
+    def test_failed_flat_retries_flat_before_accepting_signals(self):
         self.now = datetime(2026, 9, 15, 4, 59)
         self.execute.side_effect = RuntimeError("uncertain")
         m = self.monitor()
@@ -226,7 +345,8 @@ class MonitorTests(unittest.TestCase):
         self.now = datetime(2026, 9, 15, 8, 45)
         m.tick()
         self.monitor().tick()
-        self.assertEqual(self.execute.call_count, 1)
+        self.assertEqual(self.execute.call_count, 2)
+        self.assertEqual([c.args[0] for c in self.execute.call_args_list], [0, 0])
 
     def test_slow_signal_read_cannot_enter_after_flat_boundary(self):
         m = self.monitor()
