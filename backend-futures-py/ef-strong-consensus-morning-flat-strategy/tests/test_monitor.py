@@ -86,6 +86,26 @@ class WebhookTests(unittest.TestCase):
 
 
 class LiveOrderTests(unittest.TestCase):
+    def test_pending_attempt_blocks_changed_target_and_forced_flat(self):
+        state = {"attempt": {"status": "pending", "target": 1}}
+        with patch.dict(monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}), patch.object(
+            monitor, "execute_target_position"
+        ) as execute:
+            for target in (-1, 0):
+                text = monitor.execute_live_target(state, target, trigger="test", force_reconcile=True)
+                self.assertIn("未確認", text)
+        execute.assert_not_called()
+
+    def test_history_rebuild_preserves_unresolved_order(self):
+        previous = {"attempt": {"status": "failed", "target": 1}, "last_order_attempt_target": 1}
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            monitor, "STATE_PATH", Path(directory) / "state.json"
+        ), patch.object(monitor, "write_position"):
+            state = monitor.initialize_state([], [], datetime(2026, 9, 14, 9), 2,
+                                             previous_state=previous)
+        self.assertEqual(state["attempt"], previous["attempt"])
+        self.assertEqual(state["last_order_attempt_target"], 1)
+
     def test_atomic_json_save_retries_transient_replace_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state.json"
@@ -235,7 +255,7 @@ class LiveOrderTests(unittest.TestCase):
             text = monitor.execute_live_target(state, 1, trigger="test")
 
         execute.assert_not_called()
-        self.assertIn("基於安全未送單", text)
+        self.assertIn("不自動重送", text)
 
     def test_idle_poll_does_not_rewrite_state(self):
         positions = {code: 0 for code in ALL_STRATEGIES}
@@ -308,6 +328,8 @@ class LiveOrderTests(unittest.TestCase):
             monitor.os.environ,
             {monitor.ENABLE_ORDERS_ENV: "true"},
             clear=False,
+        ), patch.object(
+            monitor, "CLOCK_EVENT_PATH", Path(directory) / "clock.csv"
         ), patch.object(
             monitor, "STATE_PATH", Path(directory) / "state.json"
         ), patch.object(

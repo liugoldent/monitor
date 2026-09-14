@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BACKEND_DIR))
+from ef_trade_runtime import check_order_deadline
 _name = "_tmf_shared_for_ef_closure_hedge"
 _spec = importlib.util.spec_from_file_location(_name, BACKEND_DIR / "shioaji_tmf_target.py")
 _shared = importlib.util.module_from_spec(_spec)
@@ -54,34 +56,11 @@ def execute_target_position(target: int, *, deadline: datetime, clock: Callable[
     if owned:
         api = login(sj)
     try:
-        contract = _shared._contract(api)
-        # TMFR1 resolves to the broker's current near-month physical contract.
-        contract_code = contract.code
-        _shared._refresh_status(api)
-        for trade in api.list_trades():
-            code = _shared._position_code(_shared._position_value(trade, "contract"))
-            if code.startswith("TMF") and _shared._status_text(trade).lower() not in {
-                "filled", "cancelled", "failed", "inactive",
-            }:
-                raise BrokerOrderError("API_KEY2 有未確認結束的 TMF 委託；不重複下單")
-        held_sides = set()
-        for position in api.list_positions(api.futopt_account) or []:
-            code = _shared._position_code(position)
-            quantity = _shared._position_quantity(position)
-            if not code.startswith("TMF") or not quantity:
-                continue
-            if code != contract_code:
-                raise BrokerOrderError("API_KEY2 存在其他月份 TMF；請先確認部位")
-            side = _shared._position_side(position)
-            held_sides.add(side)
-        if len(held_sides) > 1:
-            raise BrokerOrderError("API_KEY2 同時有多空庫存，不能僅以淨額判定已平倉")
         def check_deadline():
-            if clock() >= deadline:
-                raise BrokerOrderError("已超過本次下單期限，不追補休市前委託")
+            check_order_deadline(deadline, clock, BrokerOrderError)
 
         return _shared.execute_target_position(
-            target, api=api, sj=sj, before_order=check_deadline,
+            target, api=api, sj=sj, before_order=check_deadline, strict_tmf=True,
         )
     finally:
         if owned:

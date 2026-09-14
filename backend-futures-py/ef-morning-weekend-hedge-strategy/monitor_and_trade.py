@@ -5,8 +5,7 @@ import argparse
 import csv
 import json
 import os
-import queue
-import threading
+import sys
 import time
 import uuid
 from datetime import datetime, time as day_time, timedelta
@@ -20,6 +19,9 @@ from strategy import Calendar, integer, latest_closure, pure_position
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
+sys.path.insert(0, str(BACKEND))
+from ef_trade_runtime import (Notifications as SharedNotifications, append_order, perform_order,
+                              result_text, execution_message, save_state)
 
 
 def now_local() -> datetime:
@@ -37,48 +39,17 @@ def flag(name: str) -> bool:
 
 
 def save(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(data, handle, ensure_ascii=False, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    if not save_state(path, data):
+        raise OSError("狀態檔無法安全寫入，基於安全未送單")
 
 
 def webhook_url() -> str:
     return os.getenv("DISCORD_EF_hedge_WEBHOOK_URL", "").strip()
 
 
-class Notifications:
-    """Network notifications cannot delay the 04:59 order deadline."""
+class Notifications(SharedNotifications):
     def __init__(self):
-        self.messages = queue.Queue(maxsize=100)
-        threading.Thread(target=self.worker, daemon=True).start()
-
-    def __call__(self, message: str):
-        if webhook_url():
-            try:
-                self.messages.put_nowait(message)
-            except queue.Full:
-                print("Discord 通知佇列已滿，詳情請查看本機紀錄", flush=True)
-
-    def worker(self):
-        import requests
-        while True:
-            message = self.messages.get()
-            try:
-                response = requests.post(webhook_url(), json={"content": message[:1900]},
-                                         timeout=10)
-                response.raise_for_status()
-            except Exception:
-                # Requests exceptions can contain the secret webhook URL.
-                print("Discord 通知失敗，詳情請查看本機紀錄", flush=True)
-            finally:
-                self.messages.task_done()
+        super().__init__(webhook_url, BASE / "records/notifications.jsonl")
 
 
 class Monitor:
@@ -90,7 +61,7 @@ class Monitor:
         self.records = self.root / "records" / f"{self.mode}_events.csv"
         self.calendar_path = Path(calendar_path or os.getenv("EF_HEDGE_CALENDAR_PATH")
                                   or BASE / "config/calendar.json")
-        self.state = json.loads(self.path.read_text()) if self.path.exists() else {}
+        self.state = json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
         if self.state and self.state.get("mode") != self.mode:
             raise ValueError("實單與模擬狀態不可混用")
         if self.state and self.state.get("strategy") != "pure_ef_morning_flat_v1":
@@ -104,7 +75,7 @@ class Monitor:
         self.execute = executor or execute_target_position
         self.notify = notify or (lambda message: None)
         self.last_alert = None
-        self.last_audit = None
+        self.startup_reconciled = False
 
     def persist(self):
         save(self.path, self.state)
@@ -142,34 +113,37 @@ class Monitor:
                 return True
             self.alert("上次委託失敗或結果不明，已停止本動作重送；請對帳後使用 --retry-failed")
             return False
-        # Persist before any network call. A crash never silently repeats an order.
-        self.state["attempt"] = {"key": key, "status": "pending", "target": target,
-                                 "contract": contract, "at": self.clock().isoformat()}
-        self.persist()
-        self.event("intent", **self.state["attempt"])
+        def record(**row):
+            append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
+                         clock=self.clock, **row)
         try:
             if self.live:
-                result = self.execute(target, deadline=deadline, clock=self.clock)
+                result = perform_order(
+                    self.state, key=key, target=target, persist=self.persist,
+                    execute=lambda: self.execute(target, deadline=deadline, clock=self.clock),
+                    record=record, clock=self.clock,
+                )
                 actual, quantity = result.actual_position, result.quantity
-                if actual != target:
-                    raise ValueError("券商實際部位未達目標")
+                detail = result_text(result)
             else:
                 actual = target
                 quantity = abs(target - self.state.get("position", 0))
+                self.state["attempt"] = {"key": key, "status": "done", "target": target}
+                detail = "影子模式，未送實單"
+                record(attempt_id=uuid.uuid4().hex, event="shadow_target", trigger=key,
+                       target_position=target, quantity=quantity, detail=detail)
             self.state["position"] = actual
-            self.state["attempt"]["status"] = "done"
             self.persist()
             self.event("confirmed" if self.live else "shadow_target", target=target,
                        quantity=quantity, contract=contract, key=key)
-            if quantity:
-                self.notify(f"[純 EF 04:59 清倉/{self.mode}] {key}\n"
-                            f"第二帳戶目標 {target:+d} 口，異動 {quantity} 口；合約 {contract or '未設定'}")
+            self.notify(execution_message("純EF＋04:59清倉", self.mode, key, target,
+                                          detail, clock=self.clock))
             return True
         except Exception as exc:
-            self.state["attempt"]["status"] = "failed"
-            self.state["attempt"]["error_type"] = type(exc).__name__
-            self.persist()
             self.event("order_failed", key=key, error_type=type(exc).__name__)
+            self.notify(execution_message("純EF＋04:59清倉", self.mode, key, target,
+                        f"❌ 下單失敗：{type(exc).__name__}；請對帳後使用 --retry-failed（不重送）",
+                        clock=self.clock))
             self.alert(f"{key} 委託未確認（{type(exc).__name__}），請查券商庫存與委託")
             return False
 
@@ -192,7 +166,7 @@ class Monitor:
             self.state["flat_cycle"] = cycle
             self.state["ready_since"] = now.isoformat()
             self.persist()
-            self.last_audit = now
+            self.startup_reconciled = True
         # Weekends/holidays remain flat; calendar updates are read on every tick.
         if closure and now < closure.reopen:
             return
@@ -206,20 +180,22 @@ class Monitor:
         maximum = integer(os.getenv("EF_HEDGE_MAX_CONTRACTS", "12"))
         if not 0 <= maximum <= 240 or abs(target) > maximum:
             raise ValueError("純 EF 口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
-        audit = self.last_audit is None or (now - self.last_audit).total_seconds() >= 300
-        if target != self.state.get("target", 0) or audit:
+        # Reconcile once per process, then only when the strategy target changes.
+        # Polling the local signal file must not repeatedly log in to the broker.
+        if target != self.state.get("target", 0) or not self.startup_reconciled:
             deadline = self.session_deadline(now)
             # Entry must stop exactly at 04:59, even if CSV reading/login is slow.
             if deadline.time() == day_time(4, 59, 40):
                 deadline = deadline.replace(second=0)
             if self.clock() >= deadline:
                 return
-            key = f"signal/{now.isoformat()}/{target}"
+            trigger = "signal" if self.startup_reconciled else "startup_reconcile"
+            key = f"{trigger}/{now.isoformat()}/{target}"
             if self.action(key, target, contract, deadline):
                 self.state["target"] = target
                 self.state["source"] = source
                 self.persist()
-                self.last_audit = now
+                self.startup_reconciled = True
 
     @staticmethod
     def session_deadline(now: datetime) -> datetime:
@@ -236,15 +212,30 @@ def main():
     parser.add_argument("--retry-failed", action="store_true", help="對帳後解除失敗動作鎖定；執行器仍檢查未結束委託")
     args = parser.parse_args()
     load_env(BACKEND / ".env")
-    live = flag("EF_PURE_FLAT_ENABLE_ORDERS")
+    # This entry point always runs account 2 in live trading mode.
+    live = True
     (BASE / "runtime").mkdir(parents=True, exist_ok=True)
     # Shared lock across shadow/live prevents mode changes while another monitor runs.
     with FileLock(str(BASE / "runtime/monitor.lock"), timeout=0):
         monitor = Monitor(live=live, notify=Notifications())
         if args.retry_failed and monitor.state.get("attempt", {}).get("status") in {"pending", "failed"}:
             monitor.event("operator_retry", previous=monitor.state["attempt"])
+            append_order(BASE / "records/live_order_attempts.csv", event="operator_retry",
+                         attempt_id=uuid.uuid4().hex, trigger="operator_retry", target_position=0)
             monitor.state.pop("attempt")
             monitor.persist()
+        startup_message = (
+            "✅【開始監控｜永豐2 純EF＋04:59清倉】\n"
+            f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
+            "規則：十二個E/F子策略各自維護部位，加總為第二帳戶目標。\n"
+            "04:59清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
+            f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"
+            "啟動檢查：即將檢查清倉狀態與訊號；此通知不代表已完成對帳或成交。"
+        )
+        print(startup_message, flush=True)
+        monitor.notify(startup_message)
+        if not webhook_url():
+            print("未設定 DISCORD_EF_hedge_WEBHOOK_URL，無法發送 Discord 通知", flush=True)
         while True:
             try:
                 monitor.tick()
@@ -255,6 +246,7 @@ def main():
                 if args.once:
                     raise SystemExit(1) from None
             if args.once:
+                monitor.notify.flush()
                 print(json.dumps(monitor.state, ensure_ascii=False, indent=2))
                 break
             time.sleep(1)

@@ -14,7 +14,7 @@
 
 ## 訊號與帳戶
 
-讀取 `../tv_doc/six_strategy_signal_events.csv`，僅採本機 `received_at`。訊號以每個子策略的 `new_position` 更新；不讀群益庫存快照、不納入 H3 或第一帳戶。第二帳戶須專用；每五分鐘依策略目標對帳。
+讀取 `../tv_doc/six_strategy_signal_events.csv`，僅採本機 `received_at`。訊號以每個子策略的 `new_position` 更新；不讀群益庫存快照、不納入 H3 或第一帳戶。第二帳戶須專用；啟動時對帳一次，之後僅在目標部位改變或定時清倉時呼叫券商。相同目標不再每五分鐘登入、查庫存或發送委託結果通知；本機訊號仍每秒檢查。若人工改動券商部位，將於下次目標變動、清倉或重啟對帳時檢查。
 
 只使用 `API_KEY2` / `SECRET_KEY2`，沿用登入後的 `api.futopt_account`，不會退回第一組金鑰。`EF_HEDGE_ACCOUNT_ID` 改為選填，填入時仍核對帳號。仍使用 `DISCORD_EF_hedge_WEBHOOK_URL` 專用通知。
 
@@ -61,3 +61,20 @@ python backtest.py --start '2026-09-01 08:45:00' --end '2026-09-14 13:45:00'
 ```
 
 回放已改為純 EF 第二帳戶，區間開始時空手、等待後續新訊號；04:59 歸零、08:45 不恢復。訊號用嚴格下一分鐘 MXF1! Open，清倉用精確 04:59 Open，每點每口 10 元，單邊預設成本 2 點；期末持倉按最後 K 棒 Open 評價。缺少必要成交 K 棒則停止，不跳過缺口。實單即時依訊號下單，成交可能與回放代理價不同；舊避險回測數字不適用新策略。
+
+
+## 共用下單、通知與紀錄（2026-09-14）
+
+兩個 EF 策略共同使用 `../ef_trade_runtime.py` 與 `../shioaji_tmf_target.py`：
+
+- 根據券商實際 TMF 部位計算差額，使用 TMFR1、市價 MKT、IOC、Auto；送出後回查目標部位。
+- 送單前共同檢查未結束的 TMF 委託、其他月份庫存及同時持有多空庫存；真正送單前再檢查期限。
+- 先以原子寫入、fsync 與 OneDrive 鎖定重試保存委託狀態。失敗或結果不明時，即使目標改變或程式重啟也不自動重送。
+- 人工對帳後，兩者均可使用 `monitor_and_trade.py --retry-failed` 解除鎖定；執行器仍會重新檢查券商委託與庫存。
+- Discord 共用非同步佇列、10 秒逾時、NotifierBot 與長訊息分段；通知失敗不阻塞下單。訊息包含目標部位、觸發原因與已確認的實際部位／失敗結果。
+- 新實單委託統一寫入各自的 `records/live_order_attempts.csv`，欄位為 timestamp、attempt_id、event、trigger、target_position、previous_position、actual_position、side、quantity、detail。
+- 通知發送結果統一寫入各自的 `records/notifications.jsonl`，包含 timestamp、status、content。status 可為 sent、failed、missing_webhook、queue_full；不寫入 webhook URL 或原始網路例外。
+
+帳號憑證、webhook 設定與策略決策各自保留。既有策略決策、影子成交、時鐘及歷史紀錄仍保留在原處；新委託稽核以共用格式為準，不將影子成交當成券商成交。
+
+程式碼更新後須重新建置映像並重建對應服務才會套用；單純重新啟動舊映像不會載入新程式。本次離線測試不會登入券商或執行實單監控入口。

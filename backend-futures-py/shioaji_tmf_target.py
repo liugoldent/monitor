@@ -102,6 +102,27 @@ def _contract(api: Any) -> Any:
     return contract
 
 
+def validate_tmf_account(api: Any) -> None:
+    """Reject ambiguous inventory/orders before either EF account reconciles."""
+    contract_code = _contract(api).code
+    for trade in api.list_trades():
+        code = _position_code(_position_value(trade, "contract"))
+        if code.startswith("TMF") and _status_text(trade).lower() not in {
+            "filled", "cancelled", "failed", "inactive",
+        }:
+            raise BrokerOrderError("有未確認結束的 TMF 委託；不重複下單")
+    sides = set()
+    for position in api.list_positions(api.futopt_account) or []:
+        code = _position_code(position)
+        if not code.startswith("TMF") or not _position_quantity(position):
+            continue
+        if code != contract_code:
+            raise BrokerOrderError("存在其他月份 TMF；請先確認部位")
+        sides.add(_position_side(position))
+    if len(sides) > 1:
+        raise BrokerOrderError("同時有多空庫存，不能僅以淨額判定已平倉")
+
+
 def _build_order(api: Any, sj: Any, side: str, quantity: int) -> Any:
     return api.Order(
         action=sj.constant.Action.Buy if side == "buy" else sj.constant.Action.Sell,
@@ -179,7 +200,8 @@ def _login(sj: Any) -> Any:
 
 
 def execute_target_position(target_position: int, *, api: Any = None, sj: Any = None,
-                            before_order: Callable[[], None] | None = None) -> OrderResult:
+                            before_order: Callable[[], None] | None = None,
+                            strict_tmf: bool = False) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
@@ -195,6 +217,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
 
     try:
         _refresh_status(api)
+        if strict_tmf:
+            validate_tmf_account(api)
 
         previous = current_tmf_position(api)
         delta = target_position - previous

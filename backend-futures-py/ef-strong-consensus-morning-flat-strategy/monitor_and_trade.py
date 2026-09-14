@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import sys
 import csv
 import json
 import os
@@ -9,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import requests
 from filelock import FileLock, Timeout
 
 from auto_trade import execute_target_position
@@ -36,6 +37,9 @@ from strategy import (
 
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
+sys.path.insert(0, str(BACKEND_DIR))
+from ef_trade_runtime import (Notifications, ORDER_FIELDS, append_order, perform_order,
+                              result_text, execution_message, save_state)
 ENV_PATH = BACKEND_DIR / ".env"
 SOURCE_PATH = BACKEND_DIR / "tv_doc" / "six_strategy_signal_events.csv"
 PRICE_PATH = BACKEND_DIR / "tv_doc" / "webhook_data_1min.csv"
@@ -43,7 +47,7 @@ RECORDS_DIR = BASE_DIR / "records"
 POSITION_PATH = RECORDS_DIR / "ef_strong_morning_flat_position.json"
 DECISION_PATH = RECORDS_DIR / "ef_strong_morning_flat_decisions.csv"
 TRADE_PATH = RECORDS_DIR / "ef_strong_morning_flat_shadow_trade.csv"
-ORDER_ATTEMPT_PATH = RECORDS_DIR / "ef_strong_morning_flat_order_attempts.csv"
+ORDER_ATTEMPT_PATH = RECORDS_DIR / "live_order_attempts.csv"
 CLOCK_EVENT_PATH = RECORDS_DIR / "ef_strong_morning_flat_clock_events.csv"
 RUNTIME_DIR = BASE_DIR / "runtime"
 STATE_PATH = RUNTIME_DIR / "ef_strong_morning_flat_state.json"
@@ -81,10 +85,7 @@ TRADE_FIELDS = [
     "quantity",
     "trigger",
 ]
-ORDER_ATTEMPT_FIELDS = [
-    "timestamp", "attempt_id", "event", "trigger", "target_position",
-    "previous_position", "actual_position", "side", "quantity", "detail",
-]
+ORDER_ATTEMPT_FIELDS = ORDER_FIELDS
 CLOCK_EVENT_FIELDS = [
     "scheduled_at", "triggered_at", "completed_at", "trigger_delay_seconds",
     "deadline_at", "started_before_deadline", "completed_before_deadline",
@@ -93,8 +94,6 @@ CLOCK_EVENT_FIELDS = [
 ENABLE_ORDERS_ENV = "EF_STRONG_MORNING_FLAT_ENABLE_ORDERS"
 POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
-STATE_SAVE_ATTEMPTS = 8
-STATE_SAVE_RETRY_SECONDS = 0.05
 
 
 def load_env_file(path: Path) -> None:
@@ -150,31 +149,7 @@ def load_json(path: Path, default: dict) -> dict:
 
 
 def save_json_atomic(path: Path, value: dict) -> bool:
-    """Persist JSON without letting a transient OneDrive lock stop the monitor."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(value, ensure_ascii=False, indent=2)
-    last_error: OSError | None = None
-    for attempt in range(STATE_SAVE_ATTEMPTS):
-        temporary = path.with_name(
-            f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
-        )
-        try:
-            temporary.write_text(payload, encoding="utf-8")
-            temporary.replace(path)
-            return True
-        except OSError as exc:
-            last_error = exc
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
-            if attempt + 1 < STATE_SAVE_ATTEMPTS:
-                time.sleep(STATE_SAVE_RETRY_SECONDS * (attempt + 1))
-    print(
-        f"⚠️ 狀態檔暫時無法寫入，監控將繼續但不會冒險送出新委託："
-        f"{path} ({last_error})"
-    )
-    return False
+    return save_state(path, value)
 
 
 def append_csv(path: Path, fields: list[str], row: dict[str, object]) -> None:
@@ -195,27 +170,14 @@ def webhook_url() -> str:
     )
 
 
+_notifications = None
+
+
 def send_discord(content: str) -> bool:
-    webhook = webhook_url()
-    if not webhook:
-        print(
-            "⚠️ 未設定 DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL "
-            "或 DISCORD_MXF_ALERT_WEBHOOK_URL"
-        )
-        return False
-    try:
-        response = requests.post(
-            webhook,
-            params={"wait": "true"},
-            json={"username": "NotifierBot", "content": content},
-            timeout=15,
-        )
-        response.raise_for_status()
-        return True
-    except requests.RequestException as exc:
-        safe_error = str(exc).replace(webhook, "<Discord webhook>")
-        print(f"❌ Discord通知失敗：{safe_error}")
-        return False
+    global _notifications
+    if _notifications is None:
+        _notifications = Notifications(webhook_url, RECORDS_DIR / "notifications.jsonl")
+    return _notifications(content)
 
 
 def append_order_event(
@@ -230,18 +192,10 @@ def append_order_event(
     quantity: object = "",
     detail: str = "",
 ) -> None:
-    append_csv(ORDER_ATTEMPT_PATH, ORDER_ATTEMPT_FIELDS, {
-        "timestamp": text_time(now_local()),
-        "attempt_id": attempt_id,
-        "event": event,
-        "trigger": trigger,
-        "target_position": target,
-        "previous_position": previous,
-        "actual_position": actual,
-        "side": side,
-        "quantity": quantity,
-        "detail": detail,
-    })
+    append_order(ORDER_ATTEMPT_PATH, clock=now_local, attempt_id=attempt_id,
+                 event=event, trigger=trigger, target_position=target,
+                 previous_position=previous, actual_position=actual,
+                 side=side, quantity=quantity, detail=detail)
 
 
 def record_transition(
@@ -327,79 +281,35 @@ def execute_live_target(
         )
         return f"相同實單目標{position_text(broker_target)}已嘗試過，不重送"
 
-    append_order_event(
-        attempt_id=attempt_id,
-        event="attempt_started",
-        trigger=trigger,
-        target=broker_target,
-        detail="準備登入永豐、查詢TMF部位並對帳",
-    )
-
+    # Migrate unresolved legacy attempts without clearing their duplicate guard.
+    if state.get("last_order_error") and "attempt" not in state:
+        state["attempt"] = {"status": "failed"}
+    if state.get("attempt", {}).get("status") in {"pending", "failed"}:
+        return "❌ 仍有未確認委託；請對帳後使用 --retry-failed（不重送）"
     attempted_at = text_time(now_local())
     state["last_order_attempt_target"] = broker_target
     state["last_order_attempt_at"] = attempted_at
     state["last_order_trigger"] = trigger
-    if not save_json_atomic(STATE_PATH, state):
-        append_order_event(
-            attempt_id=attempt_id,
-            event="blocked_state_persistence",
-            trigger=trigger,
-            target=broker_target,
-            detail="防重送狀態無法安全寫入，基於安全未呼叫券商下單",
-        )
-        return "❌ 狀態檔無法安全寫入，基於安全未送單"
     try:
-        result = execute_target_position(broker_target)
-    except Exception as exc:
-        error_text = str(exc)
-        append_order_event(
-            attempt_id=attempt_id,
-            event="failed",
-            trigger=trigger,
-            target=broker_target,
-            detail=f"{type(exc).__name__}: {error_text}",
+        result = perform_order(
+            state, key=trigger, target=broker_target,
+            persist=lambda: save_json_atomic(STATE_PATH, state),
+            execute=lambda: execute_target_position(broker_target),
+            record=lambda **row: append_order(ORDER_ATTEMPT_PATH, clock=now_local, **row),
+            clock=now_local,
         )
+    except Exception as exc:
         state["last_order_error_target"] = target
         state["last_order_error_at"] = attempted_at
-        state["last_order_error"] = error_text
+        state["last_order_error"] = type(exc).__name__
         save_json_atomic(STATE_PATH, state)
-        return f"❌ 下單失敗：{error_text}（相同目標不自動重送）"
-
+        return f"❌ 下單失敗：{type(exc).__name__}；請對帳後使用 --retry-failed（結果未確認，不自動重送）"
     state["last_executed_target"] = broker_target
     state["last_executed_at"] = text_time(now_local())
-    state.pop("last_order_error_target", None)
-    state.pop("last_order_error_at", None)
-    state.pop("last_order_error", None)
+    for field in ("last_order_error_target", "last_order_error_at", "last_order_error"):
+        state.pop(field, None)
     save_json_atomic(STATE_PATH, state)
-    if result.order_sent:
-        append_order_event(
-            attempt_id=attempt_id,
-            event="order_sent_confirmed",
-            trigger=trigger,
-            target=broker_target,
-            previous=result.previous_position,
-            actual=result.actual_position,
-            side=result.side or "",
-            quantity=result.quantity,
-            detail="永豐委託完成且已回查目標部位",
-        )
-        action = "買進" if result.side == "buy" else "賣出"
-        return (
-            f"✅ 已送{action} TMF {result.quantity}口；"
-            f"實際部位{position_text(result.previous_position)} → "
-            f"{position_text(result.actual_position)}（已回查確認）"
-        )
-    append_order_event(
-        attempt_id=attempt_id,
-        event="no_order_needed",
-        trigger=trigger,
-        target=broker_target,
-        previous=result.previous_position,
-        actual=result.actual_position,
-        quantity=0,
-        detail="永豐帳戶原本已符合策略目標",
-    )
-    return f"帳戶已是{position_text(result.actual_position)}，無需送單"
+    return result_text(result)
 
 
 def write_position(state: dict, reason: str) -> None:
@@ -502,8 +412,8 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         if decision.previous_position == decision.target_position
         else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
-    return (
-        "🚨【即時實單判斷｜EF強共識＋04:59清倉】\n"
+    return execution_message("EF強共識＋04:59清倉", "live", str(decision.event.timestamp),
+                             target_final, live_result, clock=now_local) + "\n" + (
         f"收到時間：{text_time(decision.event.timestamp)}\n"
         f"收到訊號後【最終口數】：{position_text(target_final)}\n"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
@@ -729,6 +639,7 @@ def initialize_state(
     bars: list[PriceBar],
     cutoff: datetime,
     threshold: int,
+    previous_state: dict | None = None,
 ) -> dict:
     boundary = latest_morning_boundary(bars, cutoff)
     replay_start = datetime.min if boundary is None else boundary.bar_time
@@ -772,6 +683,10 @@ def initialize_state(
             )
         state["source_row_count"] = row_number
     state["raw_positions"] = raw_positions
+    # Rebuilding strategy history must never erase an unresolved broker attempt.
+    for key, value in (previous_state or {}).items():
+        if key == "attempt" or key.startswith(("last_order_", "last_executed_")):
+            state[key] = value
     save_json_atomic(STATE_PATH, state)
     write_position(state, "startup rebuild")
     return state
@@ -831,6 +746,9 @@ def process_new_rows(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--retry-failed", action="store_true", help="對帳後解除未確認委託鎖定")
+    args = parser.parse_args()
     load_env_file(ENV_PATH)
     poll_seconds = max(
         0.5, float(os.getenv("EF_STRONG_MORNING_FLAT_POLL_SECONDS", "2"))
@@ -849,9 +767,17 @@ def main() -> None:
         rows = load_signal_rows(SOURCE_PATH)
         bars = load_price_bars(PRICE_PATH)
         state = load_json(STATE_PATH, {})
+        if args.retry_failed:
+            append_order_event(attempt_id=uuid.uuid4().hex, event="operator_retry",
+                               trigger="operator_retry", target=0)
+            for field in ("attempt", "last_order_attempt_target", "last_order_error",
+                          "last_order_error_target", "last_order_error_at"):
+                state.pop(field, None)
+            if not save_json_atomic(STATE_PATH, state):
+                raise RuntimeError("無法儲存解除鎖定狀態")
         previous_count = state.get("source_row_count")
         if previous_count is None or int(previous_count) > len(rows):
-            state = initialize_state(rows, bars, now_local(), threshold)
+            state = initialize_state(rows, bars, now_local(), threshold, previous_state=state)
         else:
             state["threshold"] = threshold
             save_json_atomic(STATE_PATH, state)
@@ -901,7 +827,7 @@ def main() -> None:
                 process_live_rows(state, rows, threshold)
             previous_count = int(state.get("source_row_count") or 0)
             if len(rows) < previous_count:
-                state = initialize_state(rows, bars, cutoff, threshold)
+                state = initialize_state(rows, bars, cutoff, threshold, previous_state=state)
             else:
                 process_new_rows(state, rows, bars, cutoff, threshold)
             time.sleep(poll_seconds)

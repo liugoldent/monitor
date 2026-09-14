@@ -12,6 +12,7 @@ $services = @(
     'webhook-server',
     'cloudflared',
     'ef-strong-consensus-morning-flat-strategy',
+    'ef-morning-weekend-hedge-strategy',
     'options-level-monitor'
 )
 function Get-RootEnvValue([string]$Name) {
@@ -89,6 +90,7 @@ $logWindows = @(
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'EF Strong Consensus LIVE - API KEY'; Service = 'ef-strong-consensus-morning-flat-strategy' },
+    @{ Title = 'EF Pure Morning Flat - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' },
     @{
         Title = 'TX Options Level Monitor'
         Service = 'options-level-monitor'

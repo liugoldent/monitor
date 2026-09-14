@@ -11,10 +11,13 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from datetime import datetime
 
 
 BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
+sys.path.insert(0, str(BACKEND_DIR))
+from ef_trade_runtime import now_local, order_deadline, check_order_deadline
 SHARED_ADAPTER_PATH = BACKEND_DIR / "shioaji_tmf_target.py"
 POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
@@ -78,6 +81,8 @@ def execute_target_position(
     *,
     api: Any = None,
     sj: Any = None,
+    deadline: datetime | None = None,
+    clock=now_local,
 ) -> OrderResult:
     """Reconcile API_KEY's real TMF position to the one-contract target."""
     unit = _position_unit()
@@ -85,8 +90,12 @@ def execute_target_position(
         raise ValueError(
             f"強共識實單目標只能是-{unit}、0或{unit}口，目前為{target_position!r}"
         )
+    deadline = deadline or order_deadline(clock(), target_position)
+    def check_deadline():
+        check_order_deadline(deadline, clock, BrokerOrderError)
     if api is not None:
-        return _shared.execute_target_position(target_position, api=api, sj=sj)
+        return _shared.execute_target_position(target_position, api=api, sj=sj,
+                                              before_order=check_deadline, strict_tmf=True)
     if sj is None:
         try:
             import shioaji as sj  # type: ignore[no-redef]
@@ -95,7 +104,8 @@ def execute_target_position(
 
     api = _login(sj)
     try:
-        return _shared.execute_target_position(target_position, api=api, sj=sj)
+        return _shared.execute_target_position(target_position, api=api, sj=sj,
+                                              before_order=check_deadline, strict_tmf=True)
     finally:
         try:
             api.logout()

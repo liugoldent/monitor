@@ -22,9 +22,12 @@ run-windows-services.cmd
 
 1. 檢查必要檔案與 Docker。
 2. 必要時啟動 Docker Desktop並等待引擎就緒。
-3. 停止均值回歸與其他舊策略容器。
-4. 啟動五個原有 Docker 服務與 `options-level-monitor`。
-5. 在 Windows Terminal 開六個分頁顯示各服務 log；沒有 Windows Terminal 時改開 PowerShell。
+3. 啟動七個 Docker 服務，包含 `ef-strong-consensus-morning-flat-strategy`、`ef-morning-weekend-hedge-strategy` 與 `options-level-monitor`。
+4. 在 Windows Terminal 開七個分頁顯示各服務 log；沒有 Windows Terminal 時改開 PowerShell。
+
+`ef-morning-weekend-hedge-strategy` 使用第二組 `API_KEY2` / `SECRET_KEY2`，
+實單模式沿用 `backend-futures-py/.env` 的 `EF_PURE_FLAT_ENABLE_ORDERS`；未設定時為 shadow。
+兩套策略會一併啟動，也會由停止腳本一併停止。
 
 不重新 build image：
 

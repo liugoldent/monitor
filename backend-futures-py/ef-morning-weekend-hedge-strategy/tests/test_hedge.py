@@ -107,7 +107,8 @@ class MonitorTests(unittest.TestCase):
             state = json.loads((self.root / "runtime/live_state.json").read_text())
             self.assertEqual(state["attempt"]["status"], "pending")
             self.orders.append(target)
-            return NS(actual_position=target, quantity=abs(target))
+            return NS(previous_position=0, actual_position=target, quantity=abs(target),
+                      side="buy" if target > 0 else "sell" if target < 0 else None)
         self.execute = Mock(side_effect=execute)
 
     def monitor(self, live=True):
@@ -153,6 +154,55 @@ class MonitorTests(unittest.TestCase):
         self.now = datetime(2026, 9, 14, 8, 45)
         m.tick()
         self.assertEqual(set(self.orders), {0})
+
+    def test_unchanged_targets_skip_broker_and_notifications(self):
+        m = self.monitor()
+        m.notify = Mock()
+        m.tick()
+        for minute in (5, 10, 15, 30):
+            self.now = datetime(2026, 9, 14, 9, minute)
+            m.tick()
+        self.assertEqual(self.orders, [0])
+        self.assertEqual(m.notify.call_count, 1)
+        self.signal("2026-09-14 09:31:00")
+        self.now = datetime(2026, 9, 14, 9, 31)
+        m.tick()
+        # Even a fresh signal with the same net target must not call the broker.
+        self.signal("2026-09-14 09:35:00")
+        for minute in (36, 41, 56):
+            self.now = datetime(2026, 9, 14, 9, minute)
+            m.tick()
+        self.assertEqual(self.orders, [0, 1])
+        self.assertEqual(m.notify.call_count, 2)
+        self.signal("2026-09-14 10:00:00", position=0)
+        self.now = datetime(2026, 9, 14, 10)
+        m.tick()
+        self.assertEqual(self.orders, [0, 1, 0])
+
+    def test_restart_reconciles_once_then_stays_quiet(self):
+        self.monitor().tick()
+        self.now += timedelta(minutes=5)
+        m = self.monitor()
+        m.notify = Mock()
+        m.tick()
+        self.assertEqual(self.orders, [0, 0])
+        self.assertIn("startup_reconcile/", m.state["attempt"]["key"])
+        self.now += timedelta(minutes=10)
+        m.tick()
+        self.assertEqual(self.orders, [0, 0])
+        self.assertEqual(m.notify.call_count, 1)
+
+    def test_failed_signal_remains_locked_after_five_minutes_and_restart(self):
+        m = self.monitor()
+        m.tick()
+        self.signal("2026-09-14 09:01:00")
+        self.now += timedelta(minutes=1)
+        self.execute.side_effect = RuntimeError("uncertain")
+        m.tick()
+        self.now += timedelta(minutes=10)
+        m.tick()
+        self.monitor().tick()
+        self.assertEqual(self.execute.call_count, 2)
 
     def test_missed_flat_recovers_before_accepting_signals(self):
         m = self.monitor()

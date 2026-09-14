@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -53,7 +53,7 @@ class AutoTradeCredentialTests(unittest.TestCase):
         ) as execute:
             result = auto_trade.execute_target_position(-2, api=api, sj=sj)
         self.assertIs(result, expected)
-        execute.assert_called_once_with(-2, api=api, sj=sj)
+        execute.assert_called_once_with(-2, api=api, sj=sj, before_order=ANY, strict_tmf=True)
 
     def test_reconciliation_delegates_to_shared_verified_adapter(self):
         api = Mock()
@@ -67,7 +67,7 @@ class AutoTradeCredentialTests(unittest.TestCase):
             result = auto_trade.execute_target_position(-1, api=api, sj=sj)
 
         self.assertIs(result, expected)
-        execute.assert_called_once_with(-1, api=api, sj=sj)
+        execute.assert_called_once_with(-1, api=api, sj=sj, before_order=ANY, strict_tmf=True)
 
 
 if __name__ == "__main__":
