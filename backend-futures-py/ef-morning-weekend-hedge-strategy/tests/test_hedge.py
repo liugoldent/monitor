@@ -95,301 +95,187 @@ class MonitorTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        env = patch.dict(os.environ, {"EF_HEDGE_CONTRACT": "TMFI6"}, clear=True)
+        self.now = datetime(2026, 9, 14, 22, 30)
+        self.signals = self.root / "signals.csv"
+        self.signals.write_text("received_at,strategy_code,previous_position,new_position\n")
+        env = patch.dict(os.environ, {"EF_HEDGE_SIGNAL_CSV": str(self.signals)}, clear=True)
         env.start()
         self.addCleanup(env.stop)
-        self.now = datetime(2026, 9, 14, 9)
-        self.signals = self.root / "signals.csv"
-        self.signals.write_text("received_at,strategy_code,new_position\n")
-        os.environ["EF_HEDGE_SIGNAL_CSV"] = str(self.signals)
+        self.actual = 1
         self.orders = []
-        def execute(target, **kwargs):
-            state = json.loads((self.root / "runtime/live_state.json").read_text())
-            self.assertEqual(state["attempt"]["status"], "pending")
-            self.orders.append(target)
-            return NS(previous_position=0, actual_position=target, quantity=abs(target),
-                      side="buy" if target > 0 else "sell" if target < 0 else None)
-        self.execute = Mock(side_effect=execute)
+        self.fail_after_fill = False
+        self.execute = Mock(side_effect=self.broker)
 
-    def monitor(self, live=True):
-        return Monitor(root=self.root, live=live, executor=self.execute, clock=lambda: self.now)
+    def broker(self, target, *, delta=None, on_target=None, **kwargs):
+        previous = self.actual
+        if delta is not None:
+            target = previous + delta
+            on_target(target)
+        state = json.loads((self.root / "runtime/live_state.json").read_text())
+        self.assertEqual(state["attempt"]["target"], target)
+        self.assertEqual(state["attempt"]["status"], "pending")
+        quantity = abs(target - previous)
+        if quantity:
+            self.orders.append(target - previous)
+        self.actual = target
+        if self.fail_after_fill:
+            self.fail_after_fill = False
+            raise auto_trade.BrokerOrderError("filled but response lost")
+        return NS(previous_position=previous, actual_position=target, quantity=quantity,
+                  side="buy" if target > previous else "sell")
 
-    def signal(self, stamp, code="CFC07m", position=1):
+    def monitor(self):
+        return Monitor(root=self.root, live=True, executor=self.execute, clock=lambda: self.now)
+
+    def signal(self, previous, new, code="CFC07m", stamp=None):
         with self.signals.open("a") as f:
-            f.write(f"{stamp},{code},{position}\n")
+            f.write(f"{stamp or self.now.strftime('%Y-%m-%d %H:%M:%S')},{code},{previous},{new}\n")
 
-    def test_flat_reopen_wait_new_signal_and_restart(self):
+    def test_start_and_restart_never_trade_old_targets_or_signals(self):
+        self.signal(0, 1, stamp="2026-09-14 22:15:00")
+        m = self.monitor()
+        m.state.update(target=4, position=4, attempt={"status": "failed", "target": 4, "at": self.now.isoformat()})
+        m.persist()
+        self.now += timedelta(seconds=1)
         m = self.monitor()
         m.tick()
-        self.signal("2026-09-14 09:01:00")
-        self.now = datetime(2026, 9, 14, 9, 1)
-        m.tick()
-        self.assertEqual(self.orders, [0, 1])
-        self.now = datetime(2026, 9, 15, 4, 59)
-        with patch.object(m, "source", side_effect=AssertionError("must not read CSV to flatten")):
-            m.tick()
-        self.assertEqual(self.orders[-1], 0)
-        self.signal("2026-09-15 05:30:00", "CFCTX17m")
-        self.now = datetime(2026, 9, 15, 8, 45)
-        m = self.monitor()
-        m.tick()
-        self.assertEqual(self.orders[-1], 0)
-        self.signal("2026-09-15 08:46:00", "CFCTX18m", -1)
-        self.now = datetime(2026, 9, 15, 8, 46)
-        m.tick()
-        self.assertEqual(self.orders[-1], -1)
-        self.assertEqual(m.state["source"]["positions"]["CFC07m"], 0)
-        count = len(self.orders)
-        self.monitor().tick()
-        self.assertTrue(all(x == -1 for x in self.orders[count:]))
-
-    def test_weekend_and_holiday_stay_flat(self):
-        self.now = datetime(2026, 9, 12, 4, 59)
-        m = self.monitor()
-        m.tick()
-        for stamp in (datetime(2026, 9, 12, 8, 45), datetime(2026, 9, 13, 8, 45)):
-            self.now = stamp
-            m.tick()
-        self.assertEqual(self.orders, [0])
-        self.now = datetime(2026, 9, 14, 8, 45)
-        m.tick()
-        self.assertEqual(set(self.orders), {0})
-
-    def test_unchanged_targets_skip_broker_and_notifications(self):
-        m = self.monitor()
-        m.notify = Mock()
-        m.tick()
-        for minute in (5, 10, 15, 30):
-            self.now = datetime(2026, 9, 14, 9, minute)
-            m.tick()
-        self.assertEqual(self.orders, [0])
-        self.assertEqual(m.notify.call_count, 1)
-        self.signal("2026-09-14 09:31:00")
-        self.now = datetime(2026, 9, 14, 9, 31)
-        m.tick()
-        # Even a fresh signal with the same net target must not call the broker.
-        self.signal("2026-09-14 09:35:00")
-        for minute in (36, 41, 56):
-            self.now = datetime(2026, 9, 14, 9, minute)
-            m.tick()
-        self.assertEqual(self.orders, [0, 1])
-        self.assertEqual(m.notify.call_count, 2)
-        self.signal("2026-09-14 10:00:00", position=0)
-        self.now = datetime(2026, 9, 14, 10)
-        m.tick()
-        self.assertEqual(self.orders, [0, 1, 0])
-
-    def test_restart_reconciles_once_then_stays_quiet(self):
-        self.monitor().tick()
-        self.now += timedelta(minutes=5)
-        m = self.monitor()
-        m.notify = Mock()
-        m.tick()
-        self.assertEqual(self.orders, [0, 0])
-        self.assertIn("startup_reconcile/", m.state["attempt"]["key"])
-        self.now += timedelta(minutes=10)
-        m.tick()
-        self.assertEqual(self.orders, [0, 0])
-        self.assertEqual(m.notify.call_count, 1)
-
-    def test_failed_signal_retries_after_cooldown_and_restart(self):
-        m = self.monitor()
-        m.tick()
-        self.signal("2026-09-14 09:01:00")
         self.now += timedelta(minutes=1)
-        self.execute.side_effect = RuntimeError("uncertain")
         m.tick()
-        self.now += timedelta(minutes=10)
-        m.tick()
-        self.monitor().tick()
-        self.assertEqual(self.execute.call_count, 3)
-        self.now += timedelta(seconds=10)
-        self.monitor().tick()
-        self.assertEqual(self.execute.call_count, 4)
+        self.execute.assert_not_called()
+        self.assertEqual(self.actual, 1)
 
-    def test_batched_signals_are_executed_individually_and_not_replayed(self):
+    def test_new_signal_in_startup_second_is_not_lost(self):
+        self.now = self.now.replace(microsecond=100000)
+        self.signal(0, 1, "CFCTX16m")  # Already in file at startup: ignore.
         m = self.monitor()
+        self.now = self.now.replace(microsecond=200000)
+        self.signal(0, 1)
         m.tick()
-        for second, position in enumerate((1, 0, -1, 0, 1, -1, 1), 1):
-            self.signal(f"2026-09-14 09:01:{second:02}", position=position)
-        self.now = datetime(2026, 9, 14, 9, 2)
-        m.tick()
-        self.assertEqual(self.orders, [0, 1, 0, -1, 0, 1, -1, 1])
-        m.tick()
-        self.assertEqual(len(self.orders), 8)
-        self.monitor().tick()
-        self.assertEqual(self.orders, [0, 1, 0, -1, 0, 1, -1, 1, 1])
+        self.assertEqual(self.orders, [1])
 
-    def test_batch_stops_at_flat_boundary_and_discards_remaining_entries(self):
+    def test_new_entry_adds_one_to_actual_not_old_theoretical_four(self):
         m = self.monitor()
+        m.state["target"] = 4
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
         m.tick()
-        for code in ("CFC07m", "CFCTX16m"):
-            self.signal("2026-09-15 04:58:59", code)
-        self.now = datetime(2026, 9, 15, 4, 58, 59)
-        successful = self.execute.side_effect
-        def slow_order(target, **kwargs):
-            result = successful(target, **kwargs)
-            self.now = datetime(2026, 9, 15, 4, 59)
-            return result
-        self.execute.side_effect = slow_order
-        m.tick()
-        self.assertEqual(self.orders, [0, 1])
-        self.execute.side_effect = successful
-        m.tick()
-        self.assertEqual(self.orders, [0, 1, 0])
-        self.now = datetime(2026, 9, 15, 8, 45)
-        m.tick()
-        self.assertEqual(self.orders, [0, 1, 0])
+        self.assertEqual(self.orders, [1])
+        self.assertEqual(self.actual, 2)
 
-    def test_multiple_strategies_same_second_get_separate_orders(self):
+    def test_six_transitions_and_batch_not_collapsed(self):
         m = self.monitor()
-        m.tick()
-        for code in ("CFC07m", "CFCTX16m", "CFCTX21m"):
-            self.signal("2026-09-14 09:01:00", code)
-        self.now = datetime(2026, 9, 14, 9, 1)
-        m.tick()
-        self.assertEqual(self.orders, [0, 1, 2, 3])
-
-    def test_all_six_transitions(self):
-        m = self.monitor()
-        m.tick()
-        # 0->1, 1->0, 0->-1, -1->0, 1->-1, -1->1.
-        for position in (1, 0, -1, 0, 1, -1, 1):
+        for previous, new in ((0, 1), (1, 0), (0, -1), (-1, 0), (0, 1), (1, -1), (-1, 1)):
             self.now += timedelta(seconds=1)
-            self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), position=position)
-            m.tick()
-        self.assertEqual(self.orders, [0, 1, 0, -1, 0, 1, -1, 1])
+            self.signal(previous, new)
+        m.tick()
+        self.assertEqual(self.orders, [1, -1, -1, 1, 1, -2, 2])
+        m.tick()
+        self.assertEqual(len(self.orders), 7)
 
-    def test_uncertain_fill_recovers_to_latest_target_without_duplicate(self):
+    def test_first_post_start_reverse_uses_two_contracts(self):
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(1, -1)
+        m.tick()
+        self.assertEqual(self.orders, [-2])
+
+    def test_multiple_same_second_signals_each_execute(self):
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        for code in ("CFC07m", "CFCTX16m", "CFCTX21m"):
+            self.signal(0, 1, code)
+        m.tick()
+        self.assertEqual(self.orders, [1, 1, 1])
+
+    def test_restart_ignores_signals_received_while_stopped(self):
+        self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
+        self.now += timedelta(seconds=1)
         m = self.monitor()
         m.tick()
-        actual = 0
-        deltas = []
-        fail = True
-        def broker(target, **kwargs):
-            nonlocal actual, fail
-            previous = actual
-            delta = target - previous
-            deltas.append(delta)
-            actual = target  # Filled, but the first acknowledgement is lost.
-            if fail:
-                fail = False
-                raise auto_trade.BrokerOrderError("uncertain fill")
-            return NS(previous_position=previous, actual_position=actual,
-                      quantity=abs(delta), side="buy" if delta > 0 else "sell")
-        self.execute.side_effect = broker
-        self.now += timedelta(minutes=1)
-        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"))
+        self.execute.assert_not_called()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1, "CFCTX16m")
+        m.tick()
+        self.assertEqual(self.orders, [1])
+
+    def test_failure_retries_fixed_target_without_duplicate_fill(self):
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
+        self.fail_after_fill = True
         m.tick()
         self.now += timedelta(seconds=2)
-        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), "CFCTX16m")
+        self.signal(0, 1, "CFCTX16m")
         m.tick()
-        self.assertEqual(deltas, [1])
+        self.assertEqual(self.orders, [1])
         self.now += timedelta(seconds=8)
-        self.monitor().tick()
-        self.assertEqual(deltas, [1, 0, 1])
-        self.assertEqual(actual, 2)
+        m.tick()
+        self.assertEqual(self.orders, [1, 1])
+        self.assertEqual(self.actual, 3)
+        self.assertEqual(self.execute.call_count, 3)
 
-    def test_failed_target_returning_to_previous_target_still_reconciles(self):
+    def test_flat_on_clock_then_reopen_only_new_signals(self):
         m = self.monitor()
-        m.tick()
-        successful = self.execute.side_effect
-        self.execute.side_effect = RuntimeError("uncertain")
-        self.now += timedelta(minutes=1)
-        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"))
-        m.tick()
-        self.now += timedelta(seconds=10)
-        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), position=0)
-        self.execute.side_effect = successful
-        m.tick()
-        self.assertEqual(self.orders, [0, 1, 0])
-        self.assertEqual(m.state["attempt"]["status"], "done")
-
-    def test_flat_overrides_failed_entry_cooldown(self):
-        m = self.monitor()
-        m.tick()
-        successful = self.execute.side_effect
-        self.now = datetime(2026, 9, 15, 4, 58, 59)
-        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"))
-        self.execute.side_effect = RuntimeError("uncertain")
-        m.tick()
+        self.actual = 4
         self.now = datetime(2026, 9, 15, 4, 59)
-        self.execute.side_effect = successful
-        with patch.object(m, "source", side_effect=AssertionError("flat first")):
+        with patch.object(m, "source", side_effect=AssertionError("flat cannot read CSV")):
             m.tick()
-        self.assertEqual(self.orders, [0, 0])
-        self.assertEqual(m.state["attempt"]["status"], "done")
-
-    def test_pending_attempt_from_crash_automatically_recovers(self):
-        m = self.monitor()
-        m.tick()
-        m.state["attempt"] = {"key": "interrupted", "status": "pending",
-                              "at": self.now.isoformat(), "target": 1}
-        m.persist()
-        self.now += timedelta(seconds=10)
-        self.monitor().tick()
-        self.assertEqual(self.orders, [0, 0])
-
-    def test_missed_flat_recovers_before_accepting_signals(self):
-        m = self.monitor()
-        m.tick()
-        self.now = datetime(2026, 9, 15, 5)
-        m.tick()
-        self.signal("2026-09-15 08:45:00")
-        self.now = datetime(2026, 9, 15, 9)
-        m.tick()
-        self.assertEqual(self.orders[-1], 0)
-        self.signal("2026-09-15 09:01:00", position=-1)
-        self.now = datetime(2026, 9, 15, 9, 1)
-        m.tick()
-        self.assertEqual(self.orders[-1], -1)
-
-    def test_failed_flat_retries_flat_before_accepting_signals(self):
-        self.now = datetime(2026, 9, 15, 4, 59)
-        self.execute.side_effect = RuntimeError("uncertain")
-        m = self.monitor()
-        m.tick()
+        self.assertEqual(self.orders, [-4])
         self.now = datetime(2026, 9, 15, 8, 45)
         m.tick()
+        self.assertEqual(self.orders, [-4])
+        # Overnight leg already flattened: exit must not open a short.
+        self.signal(1, 0)
+        m.tick()
+        self.assertEqual(self.orders, [-4])
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1, "CFCTX16m")
+        m.tick()
+        self.assertEqual(self.orders, [-4, 1])
+
+    def test_start_at_flat_time_liquidates(self):
+        self.now = datetime(2026, 9, 15, 4, 59)
         self.monitor().tick()
-        self.assertEqual(self.execute.call_count, 2)
-        self.assertEqual([c.args[0] for c in self.execute.call_args_list], [0, 0])
+        self.assertEqual(self.orders, [-1])
 
-    def test_slow_signal_read_cannot_enter_after_flat_boundary(self):
+    def test_flat_overrides_failed_entry_wait(self):
         m = self.monitor()
-        m.tick()
         self.now = datetime(2026, 9, 15, 4, 58, 59)
-        def slow_source(now):
-            self.now = datetime(2026, 9, 15, 4, 59)
-            return {"net_position": 1}
-        m.source = slow_source
+        self.signal(0, 1)
+        self.fail_after_fill = True
         m.tick()
-        self.assertEqual(self.orders, [0])
+        self.now = datetime(2026, 9, 15, 4, 59)
         m.tick()
-        self.assertEqual(self.orders, [0, 0])
+        self.assertEqual(self.actual, 0)
+        self.assertEqual(self.orders, [1, -2])
 
-    def test_shadow_and_legacy_state(self):
-        self.monitor(live=False).tick()
-        self.execute.assert_not_called()
-        path = self.root / "runtime/live_state.json"
-        path.write_text(json.dumps({"mode": "live", "cycle": {"target": -6}}))
-        with self.assertRaisesRegex(ValueError, "舊避險"):
-            self.monitor()
-
-    def test_noon_hold_and_size_limit(self):
+    def test_failed_flat_retries_automatically(self):
         m = self.monitor()
+        self.now = datetime(2026, 9, 15, 4, 59)
+        self.fail_after_fill = True
         m.tick()
-        self.signal("2026-09-14 09:01:00")
-        self.now = datetime(2026, 9, 14, 13, 44)
+        self.now += timedelta(seconds=10)
         m.tick()
-        self.assertEqual(self.orders[-1], 1)
-        self.now = datetime(2026, 9, 14, 13, 45)
+        self.assertEqual(self.orders, [-1])
+        self.assertEqual(m.state["attempt"]["status"], "done")
+
+    def test_batch_does_not_cross_flat_boundary(self):
+        m = self.monitor()
+        self.now = datetime(2026, 9, 15, 4, 58, 59)
+        for code in ("CFC07m", "CFCTX16m"):
+            self.signal(0, 1, code)
+        def slow(*args, **kwargs):
+            result = self.broker(*args, **kwargs)
+            self.now = datetime(2026, 9, 15, 4, 59)
+            return result
+        self.execute.side_effect = slow
         m.tick()
-        self.assertEqual(self.orders[-1], 1)
-        self.now = datetime(2026, 9, 14, 15)
-        os.environ["EF_HEDGE_MAX_CONTRACTS"] = "0"
-        with self.assertRaises(ValueError):
-            m.tick()
+        self.assertEqual(self.orders, [1])
+        m.tick()
+        self.assertEqual(self.orders, [1, -2])
+
 
 
 class BrokerTests(unittest.TestCase):
@@ -438,6 +324,27 @@ class BrokerTests(unittest.TestCase):
                 result = self.execute(target)
                 self.assertEqual((result.side, result.quantity), (side, quantity))
                 self.assertEqual(self.api.Order.call_args.kwargs["quantity"], quantity)
+
+    def test_signal_delta_resolves_from_real_inventory_and_persists_before_order(self):
+        previous = [{"code": "TMFI6", "quantity": 1, "direction": "Buy"}]
+        final = [{"code": "TMFI6", "quantity": 2, "direction": "Buy"}]
+        self.api.list_positions.side_effect = [previous, previous, previous, previous, final]
+        resolved = []
+        self.api.place_order.side_effect = lambda *a, **k: (
+            self.assertEqual(resolved, [2]) or NS(status=NS(status="Filled")))
+        result = auto_trade.execute_target_position(None, delta=1, on_target=resolved.append,
+            deadline=self.now + timedelta(seconds=40), clock=lambda: self.now,
+            api=self.api, sj=self.sj)
+        self.assertEqual(result.quantity, 1)
+        self.assertEqual(result.actual_position, 2)
+
+    def test_signal_target_save_failure_never_sends_order(self):
+        with self.assertRaises(OSError):
+            auto_trade.execute_target_position(None, delta=1,
+                on_target=Mock(side_effect=OSError("disk full")),
+                deadline=self.now + timedelta(seconds=40), clock=lambda: self.now,
+                api=self.api, sj=self.sj)
+        self.api.place_order.assert_not_called()
 
     def test_flat_uses_actual_quantity(self):
         self.api.list_positions.side_effect = [

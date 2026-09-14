@@ -47,8 +47,11 @@ def login(sj: Any):
 
 
 def execute_target_position(target: int, *, deadline: datetime, clock: Callable[[], datetime],
-                            api: Any = None, sj: Any = None):
-    if isinstance(target, bool) or not isinstance(target, int) or abs(target) > 240:
+                            api: Any = None, sj: Any = None, delta: int | None = None,
+                            on_target=None):
+    if delta is not None and (isinstance(delta, bool) or not isinstance(delta, int) or abs(delta) > 40):
+        raise ValueError("訊號差額須為 -40 至 40 整數")
+    if delta is None and (isinstance(target, bool) or not isinstance(target, int) or abs(target) > 240):
         raise ValueError("純 EF 目標須為 -240 至 240 整數")
     if sj is None:
         import shioaji as sj
@@ -59,6 +62,14 @@ def execute_target_position(target: int, *, deadline: datetime, clock: Callable[
         def check_deadline():
             check_order_deadline(deadline, clock, BrokerOrderError)
 
+        if delta is not None:
+            _shared._refresh_status(api)
+            _shared.validate_tmf_account(api)
+            target = _shared.current_tmf_position(api) + delta
+            maximum = int(os.getenv("EF_HEDGE_MAX_CONTRACTS", "12"))
+            if not 0 <= maximum <= 240 or abs(target) > maximum:
+                raise ValueError("訊號後部位超過 EF_HEDGE_MAX_CONTRACTS")
+            on_target(target)  # Durable target before any order; retries reuse it.
         return _shared.execute_target_position(
             target, api=api, sj=sj, before_order=check_deadline, strict_tmf=True,
         )

@@ -70,14 +70,31 @@ class Monitor:
             raise ValueError("偵測到舊避險狀態；請先核對並平掉永豐2舊部位，再封存 runtime 狀態後啟動新策略")
         self.state["mode"] = self.mode
         self.state["strategy"] = "pure_ef_morning_flat_v1"
-        if "boot" not in self.state:
-            self.state["boot"] = self.clock().isoformat()
-            self.persist()
+        started = self.clock()
+        calendar = Calendar.load(self.calendar_path)
+        closure = latest_closure(calendar, started)
+        previous_attempt = self.state.pop("attempt", None)
+        if previous_attempt:
+            self.event("startup_discard_previous_attempt", previous=previous_attempt)
+        signal_path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
+        if signal_path.exists():
+            with signal_path.open(encoding="utf-8-sig", newline="") as handle:
+                self.state["startup_signal_rows"] = sum(1 for _ in csv.DictReader(handle))
+        else:
+            self.state["startup_signal_rows"] = 0
+        self.state["boot"] = started.isoformat()
+        self.state["ready_since"] = started.isoformat()
+        self.state.pop("source", None)
+        self.state["session_flat"] = False
+        # Starting/restarting is never a catch-up or liquidation trigger.
+        self.state["flat_cycle"] = closure.start.isoformat() if closure else "initial"
+        if day_time(4, 59) <= started.time() < day_time(5):
+            self.state["flat_cycle"] = None
+        self.persist()
         self.source = source or self.read_source
         self.execute = executor or execute_target_position
         self.notify = notify or (lambda message: None)
         self.last_alert = None
-        self.startup_reconciled = False
 
     def persist(self):
         save(self.path, self.state)
@@ -103,12 +120,17 @@ class Monitor:
         closure = latest_closure(calendar, now)
         boot = max(datetime.fromisoformat(self.state["boot"]),
                    datetime.fromisoformat(self.state.get("ready_since", self.state["boot"])))
-        since = closure.reopen if closure else boot
+        since = closure.reopen if closure else boot.replace(microsecond=0)
+        if self.state.get("session_flat"):
+            since = max(since, datetime.fromisoformat(self.state["ready_since"]))
         path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
         return pure_position(path, now, since, calendar,
-                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot)
+                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot,
+                             initial_from_signal=not self.state.get("session_flat", False),
+                             start_index=self.state["startup_signal_rows"])
 
-    def action(self, key: str, target: int, contract: str, deadline: datetime) -> bool:
+    def action(self, key: str, target: int | None, contract: str, deadline: datetime,
+               delta: int | None = None) -> bool:
         attempt = self.state.get("attempt", {})
         if attempt.get("status") in {"pending", "failed"}:
             # Persisted time also throttles recovery after a process restart.
@@ -124,6 +146,8 @@ class Monitor:
                          detail="前次未確認；重新查券商庫存與未結委託，依待處理訊號計算差額")
             # perform_order persists the new intent before executing. The executor
             # always checks broker orders/inventory before submitting any delta.
+            if attempt.get("key") == key and attempt.get("target") is not None:
+                target, delta = attempt["target"], None
             self.state.pop("attempt")
         elif attempt.get("key") == key and attempt.get("status") == "done":
             return True
@@ -132,14 +156,37 @@ class Monitor:
                          clock=self.clock, **row)
         try:
             if self.live:
-                result = perform_order(
-                    self.state, key=key, target=target, persist=self.persist,
-                    execute=lambda: self.execute(target, deadline=deadline, clock=self.clock),
-                    record=record, clock=self.clock,
-                )
+                if delta is None:
+                    result = perform_order(
+                        self.state, key=key, target=target, persist=self.persist,
+                        execute=lambda: self.execute(target, deadline=deadline, clock=self.clock),
+                        record=record, clock=self.clock,
+                    )
+                else:
+                    current = {"key": key, "id": uuid.uuid4().hex, "status": "pending",
+                               "target": None, "delta": delta, "at": self.clock().isoformat()}
+                    self.state["attempt"] = current
+                    self.persist()
+                    def resolve_target(value):
+                        current["target"] = value
+                        self.persist()
+                        record(attempt_id=current["id"], event="attempt_started", trigger=key,
+                               target_position=value, detail=f"新訊號差額 {delta}；已保存券商對帳目標")
+                    result = self.execute(None, delta=delta, on_target=resolve_target,
+                                          deadline=deadline, clock=self.clock)
+                    target = current["target"]
+                    if result.actual_position != target:
+                        raise RuntimeError("券商實際部位未達目標")
+                    record(attempt_id=current["id"], event="order_sent_confirmed", trigger=key,
+                           target_position=target, previous_position=result.previous_position,
+                           actual_position=result.actual_position, side=result.side,
+                           quantity=result.quantity, detail=result_text(result))
+                    current["status"] = "done"
+                    self.persist()
                 actual, quantity = result.actual_position, result.quantity
                 detail = result_text(result)
             else:
+                target = self.state.get("position", 0) + delta if delta is not None else target
                 actual = target
                 quantity = abs(target - self.state.get("position", 0))
                 self.state["attempt"] = {"key": key, "status": "done", "target": target}
@@ -183,8 +230,9 @@ class Monitor:
                 return
             self.state["flat_cycle"] = cycle
             self.state["ready_since"] = self.clock().isoformat()
+            self.state["session_flat"] = True
+            self.state.pop("source", None)
             self.persist()
-            self.startup_reconciled = True
         # Weekends/holidays remain flat; calendar updates are read on every tick.
         if closure and now < closure.reopen:
             return
@@ -204,30 +252,19 @@ class Monitor:
                  if not cursor or signal_order(step["last_signal"]) > signal_order(cursor)]
         # Each accepted event is executed and checkpointed separately. Never
         # collapse a burst of entries/exits into its final net position.
-        has_new_steps = bool(steps)
-        if not steps:
-            steps = [{k: v for k, v in source.items() if k != "steps"}]
         for step in steps:
-            target = integer(step["net_position"])
-            if abs(target) > maximum:
-                raise ValueError("純 EF 口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
             deadline = self.session_deadline(now)
             if deadline.time() == day_time(4, 59, 40):
                 deadline = deadline.replace(second=0)
             if self.clock() >= deadline:
                 return
-            recovering = self.state.get("attempt", {}).get("status") in {"pending", "failed"}
-            if target != self.state.get("target", 0) or not self.startup_reconciled or recovering:
-                trigger = "signal" if has_new_steps else "startup_reconcile"
-                identity = step.get("last_signal") if has_new_steps else now.isoformat()
-                key = f"{trigger}/{identity}/{target}"
-                if not self.action(key, target, contract, deadline):
+            delta = (step["new_position"] - step["previous_position"]) * step["unit"]
+            if delta:
+                key = f"signal/{step['last_signal']}"
+                if not self.action(key, None, contract, deadline, delta=delta):
                     return
-                self.state["target"] = target
-                self.startup_reconciled = True
-            if self.state.get("source") != step:
-                self.state["source"] = step
-                self.persist()
+            self.state["source"] = step
+            self.persist()
 
     @staticmethod
     def session_deadline(now: datetime) -> datetime:
@@ -259,10 +296,10 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋04:59清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            "規則：十二個E/F子策略各自維護部位，加總為第二帳戶目標。\n"
+            "版本：new-signals-only-v2；每次啟動只處理啟動後新訊號。\n"
             "04:59清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"
-            "啟動檢查：即將檢查清倉狀態與訊號；此通知不代表已完成對帳或成交。"
+            "啟動不下單、不補舊訊號；收到新訊號才下單，04:59清倉。"
         )
         print(startup_message, flush=True)
         monitor.notify(startup_message)

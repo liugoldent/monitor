@@ -59,3 +59,7 @@ initialize-telegram-relay-session.cmd
 ```
 
 輸入電話時可使用 `09xxxxxxxx` 或 `+8869xxxxxxxx`。
+
+## 永豐 2 每次啟動只接新訊號
+
+啟動器對 `ef-morning-weekend-hedge-strategy` 單獨使用 `--force-recreate`，確保每次執行都以新的監控起點開始。啟動不依舊目標補倉、不重放停機期間訊號；收到新訊號才下單，04:59 清倉。Discord 開始監控通知應包含版本 `new-signals-only-v2`。若沒有此版本文字，先確認 Windows 已拉到本次提交，且未使用 `-NoBuild`。

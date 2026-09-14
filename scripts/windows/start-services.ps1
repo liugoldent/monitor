@@ -79,9 +79,16 @@ Push-Location $projectDir
 try {
     $composeArgs = @('compose', '--profile', 'tunnel', 'up', '--detach')
     if (-not $NoBuild) { $composeArgs += '--build' }
-    $composeArgs += $services
+    $composeArgs += @($services | Where-Object { $_ -ne 'ef-morning-weekend-hedge-strategy' })
     & docker @composeArgs
     if ($LASTEXITCODE -ne 0) { throw "docker compose failed: $LASTEXITCODE" }
+    # Always start a fresh account-2 process, even when its image is unchanged.
+    # Other services retain their ordinary compose lifecycle.
+    $efArgs = @('compose', 'up', '--detach', '--no-deps', '--force-recreate')
+    if (-not $NoBuild) { $efArgs += '--build' }
+    $efArgs += 'ef-morning-weekend-hedge-strategy'
+    & docker @efArgs
+    if ($LASTEXITCODE -ne 0) { throw "EF account 2 startup failed: $LASTEXITCODE" }
 } finally { Pop-Location }
 
 $logWindows = @(

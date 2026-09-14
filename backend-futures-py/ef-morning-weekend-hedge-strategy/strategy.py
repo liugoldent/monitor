@@ -137,7 +137,8 @@ def latest_closure(calendar: Calendar, now: datetime) -> Closure | None:
 
 
 def pure_position(path: Path, now: datetime, since: datetime, calendar: Calendar,
-                  unit: int = 1, boot: datetime | None = None) -> dict:
+                  unit: int = 1, boot: datetime | None = None,
+                  initial_from_signal: bool = False, start_index: int | None = None) -> dict:
     """Only post-reopen signals update their own leg; old legs never restore."""
     unit = integer(unit)
     if not 1 <= unit <= 20:
@@ -150,18 +151,29 @@ def pure_position(path: Path, now: datetime, since: datetime, calendar: Calendar
             if code not in STRATEGIES or not row.get("received_at"):
                 continue
             stamp = datetime.strptime(row["received_at"], "%Y-%m-%d %H:%M:%S")
-            if not since <= stamp <= now or (boot is not None and stamp <= boot):
+            if not since <= stamp <= now:
+                continue
+            if start_index is not None:
+                if index < start_index:
+                    continue
+            elif boot is not None and stamp <= boot:
                 continue
             if not calendar.is_open(stamp) or time(4, 59) <= stamp.time() < time(8, 45):
                 continue
             new = integer(row["new_position"])
             if new not in {-1, 0, 1}:
                 raise ValueError(f"{code} 訊號部位超出 -1/0/1")
-            events.append((stamp, index, code, new))
+            events.append((stamp, index, code, new, integer(row.get("previous_position") or 0)))
     positions = dict.fromkeys(STRATEGIES, 0)
     events.sort()
     steps = []
-    for stamp, index, code, new in events:
+    seen = set()
+    for stamp, index, code, new, reported_previous in events:
+        if initial_from_signal and code not in seen:
+            if reported_previous not in {-1, 0, 1}:
+                raise ValueError(f"{code} 訊號部位超出 -1/0/1")
+            positions[code] = reported_previous
+        seen.add(code)
         previous = positions[code]
         positions[code] = new
         steps.append({"net_position": sum(positions.values()) * unit,
