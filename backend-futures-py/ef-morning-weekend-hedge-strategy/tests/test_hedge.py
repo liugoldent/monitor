@@ -110,10 +110,8 @@ class MonitorTests(unittest.TestCase):
         previous = self.actual
         if delta is not None:
             target = previous + delta
-            on_target(target)
         state = json.loads((self.root / "runtime/live_state.json").read_text())
-        self.assertEqual(state["attempt"]["target"], target)
-        self.assertEqual(state["attempt"]["status"], "pending")
+        self.assertEqual(state["attempt"]["status"], "attempted")
         quantity = abs(target - previous)
         if quantity:
             self.orders.append(target - previous)
@@ -121,7 +119,7 @@ class MonitorTests(unittest.TestCase):
         if self.fail_after_fill:
             self.fail_after_fill = False
             raise auto_trade.BrokerOrderError("filled but response lost")
-        return NS(previous_position=previous, actual_position=target, quantity=quantity,
+        return NS(quantity=quantity, submitted=bool(quantity),
                   side="buy" if target > previous else "sell")
 
     def monitor(self):
@@ -200,7 +198,7 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(self.orders, [1])
 
-    def test_failure_retries_fixed_target_without_duplicate_fill(self):
+    def test_failure_is_not_retried_and_next_signal_still_submits(self):
         m = self.monitor()
         self.now += timedelta(seconds=1)
         self.signal(0, 1)
@@ -209,12 +207,12 @@ class MonitorTests(unittest.TestCase):
         self.now += timedelta(seconds=2)
         self.signal(0, 1, "CFCTX16m")
         m.tick()
-        self.assertEqual(self.orders, [1])
+        self.assertEqual(self.orders, [1, 1])
         self.now += timedelta(seconds=8)
         m.tick()
         self.assertEqual(self.orders, [1, 1])
         self.assertEqual(self.actual, 3)
-        self.assertEqual(self.execute.call_count, 3)
+        self.assertEqual(self.execute.call_count, 2)
 
     def test_flat_on_clock_then_reopen_only_new_signals(self):
         m = self.monitor()
@@ -251,7 +249,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.actual, 0)
         self.assertEqual(self.orders, [1, -2])
 
-    def test_failed_flat_retries_automatically(self):
+    def test_failed_flat_is_not_retried(self):
         m = self.monitor()
         self.now = datetime(2026, 9, 15, 4, 59)
         self.fail_after_fill = True
@@ -259,7 +257,28 @@ class MonitorTests(unittest.TestCase):
         self.now += timedelta(seconds=10)
         m.tick()
         self.assertEqual(self.orders, [-1])
-        self.assertEqual(m.state["attempt"]["status"], "done")
+        self.assertEqual(m.state["attempt"]["status"], "failed_no_retry")
+
+    def test_flat_restart_in_same_minute_does_not_resubmit(self):
+        m = self.monitor()
+        self.now = datetime(2026, 9, 15, 4, 59)
+        self.fail_after_fill = True
+        m.tick()
+        self.now += timedelta(seconds=5)
+        self.monitor().tick()
+        self.assertEqual(self.execute.call_count, 1)
+
+    def test_rejected_signal_does_not_block_next_in_same_batch(self):
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
+        self.signal(0, -1, "CFCTX16m")
+        self.execute.side_effect = [auto_trade.BrokerOrderError("reject"), NS(submitted=True, side="sell", quantity=1)]
+        m.tick()
+        self.assertEqual(self.execute.call_count, 2)
+        self.now += timedelta(minutes=5)
+        m.tick()
+        self.assertEqual(self.execute.call_count, 2)
 
     def test_batch_does_not_cross_flat_boundary(self):
         m = self.monitor()
@@ -299,116 +318,49 @@ class BrokerTests(unittest.TestCase):
             deadline=self.now + timedelta(seconds=40), clock=lambda: self.now,
             api=self.api, sj=self.sj, **kwargs)
 
-    def test_delta_based_on_real_position(self):
-        self.api.list_positions.side_effect = [
-            [{"code": "TMFI6", "quantity": 2, "direction": "Sell"}],
-            [{"code": "TMFI6", "quantity": 2, "direction": "Sell"}],
-            [{"code": "TMFI6", "quantity": 5, "direction": "Sell"}]]
-        result = self.execute()
-        self.assertEqual(result.quantity, 3)
-        self.assertEqual(result.actual_position, -5)
-        self.assertEqual(self.api.Order.call_args.kwargs["order_type"], "IOC")
-        self.assertIs(self.api.place_order.call_args.args[0], self.contract)
-
-    def test_six_transitions_order_side_and_quantity(self):
-        def position(value):
-            return ([{"code": "TMFI6", "quantity": abs(value),
-                      "direction": "Buy" if value > 0 else "Sell"}] if value else [])
-        for previous, target, side, quantity in (
-            (-1, 0, "buy", 1), (1, 0, "sell", 1),
-            (0, 1, "buy", 1), (0, -1, "sell", 1),
-            (1, -1, "sell", 2), (-1, 1, "buy", 2),
-        ):
-            with self.subTest(previous=previous, target=target):
-                self.api.list_positions.side_effect = [position(previous), position(previous), position(target)]
-                result = self.execute(target)
-                self.assertEqual((result.side, result.quantity), (side, quantity))
+    def test_six_transitions_submit_exactly_once_without_inventory_or_fill_query(self):
+        for delta, side, quantity in ((1, "Buy", 1), (-1, "Sell", 1), (2, "Buy", 2), (-2, "Sell", 2)):
+            with self.subTest(delta=delta):
+                self.api.reset_mock()
+                self.api.place_order.return_value = NS(status=NS(status="PendingSubmit"))
+                result = self.execute(None, delta=delta)
+                self.assertTrue(result.submitted)
+                self.api.place_order.assert_called_once()
+                self.api.list_positions.assert_not_called()
+                self.api.update_status.assert_not_called()
+                self.api.list_trades.assert_not_called()
                 self.assertEqual(self.api.Order.call_args.kwargs["quantity"], quantity)
+                self.assertEqual(self.api.Order.call_args.kwargs["action"], side)
 
-    def test_signal_delta_resolves_from_real_inventory_and_persists_before_order(self):
-        previous = [{"code": "TMFI6", "quantity": 1, "direction": "Buy"}]
-        final = [{"code": "TMFI6", "quantity": 2, "direction": "Buy"}]
-        self.api.list_positions.side_effect = [previous, previous, previous, previous, final]
-        resolved = []
-        self.api.place_order.side_effect = lambda *a, **k: (
-            self.assertEqual(resolved, [2]) or NS(status=NS(status="Filled")))
-        result = auto_trade.execute_target_position(None, delta=1, on_target=resolved.append,
-            deadline=self.now + timedelta(seconds=40), clock=lambda: self.now,
-            api=self.api, sj=self.sj)
-        self.assertEqual(result.quantity, 1)
-        self.assertEqual(result.actual_position, 2)
-
-    def test_signal_target_save_failure_never_sends_order(self):
-        with self.assertRaises(OSError):
-            auto_trade.execute_target_position(None, delta=1,
-                on_target=Mock(side_effect=OSError("disk full")),
-                deadline=self.now + timedelta(seconds=40), clock=lambda: self.now,
-                api=self.api, sj=self.sj)
-        self.api.place_order.assert_not_called()
-
-    def test_flat_uses_actual_quantity(self):
-        self.api.list_positions.side_effect = [
-            [{"code": "TMFI6", "quantity": 6, "direction": "Sell"}],
-            [{"code": "TMFI6", "quantity": 6, "direction": "Sell"}], []]
+    def test_flat_queries_inventory_and_submits_once_without_verification(self):
+        self.api.list_positions.return_value = [{"code": "TMFI6", "quantity": 4, "direction": "Buy"}]
         result = self.execute(0)
-        self.assertEqual(result.quantity, 6)
-        self.assertEqual(result.side, "buy")
+        self.assertEqual((result.side, result.quantity), ("sell", 4))
+        self.api.place_order.assert_called_once()
+        self.api.update_status.assert_not_called()
 
-    def test_existing_target_no_order(self):
-        self.api.list_positions.return_value = [{"code": "TMFI6", "quantity": 5, "direction": "Sell"}]
-        self.assertEqual(self.execute().quantity, 0)
+    def test_flat_empty_account_no_order(self):
+        self.assertFalse(self.execute(0).submitted)
         self.api.place_order.assert_not_called()
 
-    def test_uses_shared_executor_and_near_month(self):
-        with patch.object(auto_trade._shared, "execute_target_position", return_value=NS(actual_position=3)) as shared:
-            result = self.execute(3)
-            self.assertEqual(result.actual_position, 3)
-            self.assertEqual(shared.call_args.args, (3,))
-            self.assertIs(shared.call_args.kwargs["api"], self.api)
-            self.assertTrue(callable(shared.call_args.kwargs["before_order"]))
-
-    def test_callback_rejection_is_not_success(self):
-        def install(callback):
-            callback(None, {"operation": {"op_type": "New", "op_code": "99", "op_msg": "rejected"}})
-        self.api.set_order_callback.side_effect = install
-        with self.assertRaisesRegex(auto_trade.BrokerOrderError, "拒絕委託"):
-            self.execute()
-
-    def test_other_month_blocked(self):
-        self.api.list_positions.return_value = [{"code": "TMFJ6", "quantity": 1, "direction": "Buy"}]
+    def test_immediate_rejection_is_reported_without_retry(self):
+        self.api.place_order.return_value = NS(status=NS(status="Failed"))
         with self.assertRaises(auto_trade.BrokerOrderError):
-            self.execute()
-        self.api.place_order.assert_not_called()
+            self.execute(None, delta=1)
+        self.api.place_order.assert_called_once()
+        self.api.update_status.assert_not_called()
 
-    def test_pending_order_blocked(self):
-        self.api.list_trades.return_value = [NS(contract=self.contract, status=NS(status="Submitted"))]
+    def test_timeout_is_not_retried(self):
+        self.api.place_order.side_effect = TimeoutError("unknown")
+        with self.assertRaises(TimeoutError):
+            self.execute(None, delta=1)
+        self.api.place_order.assert_called_once()
+
+    def test_past_deadline_never_submits(self):
         with self.assertRaises(auto_trade.BrokerOrderError):
-            self.execute()
+            auto_trade.execute_target_position(None, delta=1, deadline=self.now,
+                clock=lambda: self.now, api=self.api, sj=self.sj)
         self.api.place_order.assert_not_called()
-
-    def test_gross_long_short_is_not_treated_as_flat(self):
-        self.api.list_positions.return_value = [
-            {"code": "TMFI6", "quantity": 1, "direction": "Buy"},
-            {"code": "TMFI6", "quantity": 1, "direction": "Sell"}]
-        with self.assertRaises(auto_trade.BrokerOrderError):
-            self.execute(0)
-        self.api.place_order.assert_not_called()
-
-    def test_query_latency_cannot_place_after_deadline(self):
-        def slow_query(*args):
-            self.now += timedelta(seconds=45)
-            return []
-        self.api.list_positions.side_effect = slow_query
-        with self.assertRaises(auto_trade.BrokerOrderError):
-            self.execute()
-        self.api.place_order.assert_not_called()
-
-    def test_partial_fill_is_not_success(self):
-        self.api.list_positions.return_value = []
-        with patch.object(auto_trade._shared, "POSITION_VERIFY_ATTEMPTS", 1):
-            with self.assertRaises(auto_trade.BrokerOrderError):
-                self.execute()
-        self.assertEqual(self.api.place_order.call_count, 1)
 
     def test_credentials_pair2_and_account_validation(self):
         with tempfile.TemporaryDirectory() as folder:

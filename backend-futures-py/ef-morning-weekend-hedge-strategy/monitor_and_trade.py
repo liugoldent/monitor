@@ -17,13 +17,10 @@ from filelock import FileLock
 from auto_trade import execute_target_position
 from strategy import Calendar, integer, latest_closure, pure_position
 
-RETRY_SECONDS = 10
-
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
 sys.path.insert(0, str(BACKEND))
-from ef_trade_runtime import (Notifications as SharedNotifications, append_order, perform_order,
-                              result_text, execution_message, save_state)
+from ef_trade_runtime import Notifications as SharedNotifications, append_order, save_state
 
 
 def now_local() -> datetime:
@@ -131,86 +128,43 @@ class Monitor:
 
     def action(self, key: str, target: int | None, contract: str, deadline: datetime,
                delta: int | None = None) -> bool:
-        attempt = self.state.get("attempt", {})
-        if attempt.get("status") in {"pending", "failed"}:
-            # Persisted time also throttles recovery after a process restart.
-            retry_at = datetime.fromisoformat(attempt.get("retry_at") or attempt["at"])
-            if "retry_at" not in attempt:
-                retry_at += timedelta(seconds=RETRY_SECONDS)
-            urgent_flat = key.endswith("/flat") and attempt.get("key") != key
-            if self.clock() < retry_at and not urgent_flat:
-                return False
-            append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
-                         clock=self.clock, attempt_id=attempt.get("id", ""),
-                         event="automatic_reconcile", trigger=key, target_position=target,
-                         detail="前次未確認；重新查券商庫存與未結委託，依待處理訊號計算差額")
-            # perform_order persists the new intent before executing. The executor
-            # always checks broker orders/inventory before submitting any delta.
-            if attempt.get("key") == key and attempt.get("target") is not None:
-                target, delta = attempt["target"], None
-            self.state.pop("attempt")
-        elif attempt.get("key") == key and attempt.get("status") == "done":
+        # Consume before external side effects: timeout/exception must never
+        # cause this signal (or this flat cycle) to be submitted a second time.
+        if self.state.get("attempt", {}).get("key") == key:
             return True
-        def record(**row):
+        if key.endswith("/flat") and self.state.get("last_flat_attempt") == key:
+            return True
+        attempt = {"key": key, "id": uuid.uuid4().hex, "status": "attempted",
+                   "delta": delta, "at": self.clock().isoformat()}
+        self.state["attempt"] = attempt
+        if key.endswith("/flat"):
+            self.state["last_flat_attempt"] = key
+        self.persist()
+        label = "04:59清倉" if delta is None else f"{'買' if delta > 0 else '賣'} {abs(delta)} 口"
+        def record(event, **data):
             append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
-                         clock=self.clock, **row)
+                         clock=self.clock, attempt_id=attempt["id"], event=event,
+                         trigger=key, **data)
         try:
+            record("submission_attempt", detail=label)
             if self.live:
-                if delta is None:
-                    result = perform_order(
-                        self.state, key=key, target=target, persist=self.persist,
-                        execute=lambda: self.execute(target, deadline=deadline, clock=self.clock),
-                        record=record, clock=self.clock,
-                    )
-                else:
-                    current = {"key": key, "id": uuid.uuid4().hex, "status": "pending",
-                               "target": None, "delta": delta, "at": self.clock().isoformat()}
-                    self.state["attempt"] = current
-                    self.persist()
-                    def resolve_target(value):
-                        current["target"] = value
-                        self.persist()
-                        record(attempt_id=current["id"], event="attempt_started", trigger=key,
-                               target_position=value, detail=f"新訊號差額 {delta}；已保存券商對帳目標")
-                    result = self.execute(None, delta=delta, on_target=resolve_target,
-                                          deadline=deadline, clock=self.clock)
-                    target = current["target"]
-                    if result.actual_position != target:
-                        raise RuntimeError("券商實際部位未達目標")
-                    record(attempt_id=current["id"], event="order_sent_confirmed", trigger=key,
-                           target_position=target, previous_position=result.previous_position,
-                           actual_position=result.actual_position, side=result.side,
-                           quantity=result.quantity, detail=result_text(result))
-                    current["status"] = "done"
-                    self.persist()
-                actual, quantity = result.actual_position, result.quantity
-                detail = result_text(result)
+                result = self.execute(target, delta=delta, deadline=deadline, clock=self.clock)
+                detail = (f"已送出{'買進' if result.side == 'buy' else '賣出'} TMF {result.quantity} 口委託"
+                          if result.submitted else "查詢庫存為空手，無需送單")
+                attempt["status"] = "submitted" if result.submitted else "no_order_needed"
+                record(attempt["status"], side=result.side or "", quantity=result.quantity, detail=detail)
             else:
-                target = self.state.get("position", 0) + delta if delta is not None else target
-                actual = target
-                quantity = abs(target - self.state.get("position", 0))
-                self.state["attempt"] = {"key": key, "status": "done", "target": target}
                 detail = "影子模式，未送實單"
-                record(attempt_id=uuid.uuid4().hex, event="shadow_target", trigger=key,
-                       target_position=target, quantity=quantity, detail=detail)
-            self.last_alert = None
-            self.state["position"] = actual
-            self.persist()
-            self.event("confirmed" if self.live else "shadow_target", target=target,
-                       quantity=quantity, contract=contract, key=key)
-            self.notify(execution_message("純EF＋04:59清倉", self.mode, key, target,
-                                          detail, clock=self.clock))
-            return True
+                attempt["status"] = "shadow"
+                record("shadow", detail=label)
         except Exception as exc:
-            failed = self.state.get("attempt", {})
-            failed["status"] = "failed"
-            failed["retry_at"] = (self.clock() + timedelta(seconds=RETRY_SECONDS)).isoformat()
-            self.state["attempt"] = failed
-            self.persist()
-            self.event("order_failed", key=key, error_type=type(exc).__name__)
-            self.alert(f"目標 {target} 口委託未確認（{type(exc).__name__}）；"
-                       f"持續監控，{RETRY_SECONDS} 秒後自動重新對帳並繼續逐筆處理訊號")
-            return False
+            attempt["status"] = "failed_no_retry"
+            detail = f"本次送單失敗或送出結果不明（{type(exc).__name__}）；不重送，繼續等新訊號"
+            record("failed_no_retry", detail=detail)
+        self.persist()
+        self.event(attempt["status"], key=key, detail=detail)
+        self.notify(f"【永豐2｜單次委託】{label}\n{detail}\n觸發：{key}")
+        return True
 
     def tick(self, now: datetime | None = None):
         now = now or self.clock()
@@ -224,7 +178,7 @@ class Monitor:
             self.state["target"] = 0
             self.persist()
             if not calendar.is_open(now) or now >= self.session_deadline(now):
-                self.alert("等待可交易時段補做清倉；清倉確認前不接受新訊號")
+                self.alert("等待可交易時段送出清倉委託")
                 return
             if not self.action(cycle + "/flat", 0, contract, self.session_deadline(now)):
                 return
@@ -239,10 +193,6 @@ class Monitor:
         if not calendar.is_open(now) or now >= self.session_deadline(now):
             return
         source = self.source(now)
-        maximum = integer(os.getenv("EF_HEDGE_MAX_CONTRACTS", "12"))
-        if not 0 <= maximum <= 240:
-            raise ValueError("純 EF 口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
-
         def signal_order(value):
             stamp, index = value.rsplit("/", 1)
             return datetime.fromisoformat(stamp), int(index)
@@ -278,7 +228,6 @@ class Monitor:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="執行一次目前時鐘檢查")
-    parser.add_argument("--retry-failed", action="store_true", help="對帳後立即解除重試等待；預設會自動重新對帳")
     args = parser.parse_args()
     load_env(BACKEND / ".env")
     # This entry point always runs account 2 in live trading mode.
@@ -287,19 +236,13 @@ def main():
     # Shared lock across shadow/live prevents mode changes while another monitor runs.
     with FileLock(str(BASE / "runtime/monitor.lock"), timeout=0):
         monitor = Monitor(live=live, notify=Notifications())
-        if args.retry_failed and monitor.state.get("attempt", {}).get("status") in {"pending", "failed"}:
-            monitor.event("operator_retry", previous=monitor.state["attempt"])
-            append_order(BASE / "records/live_order_attempts.csv", event="operator_retry",
-                         attempt_id=uuid.uuid4().hex, trigger="operator_retry", target_position=0)
-            monitor.state.pop("attempt")
-            monitor.persist()
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋04:59清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            "版本：new-signals-only-v2；每次啟動只處理啟動後新訊號。\n"
+            "版本：one-shot-signals-v3；每次啟動只處理啟動後新訊號。\n"
             "04:59清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"
-            "啟動不下單、不補舊訊號；收到新訊號才下單，04:59清倉。"
+            "新訊號只送一次，不回查成交、不重試；啟動不補單，04:59送一次清倉委託。"
         )
         print(startup_message, flush=True)
         monitor.notify(startup_message)

@@ -1,4 +1,4 @@
-"""API_KEY2 adapter using the same TMFR1/IOC reconciliation as account 1."""
+"""API_KEY2 one-shot TMFR1/IOC submission; no fill verification or retry."""
 from __future__ import annotations
 
 import importlib.util
@@ -46,33 +46,39 @@ def login(sj: Any):
         raise
 
 
-def execute_target_position(target: int, *, deadline: datetime, clock: Callable[[], datetime],
-                            api: Any = None, sj: Any = None, delta: int | None = None,
-                            on_target=None):
-    if delta is not None and (isinstance(delta, bool) or not isinstance(delta, int) or abs(delta) > 40):
-        raise ValueError("訊號差額須為 -40 至 40 整數")
-    if delta is None and (isinstance(target, bool) or not isinstance(target, int) or abs(target) > 240):
-        raise ValueError("純 EF 目標須為 -240 至 240 整數")
+def execute_target_position(target: int | None, *, deadline: datetime,
+                            clock: Callable[[], datetime], api: Any = None,
+                            sj: Any = None, delta: int | None = None):
+    """Submit once. Signals use their delta directly; flat queries inventory once."""
+    if delta is not None:
+        if isinstance(delta, bool) or not isinstance(delta, int) or not 1 <= abs(delta) <= 40:
+            raise ValueError("訊號差額須為非零整數，最多 40 口")
+    elif target != 0:
+        raise ValueError("僅接受新訊號差額或清倉目標 0")
     if sj is None:
         import shioaji as sj
     owned = api is None
     if owned:
         api = login(sj)
     try:
-        def check_deadline():
-            check_order_deadline(deadline, clock, BrokerOrderError)
-
-        if delta is not None:
-            _shared._refresh_status(api)
+        # New signal: no inventory reconciliation or old-target catch-up.
+        if delta is None:
             _shared.validate_tmf_account(api)
-            target = _shared.current_tmf_position(api) + delta
-            maximum = int(os.getenv("EF_HEDGE_MAX_CONTRACTS", "12"))
-            if not 0 <= maximum <= 240 or abs(target) > maximum:
-                raise ValueError("訊號後部位超過 EF_HEDGE_MAX_CONTRACTS")
-            on_target(target)  # Durable target before any order; retries reuse it.
-        return _shared.execute_target_position(
-            target, api=api, sj=sj, before_order=check_deadline, strict_tmf=True,
-        )
+            delta = -_shared.current_tmf_position(api)
+        from types import SimpleNamespace
+        if delta == 0:
+            return SimpleNamespace(side=None, quantity=0, submitted=False)
+        side, quantity = ("buy" if delta > 0 else "sell"), abs(delta)
+        order = _shared._build_order(api, sj, side, quantity)
+        contract = _shared._contract(api)
+        check_order_deadline(deadline, clock, BrokerOrderError)
+        trade = api.place_order(contract, order, timeout=_shared.ORDER_TIMEOUT_MS)
+        if trade is None:
+            raise BrokerOrderError("送單未取得回傳")
+        if _shared._status_text(trade).lower() in {"failed", "inactive"}:
+            raise BrokerOrderError("券商即時回覆拒絕委託")
+        # A returned order is submission acknowledgement, never proof of fill.
+        return SimpleNamespace(side=side, quantity=quantity, submitted=True, trade=trade)
     finally:
         if owned:
             try:
