@@ -207,41 +207,48 @@ class MonitorTests(unittest.TestCase):
         self.monitor().tick()
         self.assertEqual(self.execute.call_count, 4)
 
-    def test_dated_catch_up_includes_preboot_legs_then_expires(self):
-        (self.root / "config").mkdir()
-        (self.root / "config/catch_up.json").write_text(
-            (BASE / "config/catch_up.json").read_text())
-        for code in ("CFC07m", "CFCTX16m", "CFCTX23m", "CFCTX18m"):
-            self.signal("2026-09-14 10:00:00", code)
-        self.now = datetime(2026, 9, 14, 22, 30)
+    def test_batched_signals_are_executed_individually_and_not_replayed(self):
         m = self.monitor()
         m.tick()
-        self.assertEqual(self.orders, [0, 4])
-        self.assertIn("catch_up", m.state["source"])
-        # New signals override the catch-up snapshot; never hardcode four.
-        self.now += timedelta(seconds=1)
-        self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), "CFCTX18m", 0)
+        for second, position in enumerate((1, 0, -1, 0, 1, -1, 1), 1):
+            self.signal(f"2026-09-14 09:01:{second:02}", position=position)
+        self.now = datetime(2026, 9, 14, 9, 2)
         m.tick()
-        self.assertEqual(self.orders[-1], 3)
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.assertEqual(self.orders, [0, 1, 0, -1, 0, 1, -1, 1])
         m.tick()
-        self.assertEqual(self.orders[-1], 0)
-        self.now = datetime(2026, 9, 15, 8, 45)
-        self.signal("2026-09-15 08:45:00", "CFCTX16m")
-        m.tick()
-        self.assertEqual(self.orders[-1], 1)
-        self.assertNotIn("catch_up", m.state["source"])
+        self.assertEqual(len(self.orders), 8)
+        self.monitor().tick()
+        self.assertEqual(self.orders, [0, 1, 0, -1, 0, 1, -1, 1, 1])
 
-    def test_expired_catch_up_does_not_restore_old_legs(self):
-        (self.root / "config").mkdir()
-        (self.root / "config/catch_up.json").write_text(
-            (BASE / "config/catch_up.json").read_text())
-        self.signal("2026-09-14 22:00:00")
-        self.now = datetime(2026, 9, 15, 9)
+    def test_batch_stops_at_flat_boundary_and_discards_remaining_entries(self):
         m = self.monitor()
         m.tick()
-        self.assertEqual(self.orders, [0])
-        self.assertEqual(m.read_source(self.now)["net_position"], 0)
+        for code in ("CFC07m", "CFCTX16m"):
+            self.signal("2026-09-15 04:58:59", code)
+        self.now = datetime(2026, 9, 15, 4, 58, 59)
+        successful = self.execute.side_effect
+        def slow_order(target, **kwargs):
+            result = successful(target, **kwargs)
+            self.now = datetime(2026, 9, 15, 4, 59)
+            return result
+        self.execute.side_effect = slow_order
+        m.tick()
+        self.assertEqual(self.orders, [0, 1])
+        self.execute.side_effect = successful
+        m.tick()
+        self.assertEqual(self.orders, [0, 1, 0])
+        self.now = datetime(2026, 9, 15, 8, 45)
+        m.tick()
+        self.assertEqual(self.orders, [0, 1, 0])
+
+    def test_multiple_strategies_same_second_get_separate_orders(self):
+        m = self.monitor()
+        m.tick()
+        for code in ("CFC07m", "CFCTX16m", "CFCTX21m"):
+            self.signal("2026-09-14 09:01:00", code)
+        self.now = datetime(2026, 9, 14, 9, 1)
+        m.tick()
+        self.assertEqual(self.orders, [0, 1, 2, 3])
 
     def test_all_six_transitions(self):
         m = self.monitor()
@@ -280,7 +287,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(deltas, [1])
         self.now += timedelta(seconds=8)
         self.monitor().tick()
-        self.assertEqual(deltas, [1, 1])
+        self.assertEqual(deltas, [1, 0, 1])
         self.assertEqual(actual, 2)
 
     def test_failed_target_returning_to_previous_target_still_reconciles(self):
@@ -295,7 +302,7 @@ class MonitorTests(unittest.TestCase):
         self.signal(self.now.strftime("%Y-%m-%d %H:%M:%S"), position=0)
         self.execute.side_effect = successful
         m.tick()
-        self.assertEqual(self.orders, [0, 0])
+        self.assertEqual(self.orders, [0, 1, 0])
         self.assertEqual(m.state["attempt"]["status"], "done")
 
     def test_flat_overrides_failed_entry_cooldown(self):
@@ -416,6 +423,21 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(result.actual_position, -5)
         self.assertEqual(self.api.Order.call_args.kwargs["order_type"], "IOC")
         self.assertIs(self.api.place_order.call_args.args[0], self.contract)
+
+    def test_six_transitions_order_side_and_quantity(self):
+        def position(value):
+            return ([{"code": "TMFI6", "quantity": abs(value),
+                      "direction": "Buy" if value > 0 else "Sell"}] if value else [])
+        for previous, target, side, quantity in (
+            (-1, 0, "buy", 1), (1, 0, "sell", 1),
+            (0, 1, "buy", 1), (0, -1, "sell", 1),
+            (1, -1, "sell", 2), (-1, 1, "buy", 2),
+        ):
+            with self.subTest(previous=previous, target=target):
+                self.api.list_positions.side_effect = [position(previous), position(previous), position(target)]
+                result = self.execute(target)
+                self.assertEqual((result.side, result.quantity), (side, quantity))
+                self.assertEqual(self.api.Order.call_args.kwargs["quantity"], quantity)
 
     def test_flat_uses_actual_quantity(self):
         self.api.list_positions.side_effect = [

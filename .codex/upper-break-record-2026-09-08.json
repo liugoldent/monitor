@@ -1,0 +1,32 @@
+{
+  "successful": true,
+  "status": "successful",
+  "version": "Gap-v1",
+  "dataDate": "2026-09-08",
+  "timezone": "Asia/Taipei",
+  "marketDataLabel": "一般盤13:30收盤",
+  "watchlistCounts": {"etf交集": 38, "etf交集3檔": 14, "etf交集4檔": 3, "etf交集5檔": 21, "紅色清單": 14},
+  "verifiedCounts": {"etf": 38, "red": 14},
+  "missing": [],
+  "duplicates": [],
+  "zeroEventMeaning": {"newUpState": 0, "newDownState": 0, "filledUpState": 0, "filledUpCount": 0, "filledDownState": 0, "filledDownCount": 0, "allEventBounds": "∅"},
+  "zeroEventSymbols": {
+    "etf交集5檔": ["TWSE:2308", "TWSE:2330", "TWSE:2345", "TWSE:2383", "TWSE:2454", "TWSE:3008", "TWSE:3017", "TWSE:3037", "TWSE:3443", "TWSE:3665", "TWSE:3711", "TPEX:5274", "TPEX:6223", "TPEX:6274", "TWSE:6669", "TWSE:8046", "TWSE:8996", "TWSE:2059", "TWSE:2360", "TWSE:3653", "TWSE:2303"],
+    "etf交集4檔": ["TPEX:6488", "TWSE:2449", "TPEX:5347"],
+    "etf交集3檔": ["TWSE:2317", "TPEX:8358", "TWSE:3231", "TWSE:3661", "TWSE:2455", "TPEX:3081", "TPEX:6187", "TWSE:6805", "TWSE:2327", "TWSE:7769", "TWSE:3189", "TPEX:3264", "TWSE:2301", "TWSE:4958"],
+    "紅色清單": ["TAIFEX:MXF1!", "COMEX_MINI:MGC1!", "BMFBOVESPA:WSP1!", "HKEX:HSI1!", "CFFEX:IF1!", "CBOT:ZS1!", "COMEX_MINI:MHG1!", "OSE:NK225MC1!", "HSI:HSI", "FX_IDC:USDTWD", "TPEX:IX0043", "TVC:SILVER", "CBOE:VIX"]
+  },
+  "rawGapEvents": [{"full": "NASDAQ:SOX", "newUpState": 1, "newUpLower": "11,371.33", "newUpUpper": "11,467.34", "newDownState": 0, "filledUpState": 0, "filledDownState": 1, "filledDownCount": 1, "filledDownLower": "11,389.62", "filledDownUpper": "11,444.20"}],
+  "suppressedPreviouslyReportedEvents": [{"full": "NASDAQ:SOX", "reason": "unchanged latest-bar event already recorded on 2026-09-07"}],
+  "reportGapEvents": {"newUp": [], "newDown": [], "filledUp": [], "filledDown": []},
+  "message": "今日缺口｜2026-09-08｜一般盤收盤：今日無新增或回補缺口。",
+  "messageHash": "aafafc2183991d4227d5084ca7d6061bb5cf89d8ca96feb5a2a658ad7210efa7",
+  "parts": [{"part": 1, "hash": "aafafc2183991d4227d5084ca7d6061bb5cf89d8ca96feb5a2a658ad7210efa7", "status": "success", "httpStatus": 204}],
+  "httpStatus": [204],
+  "snapshotAt": "2026-09-08T13:52:11+08:00",
+  "startedAt": "2026-09-08T13:36:18+08:00",
+  "scanCompletedAt": "2026-09-08T13:52:11+08:00",
+  "sentAt": "2026-09-08T14:05:00+08:00",
+  "totalDurationSeconds": 1722,
+  "source": "scheduled-tradingview-visible-ui-daily-close"
+}

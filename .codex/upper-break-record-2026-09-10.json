@@ -1,0 +1,112 @@
+{
+  "successful": true,
+  "status": "successful",
+  "version": "Gap-v2",
+  "dataDate": "2026-09-10",
+  "timezone": "Asia/Taipei",
+  "marketDataLabel": "一般盤13:30收盤",
+  "watchlistCounts": {
+    "etf交集": 39,
+    "etf交集3檔": 15,
+    "etf交集4檔": 4,
+    "etf交集5檔": 20,
+    "紅色清單": 14
+  },
+  "verifiedCounts": {"etf": 39, "red": 14},
+  "missing": [],
+  "duplicates": [],
+  "stockUniverse": {
+    "etf交集5檔": [
+      {"full":"TWSE:2330","code":"2330","name":"台積電","etfCount":6},
+      {"full":"TWSE:2345","code":"2345","name":"智邦","etfCount":6},
+      {"full":"TWSE:2383","code":"2383","name":"台光電","etfCount":6},
+      {"full":"TWSE:2454","code":"2454","name":"聯發科","etfCount":6},
+      {"full":"TWSE:3008","code":"3008","name":"大立光","etfCount":5},
+      {"full":"TWSE:3017","code":"3017","name":"奇鋐","etfCount":6},
+      {"full":"TWSE:3037","code":"3037","name":"欣興","etfCount":5},
+      {"full":"TWSE:3443","code":"3443","name":"創意","etfCount":5},
+      {"full":"TWSE:3665","code":"3665","name":"貿聯-KY","etfCount":5},
+      {"full":"TWSE:3711","code":"3711","name":"日月光投控","etfCount":6},
+      {"full":"TPEX:5274","code":"5274","name":"信驊","etfCount":6},
+      {"full":"TPEX:6223","code":"6223","name":"旺矽","etfCount":6},
+      {"full":"TPEX:6274","code":"6274","name":"台燿","etfCount":6},
+      {"full":"TWSE:6669","code":"6669","name":"緯穎","etfCount":6},
+      {"full":"TWSE:8046","code":"8046","name":"南電","etfCount":5},
+      {"full":"TWSE:8996","code":"8996","name":"高力","etfCount":5},
+      {"full":"TWSE:2059","code":"2059","name":"川湖","etfCount":5},
+      {"full":"TWSE:2360","code":"2360","name":"致茂","etfCount":5},
+      {"full":"TWSE:3653","code":"3653","name":"健策","etfCount":5},
+      {"full":"TWSE:2303","code":"2303","name":"聯電","etfCount":5}
+    ],
+    "etf交集4檔": [
+      {"full":"TPEX:6488","code":"6488","name":"環球晶","etfCount":4},
+      {"full":"TWSE:2449","code":"2449","name":"京元電子","etfCount":4},
+      {"full":"TPEX:5347","code":"5347","name":"世界","etfCount":4},
+      {"full":"TWSE:2308","code":"2308","name":"台達電","etfCount":4}
+    ],
+    "etf交集3檔": [
+      {"full":"TWSE:2317","code":"2317","name":"鴻海","etfCount":3},
+      {"full":"TPEX:8358","code":"8358","name":"金居","etfCount":3},
+      {"full":"TWSE:3231","code":"3231","name":"緯創","etfCount":3},
+      {"full":"TWSE:3661","code":"3661","name":"世芯-KY","etfCount":3},
+      {"full":"TWSE:2455","code":"2455","name":"全新","etfCount":3},
+      {"full":"TPEX:3081","code":"3081","name":"聯亞光電","etfCount":3},
+      {"full":"TPEX:6187","code":"6187","name":"萬潤","etfCount":3},
+      {"full":"TWSE:6805","code":"6805","name":"富世達","etfCount":3},
+      {"full":"TWSE:2327","code":"2327","name":"國巨*","etfCount":3},
+      {"full":"TWSE:7769","code":"7769","name":"鴻勁精密","etfCount":3},
+      {"full":"TWSE:3189","code":"3189","name":"景碩科技","etfCount":3},
+      {"full":"TPEX:3264","code":"3264","name":"欣銓","etfCount":3},
+      {"full":"TWSE:2301","code":"2301","name":"光寶科","etfCount":3},
+      {"full":"TWSE:4958","code":"4958","name":"臻鼎-KY","etfCount":3},
+      {"full":"TWSE:6515","code":"6515","name":"穎崴","etfCount":3}
+    ]
+  },
+  "redUniverse": [
+    "TAIFEX:MXF1!", "COMEX_MINI:MGC1!", "BMFBOVESPA:WSP1!", "HKEX:HSI1!",
+    "CFFEX:IF1!", "CBOT:ZS1!", "COMEX_MINI:MHG1!", "OSE:NK225MC1!",
+    "HSI:HSI", "NASDAQ:SOX", "FX_IDC:USDTWD", "TPEX:IX0043", "TVC:SILVER", "CBOE:VIX"
+  ],
+  "gapSnapshotEncoding": {
+    "defaultAppliesToEverySymbolExceptListedOverrides": true,
+    "default": {
+      "newUpState":0,"newUpLower":"∅","newUpUpper":"∅",
+      "newDownState":0,"newDownLower":"∅","newDownUpper":"∅",
+      "filledUpState":0,"filledUpCount":0,"filledUpLowerNewest":"∅","filledUpUpperNewest":"∅",
+      "filledDownState":0,"filledDownCount":0,"filledDownLowerNewest":"∅","filledDownUpperNewest":"∅"
+    },
+    "overrides": {
+      "BMFBOVESPA:WSP1!": {
+        "newUpState":0,"newUpLower":"∅","newUpUpper":"∅",
+        "newDownState":1,"newDownLower":"7,667.25","newDownUpper":"7,674.25",
+        "filledUpState":0,"filledUpCount":0,"filledUpLowerNewest":"∅","filledUpUpperNewest":"∅",
+        "filledDownState":0,"filledDownCount":0,"filledDownLowerNewest":"∅","filledDownUpperNewest":"∅"
+      }
+    }
+  },
+  "snapshotAtBySymbol": {
+    "TWSE:2330":"2026-09-10T06:38:51.354Z","TWSE:2345":"2026-09-10T06:38:53.289Z","TWSE:2383":"2026-09-10T06:38:56.696Z","TWSE:2454":"2026-09-10T06:38:58.021Z","TWSE:3008":"2026-09-10T06:39:00.568Z","TWSE:3017":"2026-09-10T06:39:12.833Z","TWSE:3037":"2026-09-10T06:39:14.667Z","TWSE:3443":"2026-09-10T06:42:39.664Z","TWSE:3665":"2026-09-10T06:39:25.903Z","TWSE:3711":"2026-09-10T06:42:09.779Z","TPEX:5274":"2026-09-10T06:42:11.732Z","TPEX:6223":"2026-09-10T06:42:13.312Z","TPEX:6274":"2026-09-10T06:42:15.359Z","TWSE:6669":"2026-09-10T06:42:17.123Z","TWSE:8046":"2026-09-10T06:40:10.339Z","TWSE:8996":"2026-09-10T06:40:39.517Z","TWSE:2059":"2026-09-10T06:40:41.198Z","TWSE:2360":"2026-09-10T06:40:42.590Z","TWSE:3653":"2026-09-10T06:40:43.716Z","TWSE:2303":"2026-09-10T06:40:45.341Z",
+    "TPEX:6488":"2026-09-10T06:43:02.861Z","TWSE:2449":"2026-09-10T06:43:04.692Z","TPEX:5347":"2026-09-10T06:43:06.002Z","TWSE:2308":"2026-09-10T06:43:07.963Z",
+    "TWSE:2317":"2026-09-10T06:43:42.038Z","TPEX:8358":"2026-09-10T06:43:43.828Z","TWSE:3231":"2026-09-10T06:43:45.317Z","TWSE:3661":"2026-09-10T06:43:46.989Z","TWSE:2455":"2026-09-10T06:43:48.118Z","TPEX:3081":"2026-09-10T06:43:50.287Z","TPEX:6187":"2026-09-10T06:43:58.230Z","TWSE:6805":"2026-09-10T06:43:59.699Z","TWSE:2327":"2026-09-10T06:44:00.837Z","TWSE:7769":"2026-09-10T06:44:02.789Z","TWSE:3189":"2026-09-10T06:44:04.350Z","TPEX:3264":"2026-09-10T06:44:05.990Z","TWSE:2301":"2026-09-10T06:44:42.937Z","TWSE:4958":"2026-09-10T06:44:55.621Z","TWSE:6515":"2026-09-10T06:45:06.758Z",
+    "TAIFEX:MXF1!":"2026-09-10T06:46:31.585Z","COMEX_MINI:MGC1!":"2026-09-10T06:46:32.408Z","BMFBOVESPA:WSP1!":"2026-09-10T06:46:33.888Z","HKEX:HSI1!":"2026-09-10T06:46:35.167Z","CFFEX:IF1!":"2026-09-10T06:46:36.643Z","CBOT:ZS1!":"2026-09-10T06:46:38.987Z","COMEX_MINI:MHG1!":"2026-09-10T06:46:40.067Z","OSE:NK225MC1!":"2026-09-10T06:46:41.321Z","HSI:HSI":"2026-09-10T06:46:42.469Z","NASDAQ:SOX":"2026-09-10T06:46:43.743Z","FX_IDC:USDTWD":"2026-09-10T06:46:45.247Z","TPEX:IX0043":"2026-09-10T06:46:46.121Z","TVC:SILVER":"2026-09-10T06:46:47.841Z","CBOE:VIX":"2026-09-10T06:46:48.903Z"
+  },
+  "rawGapEvents": [
+    {"kind":"newDown","scope":"index","full":"BMFBOVESPA:WSP1!","code":"WSP1!","lower":"7,667.25","upper":"7,674.25","snapshotAt":"2026-09-10T06:46:33.888Z"}
+  ],
+  "reportGapEvents": {
+    "newUp": [],
+    "newDown": [{"scope":"index","code":"WSP1!","lower":"7,667.25","upper":"7,674.25"}],
+    "filledUp": [],
+    "filledDown": []
+  },
+  "message": "今日缺口｜2026-09-10｜一般盤收盤\n🔴 出現向下缺口（1）\n指數｜WSP1!｜下緣 7,667.25｜上緣 7,674.25",
+  "messageHash": "2939b13f6fed0d5bc85439cb2531c452edef7156ea5743c348a4fa913abbfb91",
+  "parts": [{"part":1,"hash":"2939b13f6fed0d5bc85439cb2531c452edef7156ea5743c348a4fa913abbfb91","status":"successful","httpStatus":204}],
+  "httpStatus": [204],
+  "snapshotAt": "2026-09-10T14:46:49+08:00",
+  "startedAt": "2026-09-10T13:37:07+08:00",
+  "scanCompletedAt": "2026-09-10T14:46:49+08:00",
+  "sentAt": "2026-09-10T14:53:27+08:00",
+  "totalDurationSeconds": 4580,
+  "source": "scheduled-tradingview-visible-ui-daily-close"
+}

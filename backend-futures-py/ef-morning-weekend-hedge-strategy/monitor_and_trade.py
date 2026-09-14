@@ -105,24 +105,8 @@ class Monitor:
                    datetime.fromisoformat(self.state.get("ready_since", self.state["boot"])))
         since = closure.reopen if closure else boot
         path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
-        # Explicit, dated operator catch-up. It expires before morning flattening
-        # and never restores previous-day legs on a later trading day.
-        catch_up_path = self.root / "config/catch_up.json"
-        catch_up = None
-        if catch_up_path.exists():
-            request = json.loads(catch_up_path.read_text(encoding="utf-8"))
-            start = datetime.fromisoformat(request["signal_since"])
-            end = datetime.fromisoformat(request["expires_at"])
-            if start >= end or end - start > timedelta(days=1):
-                raise ValueError("補倉設定必須限制於一天內")
-            if start <= now < end:
-                since, boot = start, None
-                catch_up = request["id"]
-        result = pure_position(path, now, since, calendar,
-                               integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot)
-        if catch_up:
-            result["catch_up"] = catch_up
-        return result
+        return pure_position(path, now, since, calendar,
+                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot)
 
     def action(self, key: str, target: int, contract: str, deadline: datetime) -> bool:
         attempt = self.state.get("attempt", {})
@@ -137,7 +121,7 @@ class Monitor:
             append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
                          clock=self.clock, attempt_id=attempt.get("id", ""),
                          event="automatic_reconcile", trigger=key, target_position=target,
-                         detail="前次未確認；重新查券商庫存與未結委託，以最新目標計算差額")
+                         detail="前次未確認；重新查券商庫存與未結委託，依待處理訊號計算差額")
             # perform_order persists the new intent before executing. The executor
             # always checks broker orders/inventory before submitting any delta.
             self.state.pop("attempt")
@@ -178,7 +162,7 @@ class Monitor:
             self.persist()
             self.event("order_failed", key=key, error_type=type(exc).__name__)
             self.alert(f"目標 {target} 口委託未確認（{type(exc).__name__}）；"
-                       f"持續監控，{RETRY_SECONDS} 秒後自動重新對帳並依最新目標補差額")
+                       f"持續監控，{RETRY_SECONDS} 秒後自動重新對帳並繼續逐筆處理訊號")
             return False
 
     def tick(self, now: datetime | None = None):
@@ -207,27 +191,43 @@ class Monitor:
         if not calendar.is_open(now) or now >= self.session_deadline(now):
             return
         source = self.source(now)
-        target = integer(source["net_position"])
         maximum = integer(os.getenv("EF_HEDGE_MAX_CONTRACTS", "12"))
-        if not 0 <= maximum <= 240 or abs(target) > maximum:
+        if not 0 <= maximum <= 240:
             raise ValueError("純 EF 口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
-        # Reconcile once per process, then only when the strategy target changes.
-        # Polling the local signal file must not repeatedly log in to the broker.
-        recovering = self.state.get("attempt", {}).get("status") in {"pending", "failed"}
-        if target != self.state.get("target", 0) or not self.startup_reconciled or recovering:
+
+        def signal_order(value):
+            stamp, index = value.rsplit("/", 1)
+            return datetime.fromisoformat(stamp), int(index)
+
+        cursor = self.state.get("source", {}).get("last_signal")
+        steps = [step for step in source.get("steps", [])
+                 if not cursor or signal_order(step["last_signal"]) > signal_order(cursor)]
+        # Each accepted event is executed and checkpointed separately. Never
+        # collapse a burst of entries/exits into its final net position.
+        has_new_steps = bool(steps)
+        if not steps:
+            steps = [{k: v for k, v in source.items() if k != "steps"}]
+        for step in steps:
+            target = integer(step["net_position"])
+            if abs(target) > maximum:
+                raise ValueError("純 EF 口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
             deadline = self.session_deadline(now)
-            # Entry must stop exactly at 04:59, even if CSV reading/login is slow.
             if deadline.time() == day_time(4, 59, 40):
                 deadline = deadline.replace(second=0)
             if self.clock() >= deadline:
                 return
-            trigger = "signal" if self.startup_reconciled else "startup_reconcile"
-            key = f"{trigger}/{now.isoformat()}/{target}"
-            if self.action(key, target, contract, deadline):
+            recovering = self.state.get("attempt", {}).get("status") in {"pending", "failed"}
+            if target != self.state.get("target", 0) or not self.startup_reconciled or recovering:
+                trigger = "signal" if has_new_steps else "startup_reconcile"
+                identity = step.get("last_signal") if has_new_steps else now.isoformat()
+                key = f"{trigger}/{identity}/{target}"
+                if not self.action(key, target, contract, deadline):
+                    return
                 self.state["target"] = target
-                self.state["source"] = source
-                self.persist()
                 self.startup_reconciled = True
+            if self.state.get("source") != step:
+                self.state["source"] = step
+                self.persist()
 
     @staticmethod
     def session_deadline(now: datetime) -> datetime:

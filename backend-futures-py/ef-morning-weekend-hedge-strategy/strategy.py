@@ -160,8 +160,15 @@ def pure_position(path: Path, now: datetime, since: datetime, calendar: Calendar
             events.append((stamp, index, code, new))
     positions = dict.fromkeys(STRATEGIES, 0)
     events.sort()
+    steps = []
     for stamp, index, code, new in events:
+        previous = positions[code]
         positions[code] = new
-    return {"net_position": sum(positions.values()) * unit, "positions": positions,
+        steps.append({"net_position": sum(positions.values()) * unit,
+                      "positions": positions.copy(), "source": "pure_ef_new_signals",
+                      "unit": unit, "last_signal": f"{stamp.isoformat()}/{index}",
+                      "strategy_code": code, "previous_position": previous,
+                      "new_position": new})
+    return {"steps": steps, "net_position": sum(positions.values()) * unit, "positions": positions,
             "source": "pure_ef_new_signals", "unit": unit,
             "last_signal": (f"{events[-1][0].isoformat()}/{events[-1][1]}" if events else None)}

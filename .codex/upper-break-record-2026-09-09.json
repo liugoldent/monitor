@@ -1,0 +1,111 @@
+{
+  "successful": true,
+  "status": "successful",
+  "version": "Gap-v2",
+  "dataDate": "2026-09-09",
+  "timezone": "Asia/Taipei",
+  "marketDataLabel": "一般盤13:30收盤",
+  "watchlistCounts": {
+    "etf交集": 38,
+    "etf交集3檔": 14,
+    "etf交集4檔": 4,
+    "etf交集5檔": 20,
+    "紅色清單": 14
+  },
+  "verifiedCounts": {
+    "etf": 38,
+    "red": 14
+  },
+  "missing": [],
+  "duplicates": [],
+  "stockUniverse": {
+    "etf交集5檔": [
+      {"full":"TWSE:2330","code":"2330","name":"台積電","etfCount":6},
+      {"full":"TWSE:2345","code":"2345","name":"智邦","etfCount":6},
+      {"full":"TWSE:2383","code":"2383","name":"台光電","etfCount":6},
+      {"full":"TWSE:2454","code":"2454","name":"聯發科","etfCount":6},
+      {"full":"TWSE:3008","code":"3008","name":"大立光","etfCount":5},
+      {"full":"TWSE:3017","code":"3017","name":"奇鋐","etfCount":6},
+      {"full":"TWSE:3037","code":"3037","name":"欣興","etfCount":5},
+      {"full":"TWSE:3443","code":"3443","name":"創意","etfCount":5},
+      {"full":"TWSE:3665","code":"3665","name":"貿聯-KY","etfCount":5},
+      {"full":"TWSE:3711","code":"3711","name":"日月光投控","etfCount":5},
+      {"full":"TPEX:5274","code":"5274","name":"信驊","etfCount":6},
+      {"full":"TPEX:6223","code":"6223","name":"旺矽","etfCount":6},
+      {"full":"TPEX:6274","code":"6274","name":"台燿","etfCount":6},
+      {"full":"TWSE:6669","code":"6669","name":"緯穎","etfCount":6},
+      {"full":"TWSE:8046","code":"8046","name":"南電","etfCount":5},
+      {"full":"TWSE:8996","code":"8996","name":"高力","etfCount":5},
+      {"full":"TWSE:2059","code":"2059","name":"川湖","etfCount":5},
+      {"full":"TWSE:2360","code":"2360","name":"致茂","etfCount":5},
+      {"full":"TWSE:3653","code":"3653","name":"健策","etfCount":5},
+      {"full":"TWSE:2303","code":"2303","name":"聯電","etfCount":5}
+    ],
+    "etf交集4檔": [
+      {"full":"TPEX:6488","code":"6488","name":"環球晶","etfCount":4},
+      {"full":"TWSE:2449","code":"2449","name":"京元電子","etfCount":4},
+      {"full":"TPEX:5347","code":"5347","name":"世界","etfCount":4},
+      {"full":"TWSE:2308","code":"2308","name":"台達電","etfCount":4}
+    ],
+    "etf交集3檔": [
+      {"full":"TWSE:2317","code":"2317","name":"鴻海","etfCount":3},
+      {"full":"TPEX:8358","code":"8358","name":"金居","etfCount":3},
+      {"full":"TWSE:3231","code":"3231","name":"緯創","etfCount":3},
+      {"full":"TWSE:3661","code":"3661","name":"世芯-KY","etfCount":3},
+      {"full":"TWSE:2455","code":"2455","name":"全新","etfCount":3},
+      {"full":"TPEX:3081","code":"3081","name":"聯亞光電","etfCount":3},
+      {"full":"TPEX:6187","code":"6187","name":"萬潤","etfCount":3},
+      {"full":"TWSE:6805","code":"6805","name":"富世達","etfCount":3},
+      {"full":"TWSE:2327","code":"2327","name":"國巨*","etfCount":3},
+      {"full":"TWSE:7769","code":"7769","name":"鴻勁精密","etfCount":3},
+      {"full":"TWSE:3189","code":"3189","name":"景碩科技","etfCount":3},
+      {"full":"TPEX:3264","code":"3264","name":"欣銓","etfCount":3},
+      {"full":"TWSE:2301","code":"2301","name":"光寶科","etfCount":3},
+      {"full":"TWSE:4958","code":"4958","name":"臻鼎-KY","etfCount":3}
+    ]
+  },
+  "redUniverse": [
+    "TAIFEX:MXF1!","COMEX_MINI:MGC1!","BMFBOVESPA:WSP1!","HKEX:HSI1!","CFFEX:IF1!","CBOT:ZS1!","COMEX_MINI:MHG1!","OSE:NK225MC1!","HSI:HSI","NASDAQ:SOX","FX_IDC:USDTWD","TPEX:IX0043","TVC:SILVER","CBOE:VIX"
+  ],
+  "gapSnapshotEncoding": {
+    "appliesToEverySymbolInStockUniverseAndRedUniverse": true,
+    "newUpState": 0,
+    "newUpLower": "∅",
+    "newUpUpper": "∅",
+    "newDownState": 0,
+    "newDownLower": "∅",
+    "newDownUpper": "∅",
+    "filledUpState": 0,
+    "filledUpCount": 0,
+    "filledUpLowerNewest": "∅",
+    "filledUpUpperNewest": "∅",
+    "filledDownState": 0,
+    "filledDownCount": 0,
+    "filledDownLowerNewest": "∅",
+    "filledDownUpperNewest": "∅"
+  },
+  "snapshotAtBySymbol": {
+    "TWSE:2330":"2026-09-09T13:53:09+08:00","TWSE:2345":"2026-09-09T13:53:09+08:00","TWSE:2383":"2026-09-09T13:53:10+08:00","TWSE:2454":"2026-09-09T13:53:10+08:00","TWSE:3008":"2026-09-09T13:53:10+08:00",
+    "TWSE:3017":"2026-09-09T13:53:25+08:00","TWSE:3037":"2026-09-09T13:53:25+08:00","TWSE:3443":"2026-09-09T13:53:26+08:00","TWSE:3665":"2026-09-09T13:53:26+08:00","TWSE:3711":"2026-09-09T13:53:26+08:00",
+    "TPEX:5274":"2026-09-09T13:54:31+08:00","TPEX:6223":"2026-09-09T13:54:31+08:00","TPEX:6274":"2026-09-09T13:54:31+08:00","TWSE:6669":"2026-09-09T13:54:32+08:00","TWSE:8046":"2026-09-09T13:54:32+08:00",
+    "TWSE:8996":"2026-09-09T13:54:42+08:00","TWSE:2059":"2026-09-09T13:54:43+08:00","TWSE:2360":"2026-09-09T13:54:43+08:00","TWSE:3653":"2026-09-09T13:54:43+08:00","TWSE:2303":"2026-09-09T13:54:43+08:00",
+    "TPEX:6488":"2026-09-09T13:54:55+08:00","TWSE:2449":"2026-09-09T13:54:55+08:00","TPEX:5347":"2026-09-09T13:54:56+08:00","TWSE:2308":"2026-09-09T13:54:56+08:00",
+    "TWSE:2317":"2026-09-09T13:55:10+08:00","TPEX:8358":"2026-09-09T13:55:10+08:00","TWSE:3231":"2026-09-09T13:55:10+08:00","TWSE:3661":"2026-09-09T13:55:11+08:00","TWSE:2455":"2026-09-09T13:55:20+08:00","TPEX:3081":"2026-09-09T13:55:20+08:00","TPEX:6187":"2026-09-09T13:55:20+08:00","TWSE:6805":"2026-09-09T13:55:20+08:00",
+    "TWSE:2327":"2026-09-09T13:56:15+08:00","TWSE:7769":"2026-09-09T13:56:16+08:00","TWSE:3189":"2026-09-09T13:56:16+08:00","TPEX:3264":"2026-09-09T13:56:17+08:00","TWSE:2301":"2026-09-09T13:56:17+08:00","TWSE:4958":"2026-09-09T13:56:24+08:00",
+    "TAIFEX:MXF1!":"2026-09-09T13:56:40+08:00","COMEX_MINI:MGC1!":"2026-09-09T13:56:40+08:00","BMFBOVESPA:WSP1!":"2026-09-09T13:56:41+08:00","HKEX:HSI1!":"2026-09-09T13:56:42+08:00","CFFEX:IF1!":"2026-09-09T13:56:42+08:00","CBOT:ZS1!":"2026-09-09T13:56:42+08:00","COMEX_MINI:MHG1!":"2026-09-09T13:56:43+08:00","OSE:NK225MC1!":"2026-09-09T13:56:43+08:00","HSI:HSI":"2026-09-09T13:56:43+08:00","NASDAQ:SOX":"2026-09-09T13:56:44+08:00","FX_IDC:USDTWD":"2026-09-09T13:56:45+08:00","TPEX:IX0043":"2026-09-09T13:56:45+08:00","TVC:SILVER":"2026-09-09T13:57:03+08:00","CBOE:VIX":"2026-09-09T13:57:03+08:00"
+  },
+  "rawGapEvents": [],
+  "reportGapEvents": {"newUp":[],"newDown":[],"filledUp":[],"filledDown":[]},
+  "message": "今日缺口｜2026-09-09｜一般盤收盤：今日無新增或回補缺口。",
+  "messageHash": "4585a8a8005782e72c580e4b4463e4746549674e3bba53b99121501d7a2928e3",
+  "parts": [
+    {"part":1,"hash":"4585a8a8005782e72c580e4b4463e4746549674e3bba53b99121501d7a2928e3","status":"successful","httpStatus":204}
+  ],
+  "httpStatus": [204],
+  "snapshotAt": "2026-09-09T13:58:39+08:00",
+  "startedAt": "2026-09-09T13:36:23+08:00",
+  "scanCompletedAt": "2026-09-09T13:58:39+08:00",
+  "sentAt": "2026-09-09T14:04:27+08:00",
+  "totalDurationSeconds": 1684,
+  "source": "scheduled-tradingview-visible-ui-daily-close"
+}
