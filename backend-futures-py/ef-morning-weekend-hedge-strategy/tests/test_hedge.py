@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
-from strategy import Calendar, STRATEGIES, hedge_target, signal_position, snapshot_position
+from strategy import Calendar, STRATEGIES, hedge_target, signal_position, snapshot_position, pure_position
 from monitor_and_trade import Monitor, webhook_url
 import auto_trade
 from backtest import run
@@ -74,45 +74,20 @@ class StrategyTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.path = Path(self.temp.name) / "source.csv"
-        self.rows = [{"received_at": "2026-09-14 10:00:00", "strategy_code": code,
-                      "previous_position": 0, "new_position": 1} for code in STRATEGIES]
-
-    def write(self):
-        with self.path.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=self.rows[0].keys())
-            writer.writeheader()
-            writer.writerows(self.rows)
-
-    def test_all_legs_and_future_exclusion(self):
-        self.rows += [dict(self.rows[0], received_at="2026-09-15 05:00:00", new_position=-1)]
-        self.write()
-        self.assertEqual(signal_position(self.path, datetime(2026, 9, 15, 4, 59))["net_position"], 12)
-
-    def test_missing_and_undated_do_not_default_flat(self):
-        self.rows[0]["received_at"] = ""
-        self.write()
-        with self.assertRaisesRegex(ValueError, "缺少"):
-            signal_position(self.path, datetime(2026, 9, 15))
-
-    def test_alias_and_mismatch_audit(self):
-        self.rows[6]["strategy_code"] = "CFCWN01m"
-        self.rows += [dict(self.rows[0], received_at="2026-09-14 11:00:00", new_position=-1)]
-        self.write()
-        result = signal_position(self.path, datetime(2026, 9, 15))
-        self.assertEqual(result["net_position"], 10)
-        self.assertEqual(result["mismatches"], 1)
-
-    def test_snapshot_freshness_and_timezone(self):
-        self.path.write_text(json.dumps({"source": "capital_pure_ef", "observed_at": "2026-09-14T20:58:00Z",
-                                         "net_position": -7, "contract": "TMFI6"}))
-        self.assertEqual(snapshot_position(self.path, datetime(2026, 9, 15, 4, 59))["net_position"], -7)
-        for now in (datetime(2026, 9, 15, 4, 57), datetime(2026, 9, 15, 5, 1)):
-            with self.assertRaises(ValueError):
-                snapshot_position(self.path, now)
+    def test_only_new_individual_legs_and_no_old_restoration(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "signals.csv"
+            path.write_text("received_at,strategy_code,new_position\n"
+                "2026-09-14 23:00:00,CFC07m,1\n"
+                "2026-09-15 05:30:00,CFCTX17m,1\n"
+                "2026-09-15 08:45:00,CFCTX18m,-1\n"
+                "2026-09-15 09:00:00,CFC07m,0\n")
+            calendar = Calendar.load(BASE / "config/calendar.json")
+            since = datetime(2026, 9, 15, 8, 45)
+            self.assertEqual(pure_position(path, since, since, calendar)["net_position"], -1)
+            result = pure_position(path, datetime(2026, 9, 15, 9), since, calendar)
+            self.assertEqual(result["net_position"], -1)
+            self.assertEqual(result["positions"]["CFCTX17m"], 0)
 
 
 class MonitorTests(unittest.TestCase):
@@ -120,129 +95,124 @@ class MonitorTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.env = patch.dict(os.environ, {}, clear=True)
-        self.env.start()
-        self.addCleanup(self.env.stop)
-        self.now = datetime(2026, 9, 12, 4, 59)
-        self.source = Mock(return_value={"net_position": 7, "source": "capital_pure_ef", "contract": "TMFI6"})
+        env = patch.dict(os.environ, {"EF_HEDGE_CONTRACT": "TMFI6"}, clear=True)
+        env.start()
+        self.addCleanup(env.stop)
+        self.now = datetime(2026, 9, 14, 9)
+        self.signals = self.root / "signals.csv"
+        self.signals.write_text("received_at,strategy_code,new_position\n")
+        os.environ["EF_HEDGE_SIGNAL_CSV"] = str(self.signals)
         self.orders = []
-        self.notify = Mock()
-
         def execute(target, **kwargs):
-            # Verify intent is durably recorded before calling the broker.
             state = json.loads((self.root / "runtime/live_state.json").read_text())
             self.assertEqual(state["attempt"]["status"], "pending")
-            self.orders.append((target, kwargs))
+            self.orders.append(target)
             return NS(actual_position=target, quantity=abs(target))
         self.execute = Mock(side_effect=execute)
 
     def monitor(self, live=True):
-        return Monitor(root=self.root, live=live, source=self.source, executor=self.execute,
-                       notify=self.notify, clock=lambda: self.now)
+        return Monitor(root=self.root, live=live, executor=self.execute, clock=lambda: self.now)
 
-    def test_weekend_latch_restart_release(self):
-        monitor = self.monitor()
-        monitor.tick()
-        self.assertEqual(self.orders[0][0], -6)
-        self.now = datetime(2026, 9, 12, 4, 59, 20)
-        monitor.tick()
-        restarted = self.monitor()
-        restarted.tick()
-        self.now = datetime(2026, 9, 13, 8, 45)
-        restarted.tick()
-        self.assertEqual(len(self.orders), 1)
-        self.now = datetime(2026, 9, 14, 8, 45)
-        restarted.tick()
-        self.assertEqual([x[0] for x in self.orders], [-6, 0])
-        self.assertEqual(self.source.call_count, 1)
+    def signal(self, stamp, code="CFC07m", position=1):
+        with self.signals.open("a") as f:
+            f.write(f"{stamp},{code},{position}\n")
 
-    def test_weekday_target_and_latched_contract(self):
+    def test_flat_reopen_wait_new_signal_and_restart(self):
+        m = self.monitor()
+        m.tick()
+        self.signal("2026-09-14 09:01:00")
+        self.now = datetime(2026, 9, 14, 9, 1)
+        m.tick()
+        self.assertEqual(self.orders, [0, 1])
         self.now = datetime(2026, 9, 15, 4, 59)
-        monitor = self.monitor()
-        monitor.tick()
-        self.assertEqual(self.orders[0][0], -5)
-        os.environ["EF_HEDGE_CONTRACT"] = "TMFJ6"
+        with patch.object(m, "source", side_effect=AssertionError("must not read CSV to flatten")):
+            m.tick()
+        self.assertEqual(self.orders[-1], 0)
+        self.signal("2026-09-15 05:30:00", "CFCTX17m")
         self.now = datetime(2026, 9, 15, 8, 45)
+        m = self.monitor()
+        m.tick()
+        self.assertEqual(self.orders[-1], 0)
+        self.signal("2026-09-15 08:46:00", "CFCTX18m", -1)
+        self.now = datetime(2026, 9, 15, 8, 46)
+        m.tick()
+        self.assertEqual(self.orders[-1], -1)
+        self.assertEqual(m.state["source"]["positions"]["CFC07m"], 0)
+        count = len(self.orders)
         self.monitor().tick()
-        self.assertEqual(self.orders[-1][1]["contract_code"], "TMFI6")
+        self.assertTrue(all(x == -1 for x in self.orders[count:]))
 
-    def test_late_start_never_opens(self):
-        for stamp in (datetime(2026, 9, 12, 4, 59, 40), datetime(2026, 9, 12, 5, 0)):
+    def test_weekend_and_holiday_stay_flat(self):
+        self.now = datetime(2026, 9, 12, 4, 59)
+        m = self.monitor()
+        m.tick()
+        for stamp in (datetime(2026, 9, 12, 8, 45), datetime(2026, 9, 13, 8, 45)):
             self.now = stamp
-            self.monitor().tick()
-        self.execute.assert_not_called()
-
-    def test_failed_entry_no_retries_but_exit_attempt(self):
-        self.execute.side_effect = RuntimeError("uncertain")
-        monitor = self.monitor()
-        monitor.tick()
-        monitor.tick()
-        self.monitor().tick()
-        self.assertEqual(self.execute.call_count, 1)
+            m.tick()
+        self.assertEqual(self.orders, [0])
         self.now = datetime(2026, 9, 14, 8, 45)
-        monitor.tick()
-        monitor.tick()
-        self.assertEqual(self.execute.call_count, 2)
-        self.assertEqual(monitor.state["attempt"]["status"], "failed")
+        m.tick()
+        self.assertEqual(set(self.orders), {0})
 
-    def test_crash_after_intent_never_repeats(self):
-        monitor = self.monitor()
-        self.execute.side_effect = KeyboardInterrupt
-        with self.assertRaises(KeyboardInterrupt):
-            monitor.tick()
+    def test_missed_flat_recovers_before_accepting_signals(self):
+        m = self.monitor()
+        m.tick()
+        self.now = datetime(2026, 9, 15, 5)
+        m.tick()
+        self.signal("2026-09-15 08:45:00")
+        self.now = datetime(2026, 9, 15, 9)
+        m.tick()
+        self.assertEqual(self.orders[-1], 0)
+        self.signal("2026-09-15 09:01:00", position=-1)
+        self.now = datetime(2026, 9, 15, 9, 1)
+        m.tick()
+        self.assertEqual(self.orders[-1], -1)
+
+    def test_failed_flat_never_opens_or_blindly_retries(self):
+        self.now = datetime(2026, 9, 15, 4, 59)
+        self.execute.side_effect = RuntimeError("uncertain")
+        m = self.monitor()
+        m.tick()
+        self.now = datetime(2026, 9, 15, 8, 45)
+        m.tick()
         self.monitor().tick()
         self.assertEqual(self.execute.call_count, 1)
 
-    def test_persist_failure_prevents_orders(self):
-        monitor = self.monitor()
-        with patch("monitor_and_trade.save", side_effect=OSError("disk")):
-            with self.assertRaises(OSError):
-                monitor.tick()
-        self.execute.assert_not_called()
+    def test_slow_signal_read_cannot_enter_after_flat_boundary(self):
+        m = self.monitor()
+        m.tick()
+        self.now = datetime(2026, 9, 15, 4, 58, 59)
+        def slow_source(now):
+            self.now = datetime(2026, 9, 15, 4, 59)
+            return {"net_position": 1}
+        m.source = slow_source
+        m.tick()
+        self.assertEqual(self.orders, [0])
+        m.tick()
+        self.assertEqual(self.orders, [0, 0])
 
-    def test_shadow_does_not_execute_and_has_separate_state(self):
+    def test_shadow_and_legacy_state(self):
         self.monitor(live=False).tick()
         self.execute.assert_not_called()
-        self.assertTrue((self.root / "runtime/shadow_state.json").exists())
-        self.monitor(live=True).tick()
-        self.assertEqual(self.execute.call_count, 1)
+        path = self.root / "runtime/live_state.json"
+        path.write_text(json.dumps({"mode": "live", "cycle": {"target": -6}}))
+        with self.assertRaisesRegex(ValueError, "舊避險"):
+            self.monitor()
 
-    def test_noon_does_not_create_hedge(self):
-        self.now = datetime(2026, 9, 15, 13, 44)
-        self.monitor().tick()
-        self.source.assert_not_called()
-        self.assertEqual(self.orders[0][0], 0)
-
-    def test_cap_breach_does_not_send_truncated_hedge(self):
-        self.source.return_value["net_position"] = 30
+    def test_noon_hold_and_size_limit(self):
+        m = self.monitor()
+        m.tick()
+        self.signal("2026-09-14 09:01:00")
+        self.now = datetime(2026, 9, 14, 13, 44)
+        m.tick()
+        self.assertEqual(self.orders[-1], 1)
+        self.now = datetime(2026, 9, 14, 13, 45)
+        m.tick()
+        self.assertEqual(self.orders[-1], 1)
+        self.now = datetime(2026, 9, 14, 15)
+        os.environ["EF_HEDGE_MAX_CONTRACTS"] = "0"
         with self.assertRaises(ValueError):
-            self.monitor().tick()
-        self.execute.assert_not_called()
-
-    def test_calendar_update_postpones_exit(self):
-        monitor = self.monitor()
-        monitor.tick()
-        config = json.loads((BASE / "config/calendar.json").read_text())
-        config["closed_dates"].append("2026-09-14")
-        calendar_path = self.root / "calendar.json"
-        calendar_path.write_text(json.dumps(config))
-        monitor.calendar_path = calendar_path
-        self.now = datetime(2026, 9, 14, 8, 45)
-        monitor.tick()
-        self.assertEqual(len(self.orders), 1)
-        self.now = datetime(2026, 9, 15, 8, 45)
-        monitor.tick()
-        self.assertEqual(self.orders[-1][0], 0)
-
-    def test_csv_live_requires_explicit_source_acceptance(self):
-        with self.assertRaisesRegex(ValueError, "尚未確認"):
-            self.monitor().read_source(self.now)
-
-    def test_webhook_exact_name_no_fallback(self):
-        os.environ["DISCORD_WEBHOOK_URL"] = "wrong"
-        self.assertEqual(webhook_url(), "")
-        os.environ["DISCORD_EF_hedge_WEBHOOK_URL"] = "correct"
-        self.assertEqual(webhook_url(), "correct")
+            m.tick()
 
 
 class BrokerTests(unittest.TestCase):
@@ -250,7 +220,10 @@ class BrokerTests(unittest.TestCase):
         self.now = datetime(2026, 9, 15, 4, 59)
         self.contract = NS(code="TMFI6")
         self.api = Mock()
-        self.api.Contracts = NS(Futures=NS(TMF={"TMFI6": self.contract}))
+        self.api.Contracts = NS(Futures=NS(TMF=NS(TMFR1=self.contract)))
+        timeout = patch.object(auto_trade._shared, "ORDER_CALLBACK_TIMEOUT_SECONDS", 0)
+        timeout.start()
+        self.addCleanup(timeout.stop)
         self.api.list_trades.return_value = []
         self.api.list_positions.return_value = []
         self.api.place_order.return_value = NS(status=NS(status="Filled"))
@@ -259,12 +232,13 @@ class BrokerTests(unittest.TestCase):
                                FuturesOCType=NS(Auto="Auto")))
 
     def execute(self, target=-5, **kwargs):
-        return auto_trade.execute_target_position(target, contract_code="TMFI6",
+        return auto_trade.execute_target_position(target,
             deadline=self.now + timedelta(seconds=40), clock=lambda: self.now,
             api=self.api, sj=self.sj, **kwargs)
 
     def test_delta_based_on_real_position(self):
         self.api.list_positions.side_effect = [
+            [{"code": "TMFI6", "quantity": 2, "direction": "Sell"}],
             [{"code": "TMFI6", "quantity": 2, "direction": "Sell"}],
             [{"code": "TMFI6", "quantity": 5, "direction": "Sell"}]]
         result = self.execute()
@@ -275,6 +249,7 @@ class BrokerTests(unittest.TestCase):
 
     def test_flat_uses_actual_quantity(self):
         self.api.list_positions.side_effect = [
+            [{"code": "TMFI6", "quantity": 6, "direction": "Sell"}],
             [{"code": "TMFI6", "quantity": 6, "direction": "Sell"}], []]
         result = self.execute(0)
         self.assertEqual(result.quantity, 6)
@@ -284,6 +259,21 @@ class BrokerTests(unittest.TestCase):
         self.api.list_positions.return_value = [{"code": "TMFI6", "quantity": 5, "direction": "Sell"}]
         self.assertEqual(self.execute().quantity, 0)
         self.api.place_order.assert_not_called()
+
+    def test_uses_shared_executor_and_near_month(self):
+        with patch.object(auto_trade._shared, "execute_target_position", return_value=NS(actual_position=3)) as shared:
+            result = self.execute(3)
+            self.assertEqual(result.actual_position, 3)
+            self.assertEqual(shared.call_args.args, (3,))
+            self.assertIs(shared.call_args.kwargs["api"], self.api)
+            self.assertTrue(callable(shared.call_args.kwargs["before_order"]))
+
+    def test_callback_rejection_is_not_success(self):
+        def install(callback):
+            callback(None, {"operation": {"op_type": "New", "op_code": "99", "op_msg": "rejected"}})
+        self.api.set_order_callback.side_effect = install
+        with self.assertRaisesRegex(auto_trade.BrokerOrderError, "拒絕委託"):
+            self.execute()
 
     def test_other_month_blocked(self):
         self.api.list_positions.return_value = [{"code": "TMFJ6", "quantity": 1, "direction": "Buy"}]
@@ -337,29 +327,34 @@ class BrokerTests(unittest.TestCase):
                 api.futopt_account.account_id = "account1"
                 with self.assertRaises(auto_trade.BrokerOrderError):
                     auto_trade.login(sj)
+                del os.environ["EF_HEDGE_ACCOUNT_ID"]
+                auto_trade.login(sj)  # Optional account check, same default account as account 1.
                 del os.environ["API_KEY2"]
                 with self.assertRaisesRegex(ValueError, "API_KEY2"):
                     auto_trade.login(sj)
 
 
 class BacktestTests(unittest.TestCase):
-    def test_exact_prices_and_missing_boundary(self):
+    def test_morning_flat_and_only_new_leg_reentry(self):
         with tempfile.TemporaryDirectory() as folder:
-            prices = Path(folder) / "prices.csv"
+            root = Path(folder)
+            signals, prices = root / "signals.csv", root / "prices.csv"
+            signals.write_text("received_at,strategy_code,new_position\n"
+                "2026-09-14 23:00:00,CFC07m,1\n"
+                "2026-09-15 05:30:00,CFCTX17m,1\n"
+                "2026-09-15 08:46:00,CFCTX18m,-1\n")
             prices.write_text("Symbol,TradingView Time,Record Time,Open\n"
-                              "MXF1!,2026-09-12 04:59:00,2026-09-12 05:00:00,10000\n"
-                              "MXF1!,2026-09-14 08:45:00,2026-09-14 08:46:00,9000\n")
-            calendar = Calendar.load(BASE / "config/calendar.json")
-            with patch("backtest.signal_position", return_value={"net_position": 7, "mismatches": 0}):
-                result = run(Path("unused"), prices, calendar, datetime(2026, 9, 12, 4, 59),
-                             datetime(2026, 9, 14, 9))
-                self.assertEqual(result["ledger"][0]["hedge"], -6)
-                self.assertEqual(result["net_twd"], (6000 - 24) * 10)
-                prices.write_text(prices.read_text().replace("08:45:00", "08:46:00"))
-                result = run(Path("unused"), prices, calendar, datetime(2026, 9, 12, 4, 59),
-                             datetime(2026, 9, 14, 9))
-                self.assertEqual(len(result["ledger"]), 0)
-                self.assertEqual(len(result["skipped"]), 1)
+                "MXF1!,2026-09-14 23:01:00,2026-09-14 23:02:00,10000\n"
+                "MXF1!,2026-09-15 04:59:00,2026-09-15 05:00:00,10100\n"
+                "MXF1!,2026-09-15 08:47:00,2026-09-15 08:48:00,10200\n")
+            args = (signals, prices, Calendar.load(BASE / "config/calendar.json"),
+                    datetime(2026, 9, 14, 22), datetime(2026, 9, 15, 9))
+            result = run(*args)
+            self.assertEqual([row["target"] for row in result["ledger"]], [1, 0, -1])
+            self.assertEqual(result["net_twd"], 940)
+            prices.write_text(prices.read_text().replace("04:59:00", "04:58:00"))
+            with self.assertRaisesRegex(ValueError, "缺少精確"):
+                run(*args)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Wall-clock hedge monitor. Default mode records targets without placing orders."""
+"""Pure EF account 2: 04:59 flat, wait for new signals after 08:45."""
 from __future__ import annotations
 
 import argparse
@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from filelock import FileLock
 
 from auto_trade import execute_target_position
-from strategy import Calendar, hedge_target, integer, signal_position, snapshot_position
+from strategy import Calendar, integer, latest_closure, pure_position
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
@@ -93,7 +93,13 @@ class Monitor:
         self.state = json.loads(self.path.read_text()) if self.path.exists() else {}
         if self.state and self.state.get("mode") != self.mode:
             raise ValueError("實單與模擬狀態不可混用")
+        if self.state and self.state.get("strategy") != "pure_ef_morning_flat_v1":
+            raise ValueError("偵測到舊避險狀態；請先核對並平掉永豐2舊部位，再封存 runtime 狀態後啟動新策略")
         self.state["mode"] = self.mode
+        self.state["strategy"] = "pure_ef_morning_flat_v1"
+        if "boot" not in self.state:
+            self.state["boot"] = self.clock().isoformat()
+            self.persist()
         self.source = source or self.read_source
         self.execute = executor or execute_target_position
         self.notify = notify or (lambda message: None)
@@ -116,19 +122,18 @@ class Monitor:
     def alert(self, message: str):
         if message != self.last_alert:
             self.event("alert", message=message)
-            self.notify(f"[EF 凌晨與週末避險/{self.mode}] {message}")
+            self.notify(f"[純 EF 04:59 清倉/{self.mode}] {message}")
             self.last_alert = message
 
     def read_source(self, now: datetime) -> dict:
-        snapshot = os.getenv("EF_HEDGE_SOURCE_SNAPSHOT", "").strip()
-        if snapshot:
-            return snapshot_position(Path(snapshot), now)
-        if self.live and not flag("EF_HEDGE_ACCEPT_SIGNAL_ESTIMATE"):
-            raise ValueError("尚未確認使用訊號推算庫存；請提供群益快照或明確啟用推算模式")
+        calendar = Calendar.load(self.calendar_path)
+        closure = latest_closure(calendar, now)
+        boot = max(datetime.fromisoformat(self.state["boot"]),
+                   datetime.fromisoformat(self.state.get("ready_since", self.state["boot"])))
+        since = closure.reopen if closure else boot
         path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
-        result = signal_position(path, now, integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")))
-        result["contract"] = os.getenv("EF_HEDGE_CONTRACT", "").strip()
-        return result
+        return pure_position(path, now, since, calendar,
+                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot)
 
     def action(self, key: str, target: int, contract: str, deadline: datetime) -> bool:
         attempt = self.state.get("attempt", {})
@@ -144,7 +149,7 @@ class Monitor:
         self.event("intent", **self.state["attempt"])
         try:
             if self.live:
-                result = self.execute(target, contract_code=contract, deadline=deadline, clock=self.clock)
+                result = self.execute(target, deadline=deadline, clock=self.clock)
                 actual, quantity = result.actual_position, result.quantity
                 if actual != target:
                     raise ValueError("券商實際部位未達目標")
@@ -157,7 +162,7 @@ class Monitor:
             self.event("confirmed" if self.live else "shadow_target", target=target,
                        quantity=quantity, contract=contract, key=key)
             if quantity:
-                self.notify(f"[EF 凌晨與週末避險/{self.mode}] {key}\n"
+                self.notify(f"[純 EF 04:59 清倉/{self.mode}] {key}\n"
                             f"第二帳戶目標 {target:+d} 口，異動 {quantity} 口；合約 {contract or '未設定'}")
             return True
         except Exception as exc:
@@ -171,67 +176,50 @@ class Monitor:
     def tick(self, now: datetime | None = None):
         now = now or self.clock()
         calendar = Calendar.load(self.calendar_path)
-        cycle = self.state.get("cycle")
-        if cycle and not cycle.get("released"):
-            reopen = datetime.fromisoformat(cycle["reopen"])
-            # Re-read calendar on every tick: an added typhoon closure postpones release.
-            if now >= reopen and calendar.is_open(now):
-                deadline = self.session_deadline(now)
-                if self.action(cycle["start"] + "/release", 0, cycle["contract"], deadline):
-                    cycle["released"] = True
-                    self.persist()
-                    self.last_audit = now
-            elif (self.state.get("attempt", {}).get("status") != "done" or
-                  self.state.get("attempt", {}).get("key") != cycle["start"] + "/enter"):
-                self.alert("本次避險建倉尚未確認；休市期間不補單，開市後會嘗試解除實際庫存")
-            return
-
-        closure = calendar.closure(now.date(),
-                                   integer(os.getenv("EF_HEDGE_WEEKDAY_CAP", "2")),
-                                   integer(os.getenv("EF_HEDGE_HOLIDAY_CAP", "1")))
-        if closure and closure.start <= now < closure.reopen:
-            start = closure.start.isoformat()
-            if self.state.get("missed") == start:
-                return
-            deadline = closure.start + timedelta(seconds=40)
-            if now >= deadline:
-                self.state["missed"] = start
-                self.persist()
-                self.alert(f"錯過 {start} 建倉期限，本次不補建避險單")
-                return
-            if self.state.get("attempt", {}).get("status") in {"pending", "failed"}:
-                self.alert("仍有未確認委託；請對帳後使用 --retry-failed")
-                return
-            source = self.source(now)
-            target = hedge_target(source["net_position"], closure.cap)
-            maximum = integer(os.getenv("EF_HEDGE_MAX_CONTRACTS", "12"))
-            if not 0 <= maximum <= 240 or abs(target) > maximum:
-                raise ValueError("避險口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
-            contract = source.get("contract", "")
-            if self.live and not contract:
-                raise ValueError("缺少與群益相同月份的實際 TMF 合約代碼")
-            self.state["cycle"] = {"start": start, "reopen": closure.reopen.isoformat(),
-                                   "cap": closure.cap, "source": source, "target": target,
-                                   "contract": contract, "released": False}
+        closure = latest_closure(calendar, now)
+        cycle = closure.start.isoformat() if closure else "initial"
+        contract = "TMFR1"
+        self.state["contract"] = contract
+        # Flatten on the clock, before opening/reading any signal source.
+        if self.state.get("flat_cycle") != cycle:
+            self.state["target"] = 0
             self.persist()
-            self.event("closure", **self.state["cycle"])
-            self.notify(f"[EF 凌晨與週末避險/{self.mode}] 群益 EF {source['net_position']:+d} 口"
-                        f"（{source['source']}）\n避險目標 {target:+d} 口，淨留最多 {closure.cap} 口"
-                        f"\n預計解除 {closure.reopen:%Y-%m-%d %H:%M}")
-            self.action(start + "/enter", target, contract, deadline)
-            return
-
-        # Dedicated account should be flat outside closure windows, including restart.
-        if calendar.is_open(now) and (self.last_audit is None or
-                                      (now - self.last_audit).total_seconds() >= 300):
-            contract = (cycle or {}).get("contract") or os.getenv("EF_HEDGE_CONTRACT", "").strip()
-            key = "flat-audit/" + now.isoformat()
-            attempt = self.state.get("attempt", {})
-            if attempt.get("status") in {"pending", "failed"}:
-                self.alert("仍有未確認委託；請對帳後使用 --retry-failed")
+            if not calendar.is_open(now) or now >= self.session_deadline(now):
+                self.alert("等待可交易時段補做清倉；清倉確認前不接受新訊號")
                 return
-            self.action(key, 0, contract, self.session_deadline(now))
+            if not self.action(cycle + "/flat", 0, contract, self.session_deadline(now)):
+                return
+            self.state["flat_cycle"] = cycle
+            self.state["ready_since"] = now.isoformat()
+            self.persist()
             self.last_audit = now
+        # Weekends/holidays remain flat; calendar updates are read on every tick.
+        if closure and now < closure.reopen:
+            return
+        if not calendar.is_open(now) or now >= self.session_deadline(now):
+            return
+        if self.state.get("attempt", {}).get("status") in {"pending", "failed"}:
+            self.alert("仍有未確認委託；請對帳後使用 --retry-failed")
+            return
+        source = self.source(now)
+        target = integer(source["net_position"])
+        maximum = integer(os.getenv("EF_HEDGE_MAX_CONTRACTS", "12"))
+        if not 0 <= maximum <= 240 or abs(target) > maximum:
+            raise ValueError("純 EF 口數超過 EF_HEDGE_MAX_CONTRACTS；不截斷口數下單")
+        audit = self.last_audit is None or (now - self.last_audit).total_seconds() >= 300
+        if target != self.state.get("target", 0) or audit:
+            deadline = self.session_deadline(now)
+            # Entry must stop exactly at 04:59, even if CSV reading/login is slow.
+            if deadline.time() == day_time(4, 59, 40):
+                deadline = deadline.replace(second=0)
+            if self.clock() >= deadline:
+                return
+            key = f"signal/{now.isoformat()}/{target}"
+            if self.action(key, target, contract, deadline):
+                self.state["target"] = target
+                self.state["source"] = source
+                self.persist()
+                self.last_audit = now
 
     @staticmethod
     def session_deadline(now: datetime) -> datetime:
@@ -248,7 +236,7 @@ def main():
     parser.add_argument("--retry-failed", action="store_true", help="對帳後解除失敗動作鎖定；執行器仍檢查未結束委託")
     args = parser.parse_args()
     load_env(BACKEND / ".env")
-    live = flag("EF_HEDGE_ENABLE_ORDERS")
+    live = flag("EF_PURE_FLAT_ENABLE_ORDERS")
     (BASE / "runtime").mkdir(parents=True, exist_ok=True)
     # Shared lock across shadow/live prevents mode changes while another monitor runs.
     with FileLock(str(BASE / "runtime/monitor.lock"), timeout=0):
@@ -256,11 +244,6 @@ def main():
         if args.retry_failed and monitor.state.get("attempt", {}).get("status") in {"pending", "failed"}:
             monitor.event("operator_retry", previous=monitor.state["attempt"])
             monitor.state.pop("attempt")
-            cycle = monitor.state.get("cycle")
-            if cycle and not cycle.get("released") and now_local() < datetime.fromisoformat(cycle["reopen"]):
-                # Never recreate an entry late. Re-entry is allowed only inside its deadline.
-                if now_local() < datetime.fromisoformat(cycle["start"]) + timedelta(seconds=40):
-                    monitor.state.pop("cycle")
             monitor.persist()
         while True:
             try:

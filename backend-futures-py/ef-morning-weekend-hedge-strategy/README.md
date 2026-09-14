@@ -1,58 +1,41 @@
-# EF 凌晨與週末避險（永豐第二帳戶）
+# 永豐 2：純 EF＋04:59 清倉
 
-這個帳戶只對沖**群益純 EF** 的休市曝險。群益 EF 照常運作，永豐第一帳戶的強共識策略也照常運作；本策略不把第一帳戶或 H3 加入計算。
+永豐第二帳戶改為純 EF 跟單：**04:59 清倉，08:45 後等待新訊號入場**。沿用本目錄名稱與第二組 API 金鑰。
 
 ## 規則
 
-- 每個有效夜盤的 **04:59**，讀取群益純 EF 的淨口數 `N`。
-- 同日 08:45 開市：淨留最多 **2 口**。週末或連假：淨留最多 **1 口**。
-- 永豐第二帳戶目標 `−sign(N) × max(abs(N) − 保留上限, 0)`。不足上限不加倉；例如平日 EF 多 7，永豐空 5；週末則空 6。EF 空 7 時方向相反。
-- 鎖定本次口數，下一個實際開市日 **08:45 起** 將第二帳戶歸零；不等待新 EF 訊號。群益部位不受影響。
-- 不做 13:44 避險。一般可交易時段每 5 分鐘對帳，第二帳戶目標為零，因此這必須是**專用帳戶**。
-- 04:59:40 後不再補建本次避險，05:00 後不送建倉單。登入或對帳太慢，也會在實際送單前擋掉逾期委託。
-- 這是降低淨口數，**不保證最大損失 3,000 點**；兩帳戶資金及保證金仍分別計算。
+- 十二個 E/F 子策略各自維護 -1／0／+1，預設每策略 1 口微台，加總成第二帳戶的目標淨部位。不使用強共識門檻，也不做反向避險。
+- 每個有效夜盤 **04:59** 由本機時鐘將第二帳戶目標設為 **0**，查券商實際部位並下差額單。此步驟不依賴 CSV 或新訊號。
+- 清倉後各子策略歸零；04:59 至下一個實際開市日 08:45 不建立部位，週末與連假保持空手。
+- **08:45 不自動恢復舊部位**。之後各子策略收到新訊號，只更新該子策略。例如昨晚 E 多 7，開市只有一個子策略新多訊號，就只建立該訊號的 1 口，不恢復昨晚 7 口。空手子策略收到平倉訊號仍是 0。
+- 13:45～15:00 保留部位；休市期間收到的訊號不補單，等可交易時段的新訊號。
+- 首次啟動先歸零，僅接受啟動與清倉確認之後的新訊號。同版本重啟保留時間邊界，重新計算當日已接受的訊號目標。
+- 錯過 04:59 清倉時段，會在下一個可交易時段先清倉，再等待清倉確認之後的新訊號。清倉失敗或結果不明時不入場。
 
-## 部位來源與合約
+## 訊號與帳戶
 
-預設讀取 `../tv_doc/six_strategy_signal_events.csv`，以 `received_at` 重建 12 個 E/F 策略的最新狀態，預設每策略 1 口微台。未附時間的舊資料不參與重建；缺任何策略狀態就不建倉。會記錄前後狀態不一致次數。
+讀取 `../tv_doc/six_strategy_signal_events.csv`，僅採本機 `received_at`。訊號以每個子策略的 `new_position` 更新；不讀群益庫存快照、不納入 H3 或第一帳戶。第二帳戶須專用；每五分鐘依策略目標對帳。
 
-**CSV 是訊號推算，不是群益券商實際庫存。** 現有資料曾出現狀態不一致；漏單、手動調倉、口數設定不同都可能使推算錯誤。本程式沒有群益查庫存接口，也無法僅靠沒有新訊號判斷 relay 是否斷線。使用推算模式實單前，必須自行核對群益純 EF 的口數與訊號接收是否正常，並設定 `EF_HEDGE_ACCEPT_SIGNAL_ESTIMATE=true`。這個開關不會把推算變成實際庫存。
+只使用 `API_KEY2` / `SECRET_KEY2`，沿用登入後的 `api.futopt_account`，不會退回第一組金鑰。`EF_HEDGE_ACCOUNT_ID` 改為選填，填入時仍核對帳號。仍使用 `DISCORD_EF_hedge_WEBHOOK_URL` 專用通知。
 
-也可用 `EF_HEDGE_SOURCE_SNAPSHOT=/absolute/path/source.json` 接入群益庫存快照（優先於 CSV），格式如下。由外部庫存讀取程式以原子取代方式更新；04:59 使用時必須在 120 秒內，且只包含純 EF。這裡**沒有自動產生該快照的群益連線程式**。
-
-```json
-{
-  "source": "capital_pure_ef",
-  "observed_at": "2026-09-15T04:58:50+08:00",
-  "net_position": 7,
-  "contract": "請填券商的實際 TMF 月份合約代碼"
-}
-```
-
-CSV 模式使用 `EF_HEDGE_CONTRACT` 指定**與群益相同月份**的券商實際 TMF 合約代碼，不能填 `TMFR1`/`TMFR2`。程式不自動換月；若群益換月，必須同步更新設定並重啟。已開立避險會使用狀態中保存的原合約解除。第二帳戶若已有其他月份 TMF，會停止並通知，避免把跨月部位當成同一部位。
+下單與第一帳戶共用 `shioaji_tmf_target.py`：自動選擇 `api.Contracts.Futures.TMF.TMFR1` 近月合約，查實際 TMF 淨部位，以市價 IOC、Auto 送差額單，檢查委託回報及成交後部位，最後登出。`EF_HEDGE_CONTRACT` 不再使用，無須手填月份。近月指向改變時不自動搬移舊月份持倉；發現其他月份、多空雙邊庫存或未結委託仍會停止並通知。永豐 2 在實際送單前另檢查時間，避免登入或查詢延遲跨過 04:59 入場截止時間。
 
 ## 設定與啟動
 
-沿用 `backend-futures-py/.env`，環境變數優先。不要將真實金鑰寫入版本控制。
+沿用上層 `.env`，環境變數優先。新策略使用獨立的實單開關，舊 `EF_HEDGE_ENABLE_ORDERS` 不會啟用它。
 
 ```dotenv
 API_KEY2=第二組金鑰
 SECRET_KEY2=第二組密鑰
 PERSON_ID=憑證身分證字號
 CA_PATH=/absolute/path/Sinopac.pfx
-DISCORD_EF_hedge_WEBHOOK_URL=專用DiscordWebhook
-
-EF_HEDGE_ENABLE_ORDERS=false
-EF_HEDGE_ACCOUNT_ID=API_KEY2所屬的期貨account_id
-EF_HEDGE_CONTRACT=與群益相同月份的實際TMF合約代碼
-EF_HEDGE_ACCEPT_SIGNAL_ESTIMATE=false
+DISCORD_EF_hedge_WEBHOOK_URL=專用通知網址
+EF_PURE_FLAT_ENABLE_ORDERS=false
 EF_HEDGE_SOURCE_UNIT=1
-EF_HEDGE_WEEKDAY_CAP=2
-EF_HEDGE_HOLIDAY_CAP=1
 EF_HEDGE_MAX_CONTRACTS=12
 ```
 
-如果第二組使用不同憑證，可以設定 `PERSON_ID2` / `CA_PATH2`；金鑰只讀 `API_KEY2` / `SECRET_KEY2`，**不會退回第一組**。登入後核對 `EF_HEDGE_ACCOUNT_ID`。Discord 只使用大小寫完全相同的 `DISCORD_EF_hedge_WEBHOOK_URL`，不會改送別的策略 webhook。
+可使用 `PERSON_ID2`／`CA_PATH2` 覆寫第二帳戶憑證；`EF_HEDGE_SIGNAL_CSV`／`EF_HEDGE_CALENDAR_PATH` 覆寫訊號及日曆。`EF_HEDGE_ACCOUNT_ID` 可選填作額外帳號核對。原有 CONTRACT、WEEKDAY_CAP、HOLIDAY_CAP、SOURCE_SNAPSHOT、ACCEPT_SIGNAL_ESTIMATE 設定不再使用。
 
 ```bash
 cd backend-futures-py/ef-morning-weekend-hedge-strategy
@@ -60,25 +43,21 @@ python monitor_and_trade.py --once
 python monitor_and_trade.py
 ```
 
-預設 `shadow` 只記錄目標與口數，**不宣稱模擬成交價格或損益**。完成來源、帳號、月份與日曆設定後，`EF_HEDGE_ENABLE_ORDERS=true` 才會下實單；`--once` 也遵守這個實單開關。需先安裝上層 `requirements.txt`。
+預設 shadow 僅記錄目標，不連線下單。設定 `EF_PURE_FLAT_ENABLE_ORDERS=true` 才會實單；`--once` 同樣遵守此開關。未在此次修改中啟動實單。
 
-## 日曆、重啟與委託
+## 舊策略切換與失敗處理
 
-`config/calendar.json` 提供 2026 年預定休市日，參考[期交所行事曆](https://www.taifex.com.tw/file/taifex/CHINESE/4/2026Calendar.pdf)與[證交所日期表](https://www.twse.com.tw/holidaySchedule/holidaySchedule?response=html)。例如 9/25 04:59 避險，9/29 08:45 解除。日曆之外的日期停止判斷，不猜測次年開市日。
+啟動遇到舊避險版本的 runtime 狀態會停止，避免把原本的反向部位當成新策略持倉。切換時先停止舊程式、核對並平掉第二帳戶原有部位，封存原本 `runtime/live_state.json`／`shadow_state.json`，再啟動新策略。新版本保留原來的 `runtime/monitor.lock`，防止同目錄多開。
 
-臨時休市須更新 `closed_dates`；特殊開市用 `open_dates`；若某日取消下午開始的夜盤，用 `no_night_dates`。每秒重新載入日曆，也可用 `EF_HEDGE_CALENDAR_PATH` 指定日曆。**未串接臨時休市公告**，長假或颱風前須核對最新公告。跨入 2027 前須更新涵蓋範圍與假日。
+委託前保存意圖，使用 IOC 市價差額單並驗證實際淨部位。委託失敗、部分成交或中斷會鎖定，不盲目重送；核對券商庫存與未結委託後可用 `--retry-failed` 解除動作鎖定。04:59:40 後不送夜盤委託，錯過清倉會告警並等待可交易時段。
 
-`runtime/monitor.lock` 防止同資料夾多開；live/shadow 狀態與記錄分開。每筆委託前先原子保存意圖，下單用市價 IOC，並驗證券商實際部位。成功後重啟不再重送同一動作。失敗、部分成交或程式在下單中斷，都不盲目重試；下次開市會先核對未結束委託，再嘗試將避險部位歸零。若解除委託本身失敗，會鎖定，不會每秒重送。
+日曆沿用 `config/calendar.json`；臨時休市須更新 `closed_dates`，取消夜盤須更新 `no_night_dates`。日期超出涵蓋範圍會停止判斷。通知採背景佇列，不阻塞下單；稽核保存在 `records/{live,shadow}_events.csv`。
 
-遇到失敗先查看券商庫存及委託狀態，停掉原監控，再用 `python monitor_and_trade.py --retry-failed` 解除該動作鎖定。即使解除鎖定，執行器仍會檢查未結束委託；錯過建倉期限也不補建。不要刪除 live 狀態或同時從別台主機跑第二份。
-
-記錄在 `records/{live,shadow}_events.csv`，包含來源快照、上限、口數、合約、意圖與結果。網路通知在背景執行，避免卡住 04:59。通知失敗會印出本機訊息，不重送；請以本機紀錄與券商庫存為準。
-
-## 驗證與離線回放
+## 驗證與回放
 
 ```bash
 python -m unittest discover -s tests -v
-python backtest.py --start '2026-08-26 04:59:00' --end '2026-09-14 11:05:00'
+python backtest.py --start '2026-09-01 08:45:00' --end '2026-09-14 13:45:00'
 ```
 
-回放只計算**第二帳戶的避險損益**，不是群益與第二帳戶合計；使用 MXF1! 的精確 04:59 / 開市 08:45 Open 作代理，微台每點每口 10 元，預設單邊成本 2 點。缺少邊界 K 或完整 EF 狀態會列入 `skipped`，不跨缺口找下一根冒充開盤。回放與實單都用 04:59 當下已收到的訊號，實單可能有滑價。既有研究的下一分鐘成交口徑與本回放的訊號狀態口徑可能不同，不能直接當成相同報酬序列。
+回放已改為純 EF 第二帳戶，區間開始時空手、等待後續新訊號；04:59 歸零、08:45 不恢復。訊號用嚴格下一分鐘 MXF1! Open，清倉用精確 04:59 Open，每點每口 10 元，單邊預設成本 2 點；期末持倉按最後 K 棒 Open 評價。缺少必要成交 K 棒則停止，不跳過缺口。實單即時依訊號下單，成交可能與回放代理價不同；舊避險回測數字不適用新策略。

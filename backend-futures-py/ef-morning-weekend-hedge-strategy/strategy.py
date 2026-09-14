@@ -124,3 +124,44 @@ def snapshot_position(path: Path, now: datetime, max_age: int = 120) -> dict:
     if not value.get("contract"):
         raise ValueError("庫存快照缺少實際合約代碼 contract")
     return value
+
+
+def latest_closure(calendar: Calendar, now: datetime) -> Closure | None:
+    day = now.date()
+    while day > calendar.first:
+        closure = calendar.closure(day)
+        if closure and closure.start <= now:
+            return closure
+        day -= timedelta(days=1)
+    return None
+
+
+def pure_position(path: Path, now: datetime, since: datetime, calendar: Calendar,
+                  unit: int = 1, boot: datetime | None = None) -> dict:
+    """Only post-reopen signals update their own leg; old legs never restore."""
+    unit = integer(unit)
+    if not 1 <= unit <= 20:
+        raise ValueError("每策略口數必須介於 1 與 20")
+    events = []
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        for index, row in enumerate(csv.DictReader(handle)):
+            code = row.get("strategy_code") or row.get("raw_strategy_code")
+            code = "CFCWIN01m" if code == "CFCWN01m" else code
+            if code not in STRATEGIES or not row.get("received_at"):
+                continue
+            stamp = datetime.strptime(row["received_at"], "%Y-%m-%d %H:%M:%S")
+            if not since <= stamp <= now or (boot is not None and stamp <= boot):
+                continue
+            if not calendar.is_open(stamp) or time(4, 59) <= stamp.time() < time(8, 45):
+                continue
+            new = integer(row["new_position"])
+            if new not in {-1, 0, 1}:
+                raise ValueError(f"{code} 訊號部位超出 -1/0/1")
+            events.append((stamp, index, code, new))
+    positions = dict.fromkeys(STRATEGIES, 0)
+    events.sort()
+    for stamp, index, code, new in events:
+        positions[code] = new
+    return {"net_position": sum(positions.values()) * unit, "positions": positions,
+            "source": "pure_ef_new_signals", "unit": unit,
+            "last_signal": (f"{events[-1][0].isoformat()}/{events[-1][1]}" if events else None)}
