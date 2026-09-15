@@ -1,4 +1,4 @@
-"""Pure EF account 2: 04:59 flat, wait for new signals after 08:45."""
+"""Pure EF account 2: 01:00 flat, wait for new signals after 08:45."""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +19,7 @@ from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_positio
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
-MAX_POSITION = 5
+MAX_POSITION = 2
 sys.path.insert(0, str(BACKEND))
 from ef_trade_runtime import Notifications as SharedNotifications, append_order, save_state
 
@@ -52,6 +52,21 @@ class Notifications(SharedNotifications):
         super().__init__(webhook_url, BASE / "records/notifications.jsonl")
 
 
+def signal_message(step: dict) -> str:
+    code = step["strategy_code"]
+    name = step.get("strategy_name") or code
+    previous = step.get("signal_previous_position", step.get("previous_position", 0))
+    new = step["new_position"]
+    actions = {
+        (0, 1): "多單進場", (0, -1): "空單進場",
+        (1, 0): "多單出場", (-1, 0): "空單出場",
+        (1, -1): "多單出場 → 空單進場", (-1, 1): "空單出場 → 多單進場",
+    }
+    action = actions.get((previous, new), "部位不變")
+    return (f"來源策略：{name} ({code})\n"
+            f"訊號動作：{action}（{previous} → {new}）")
+
+
 class Monitor:
     def __init__(self, *, root=BASE, live=False, source=None, executor=None,
                  notify=None, clock=now_local, calendar_path=None, flat_checker=None):
@@ -68,6 +83,12 @@ class Monitor:
             raise ValueError("偵測到舊避險狀態；請先核對並平掉永豐2舊部位，再封存 runtime 狀態後啟動新策略")
         self.state["mode"] = self.mode
         self.state["strategy"] = "pure_ef_morning_flat_v1"
+        # Preserve the completed daily reset when upgrading the schedule mid-session.
+        # A different clock on the same cycle must not erase today's positions.
+        for field in ("last_reset_cycle", "flat_cycle"):
+            value = self.state.get(field)
+            if isinstance(value, str) and "T04:59:00" in value:
+                self.state[field] = value.replace("T04:59:00", "T01:00:00")
         started = self.clock()
         calendar = Calendar.load(self.calendar_path)
         closure = latest_closure(calendar, started)
@@ -98,7 +119,7 @@ class Monitor:
         self.state.setdefault("session_flat", False)
         # Starting/restarting is never a catch-up or liquidation trigger.
         self.state["flat_cycle"] = closure.start.isoformat() if closure else "initial"
-        if day_time(4, 59) <= started.time() < day_time(5):
+        if day_time(1, 0) <= started.time() < day_time(5):
             self.state["flat_cycle"] = None
         self.persist()
         self.source = source or self.read_source
@@ -130,7 +151,7 @@ class Monitor:
     def alert(self, message: str):
         if message != self.last_alert:
             self.event("alert", message=message)
-            self.notify(f"[純 EF 04:59 清倉/{self.mode}] {message}")
+            self.notify(f"[純 EF 01:00 清倉/{self.mode}] {message}")
             self.last_alert = message
 
     def read_source(self, now: datetime) -> dict:
@@ -214,7 +235,7 @@ class Monitor:
         if key.endswith("/flat"):
             self.state["last_flat_attempt"] = key
         self.persist()
-        label = "04:59清倉" if delta is None else f"{'買' if delta > 0 else '賣'} {abs(delta)} 口"
+        label = "01:00清倉" if delta is None else f"{'買' if delta > 0 else '賣'} {abs(delta)} 口"
         def record(event, **data):
             append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
                          clock=self.clock, attempt_id=attempt["id"], event=event,
@@ -239,8 +260,9 @@ class Monitor:
                          "不自動重送，08:45後新訊號不因本次清倉失敗暫停。"
             record("failed_no_retry", detail=detail)
         self.persist()
-        self.event(attempt["status"], key=key, detail=detail)
-        self.notify(f"【永豐2｜單次委託】{label}\n{detail}\n觸發：{key}")
+        self.event(attempt["status"], key=key, detail=detail, signal=step)
+        source_text = signal_message(step) + "\n" if step is not None else ""
+        self.notify(f"【永豐2｜單次委託】{label}\n{source_text}{detail}\n觸發：{key}")
         return True
 
     def tick(self, now: datetime | None = None):
@@ -293,7 +315,7 @@ class Monitor:
         # collapse a burst of entries/exits into its final net position.
         for step in steps:
             deadline = self.session_deadline(now)
-            if deadline.time() == day_time(4, 59, 40):
+            if deadline.time() == day_time(1, 0, 40):
                 deadline = deadline.replace(second=0)
             if self.clock() >= deadline:
                 return
@@ -308,8 +330,8 @@ class Monitor:
                 self.event("signal_position_limit", signal=step["last_signal"],
                            strategy_code=step["strategy_code"], delta=delta,
                            projected_position=projected, max_position=MAX_POSITION)
-                self.notify(f"【永豐2｜收到EF訊號・超過5口上限】{step['strategy_code']}\n"
-                            f"預計淨部位 {projected:+d} 口，允許 -5～+5 口。\n"
+                self.notify(f"【永豐2｜收到EF訊號・超過{MAX_POSITION}口上限】\n{signal_message(step)}\n"
+                            f"預計淨部位 {projected:+d} 口，允許 -{MAX_POSITION}～+{MAX_POSITION} 口。\n"
                             f"本筆只通知、不送單，JSON部位保留 {step['previous_position']}，不補單。\n"
                             f"訊號：{step['last_signal']}")
                 continue
@@ -319,7 +341,7 @@ class Monitor:
                     return
             else:
                 self.event("signal_no_change", signal=step["last_signal"], strategy_code=step["strategy_code"])
-                self.notify(f"【永豐2｜收到EF訊號・無需下單】{step['strategy_code']}\n"
+                self.notify(f"【永豐2｜收到EF訊號・無需下單】\n{signal_message(step)}\n"
                             f"JSON部位 {step['previous_position']} → {step['new_position']}，差額0口\n"
                             f"訊號：{step['last_signal']}")
             self.state["source"] = step
@@ -345,17 +367,17 @@ class Monitor:
             code = step["strategy_code"]
             self.event("signal_blocked", signal=signal, strategy_code=code,
                        new_position=step["new_position"], reason=reason)
-            self.notify(f"【永豐2｜收到EF訊號・暫停下單】{code}\n"
+            self.notify(f"【永豐2｜收到EF訊號・暫停下單】\n{signal_message(step)}\n"
                         f"訊號目標部位：{step['new_position']}；JSON保留：{self.state['positions'][code]}\n"
                         f"原因：{reason}\n本筆未送單，不補單。\n訊號：{signal}")
 
     @staticmethod
     def session_deadline(now: datetime) -> datetime:
         if now.time() < day_time(5):
-            return datetime.combine(now.date(), day_time(4, 59, 40))
+            return datetime.combine(now.date(), day_time(1, 0, 40))
         if now.time() < day_time(13, 45):
             return datetime.combine(now.date(), day_time(13, 44, 40))
-        return datetime.combine(now.date() + timedelta(days=1), day_time(4, 59, 40))
+        return datetime.combine(now.date() + timedelta(days=1), day_time(1, 0, 40))
 
 
 def main():
@@ -370,14 +392,14 @@ def main():
     with FileLock(str(BASE / "runtime/monitor.lock"), timeout=0):
         monitor = Monitor(live=live, notify=Notifications())
         startup_message = (
-            "✅【開始監控｜永豐2 純EF＋04:59清倉】\n"
+            "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
             "版本：json-positions-v5；12策略以JSON部位為準，重啟延續、不補舊單。\n"
-            "新訊號JSON淨部位上限5口（多空皆適用）；超過只通知，04:59清倉不受上限限制。\n"
+            f"新訊號JSON淨部位上限{MAX_POSITION}口（多空皆適用）；超過只通知，01:00清倉不受上限限制。\n"
             "05:05確認空手；未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
-            "04:59清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
+            "01:00清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"
-            "新訊號只送一次，不回查成交、不重試；啟動不補單，04:59送一次清倉委託。"
+            "新訊號只送一次，不回查成交、不重試；啟動不補單，01:00送一次清倉委託。"
         )
         print(startup_message, flush=True)
         monitor.notify(startup_message)

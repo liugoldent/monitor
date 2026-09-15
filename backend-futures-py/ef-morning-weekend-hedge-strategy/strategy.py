@@ -58,13 +58,13 @@ class Calendar:
         return self.trading_day(day) and day not in self.no_night
 
     def closure(self, day: date, weekday_cap: int = 2, holiday_cap: int = 1) -> Closure | None:
-        # The 04:59 session belongs to the previous civil day's afternoon.
+        # The 01:00 session belongs to the previous civil day's afternoon.
         if not self.night(day - timedelta(days=1)):
             return None
         reopen = day
         while not self.trading_day(reopen):
             reopen += timedelta(days=1)
-        return Closure(datetime.combine(day, time(4, 59)),
+        return Closure(datetime.combine(day, time(1, 0)),
                        datetime.combine(reopen, time(8, 45)),
                        weekday_cap if reopen == day else holiday_cap)
 
@@ -158,17 +158,18 @@ def pure_position(path: Path, now: datetime, since: datetime, calendar: Calendar
                     continue
             elif boot is not None and stamp <= boot:
                 continue
-            if not calendar.is_open(stamp) or time(4, 59) <= stamp.time() < time(8, 45):
+            if not calendar.is_open(stamp) or time(1, 0) <= stamp.time() < time(8, 45):
                 continue
             new = integer(row["new_position"])
             if new not in {-1, 0, 1}:
                 raise ValueError(f"{code} 訊號部位超出 -1/0/1")
-            events.append((stamp, index, code, new, integer(row.get("previous_position") or 0)))
+            events.append((stamp, index, code, new, integer(row.get("previous_position") or 0),
+                           (row.get("strategy_name") or "").strip()))
     positions = dict.fromkeys(STRATEGIES, 0)
     events.sort()
     steps = []
     seen = set()
-    for stamp, index, code, new, reported_previous in events:
+    for stamp, index, code, new, reported_previous, name in events:
         if initial_from_signal and code not in seen:
             if reported_previous not in {-1, 0, 1}:
                 raise ValueError(f"{code} 訊號部位超出 -1/0/1")
@@ -179,7 +180,8 @@ def pure_position(path: Path, now: datetime, since: datetime, calendar: Calendar
         steps.append({"net_position": sum(positions.values()) * unit,
                       "positions": positions.copy(), "source": "pure_ef_new_signals",
                       "unit": unit, "last_signal": f"{stamp.isoformat()}/{index}",
-                      "strategy_code": code, "previous_position": previous,
+                      "strategy_code": code, "strategy_name": name,
+                      "signal_previous_position": reported_previous, "previous_position": previous,
                       "new_position": new})
     return {"steps": steps, "net_position": sum(positions.values()) * unit, "positions": positions,
             "source": "pure_ef_new_signals", "unit": unit,

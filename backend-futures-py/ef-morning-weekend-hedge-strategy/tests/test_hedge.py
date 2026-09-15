@@ -12,12 +12,23 @@ from unittest.mock import Mock, patch
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
 from strategy import Calendar, STRATEGIES, hedge_target, signal_position, snapshot_position, pure_position
-from monitor_and_trade import Monitor, webhook_url
+from monitor_and_trade import Monitor, webhook_url, signal_message
 import auto_trade
 from backtest import run
 
 
 class StrategyTests(unittest.TestCase):
+    def test_signal_description_covers_entries_exits_and_reversals(self):
+        for previous, new, action in ((0, 1, "多單進場"), (0, -1, "空單進場"),
+                                      (1, 0, "多單出場"), (-1, 0, "空單出場"),
+                                      (1, -1, "多單出場 → 空單進場"),
+                                      (-1, 1, "空單出場 → 多單進場")):
+            message = signal_message({"strategy_code": "CFC07m", "strategy_name": "測試策略",
+                                      "signal_previous_position": previous,
+                                      "previous_position": 0, "new_position": new})
+            self.assertIn("測試策略 (CFC07m)", message)
+            self.assertIn(action, message)
+
     def setUp(self):
         self.calendar = Calendar.load(BASE / "config/calendar.json")
 
@@ -51,7 +62,7 @@ class StrategyTests(unittest.TestCase):
         closure = self.calendar.closure(date(2026, 9, 25))
         self.assertEqual(closure.reopen, datetime(2026, 9, 29, 8, 45))
         self.assertEqual(closure.cap, 1)
-        self.assertTrue(self.calendar.is_open(datetime(2026, 9, 25, 4, 59)))
+        self.assertTrue(self.calendar.is_open(datetime(2026, 9, 25, 1, 0)))
         self.assertFalse(self.calendar.is_open(datetime(2026, 9, 25, 8, 45)))
         self.assertIsNone(self.calendar.closure(date(2026, 9, 26)))
         self.assertEqual(self.calendar.closure(date(2026, 2, 12)).reopen,
@@ -91,6 +102,18 @@ class SourceTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_schedule_upgrade_keeps_current_session_positions(self):
+        m = self.monitor()
+        m.state["last_reset_cycle"] = "2026-09-12T04:59:00"
+        m.state["positions"]["CFC07m"] = 1
+        m.persist()
+        restarted = self.monitor()
+        restarted.flat_checker = Mock(side_effect=AssertionError("must not reset"))
+        restarted.tick()
+        self.assertEqual(restarted.state["positions"]["CFC07m"], 1)
+        self.assertEqual(restarted.state["last_reset_cycle"], "2026-09-12T01:00:00")
+        self.execute.assert_not_called()
+
     def test_position_limit_both_directions_and_flat_bypasses_limit(self):
         m = self.monitor()
         notices = []
@@ -98,36 +121,36 @@ class MonitorTests(unittest.TestCase):
         codes = list(STRATEGIES)
         for direction in (1, -1):
             m.state["positions"] = dict.fromkeys(STRATEGIES, 0)
-            for code in codes[:4]:
+            for code in codes[:1]:
                 m.state["positions"][code] = direction
-            self.actual = 4 * direction
+            self.actual = 1 * direction
             self.orders.clear()
             self.now += timedelta(seconds=1)
-            self.signal(0, direction, codes[4])
+            self.signal(0, direction, codes[1])
             m.tick()
             self.assertEqual(self.orders, [direction])
-            self.assertEqual(self.actual, 5 * direction)
+            self.assertEqual(self.actual, 2 * direction)
             self.now += timedelta(seconds=1)
-            self.signal(0, direction, codes[5])
+            self.signal(0, direction, codes[2])
             m.tick()
             m.tick()
             self.assertEqual(self.orders, [direction])
-            self.assertEqual(m.state["positions"][codes[5]], 0)
-            self.assertIn("超過5口上限", notices[-1])
+            self.assertEqual(m.state["positions"][codes[2]], 0)
+            self.assertIn("超過2口上限", notices[-1])
             self.now += timedelta(seconds=1)
-            self.signal(direction, 0, codes[5])
+            self.signal(direction, 0, codes[2])
             m.tick()
             self.assertEqual(self.orders, [direction])
             self.now += timedelta(seconds=1)
-            self.signal(direction, 0, codes[4])
+            self.signal(direction, 0, codes[1])
             m.tick()
             self.assertEqual(self.orders, [direction, -direction])
         self.actual = 8
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         m.tick()
         self.assertEqual(self.orders[-1], -8)
         self.assertEqual(self.actual, 0)
-        self.assertIn("04:59清倉", notices[-1])
+        self.assertIn("01:00清倉", notices[-1])
 
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
@@ -220,6 +243,18 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.execute.assert_not_called()
         self.assertEqual(self.actual, 1)
+
+    def test_order_notification_identifies_source_entry_and_exit(self):
+        m = self.monitor()
+        m.notify = Mock()
+        for previous, new, action in ((0, 1, "多單進場"), (1, 0, "多單出場")):
+            self.signal(previous, new)
+            m.tick()
+            message = m.notify.call_args.args[0]
+            self.assertIn("CFC07m", message)
+            self.assertIn(action, message)
+            self.assertIn("已送出", message)
+        self.assertEqual(self.orders, [1, -1])
 
     def test_new_signal_in_startup_second_is_not_lost(self):
         self.now = self.now.replace(microsecond=100000)
@@ -378,7 +413,7 @@ class MonitorTests(unittest.TestCase):
         m = self.monitor()
         m.state["positions"]["CFC07m"] = 1
         m.persist()
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         m.tick()
         self.assertEqual(m.state["positions"]["CFC07m"], 1)
         self.now = datetime(2026, 9, 15, 5, 4, 59)
@@ -424,7 +459,7 @@ class MonitorTests(unittest.TestCase):
         m = self.monitor()
         m.notify = Mock()
         m.state["positions"]["CFC07m"] = 1
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         self.execute.side_effect = TimeoutError("unknown")
         m.tick()
         self.assertTrue(any("手動清倉" in c.args[0] for c in m.notify.call_args_list))
@@ -442,7 +477,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_interrupted_flat_restart_does_not_lock_next_open(self):
         m = self.monitor()
-        m.state["attempt"] = {"key": "2026-09-15T04:59:00/flat", "status": "attempted"}
+        m.state["attempt"] = {"key": "2026-09-15T01:00:00/flat", "status": "attempted"}
         m.persist()
         self.now = datetime(2026, 9, 15, 8, 44)
         m = self.monitor()
@@ -510,10 +545,15 @@ class MonitorTests(unittest.TestCase):
     def test_flat_on_clock_then_reopen_only_new_signals(self):
         m = self.monitor()
         self.actual = 4
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         with patch.object(m, "source", side_effect=AssertionError("flat cannot read CSV")):
             m.tick()
         self.assertEqual(self.orders, [-4])
+        for hour, minute in ((1, 0), (2, 0), (4, 59), (5, 0), (8, 44)):
+            self.now = datetime(2026, 9, 15, hour, minute, 10)
+            self.signal(0, 1, "CFCTX18m")
+            m.tick()
+            self.assertEqual(self.orders, [-4])
         self.now = datetime(2026, 9, 15, 8, 45)
         m.tick()
         self.assertEqual(self.orders, [-4])
@@ -527,24 +567,24 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [-4, 1])
 
     def test_start_at_flat_time_liquidates(self):
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         self.monitor().tick()
         self.assertEqual(self.orders, [-1])
 
     def test_flat_overrides_failed_entry_wait(self):
         m = self.monitor()
-        self.now = datetime(2026, 9, 15, 4, 58, 59)
+        self.now = datetime(2026, 9, 15, 0, 59, 59)
         self.signal(0, 1)
         self.fail_after_fill = True
         m.tick()
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         m.tick()
         self.assertEqual(self.actual, 0)
         self.assertEqual(self.orders, [1, -2])
 
     def test_failed_flat_is_not_retried(self):
         m = self.monitor()
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         self.fail_after_fill = True
         m.tick()
         self.now += timedelta(seconds=10)
@@ -554,7 +594,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_flat_restart_in_same_minute_does_not_resubmit(self):
         m = self.monitor()
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         self.fail_after_fill = True
         m.tick()
         self.now += timedelta(seconds=5)
@@ -575,12 +615,12 @@ class MonitorTests(unittest.TestCase):
 
     def test_batch_does_not_cross_flat_boundary(self):
         m = self.monitor()
-        self.now = datetime(2026, 9, 15, 4, 58, 59)
+        self.now = datetime(2026, 9, 15, 0, 59, 59)
         for code in ("CFC07m", "CFCTX16m"):
             self.signal(0, 1, code)
         def slow(*args, **kwargs):
             result = self.broker(*args, **kwargs)
-            self.now = datetime(2026, 9, 15, 4, 59)
+            self.now = datetime(2026, 9, 15, 1, 0)
             return result
         self.execute.side_effect = slow
         m.tick()
@@ -592,7 +632,7 @@ class MonitorTests(unittest.TestCase):
 
 class BrokerTests(unittest.TestCase):
     def setUp(self):
-        self.now = datetime(2026, 9, 15, 4, 59)
+        self.now = datetime(2026, 9, 15, 1, 0)
         self.contract = NS(code="TMFI6")
         self.api = Mock()
         self.api.Contracts = NS(Futures=NS(TMF=NS(TMFR1=self.contract)))
@@ -710,14 +750,14 @@ class BacktestTests(unittest.TestCase):
                 "2026-09-15 08:46:00,CFCTX18m,-1\n")
             prices.write_text("Symbol,TradingView Time,Record Time,Open\n"
                 "MXF1!,2026-09-14 23:01:00,2026-09-14 23:02:00,10000\n"
-                "MXF1!,2026-09-15 04:59:00,2026-09-15 05:00:00,10100\n"
+                "MXF1!,2026-09-15 01:00:00,2026-09-15 05:00:00,10100\n"
                 "MXF1!,2026-09-15 08:47:00,2026-09-15 08:48:00,10200\n")
             args = (signals, prices, Calendar.load(BASE / "config/calendar.json"),
                     datetime(2026, 9, 14, 22), datetime(2026, 9, 15, 9))
             result = run(*args)
             self.assertEqual([row["target"] for row in result["ledger"]], [1, 0, -1])
             self.assertEqual(result["net_twd"], 940)
-            prices.write_text(prices.read_text().replace("04:59:00", "04:58:00"))
+            prices.write_text(prices.read_text().replace("01:00:00", "00:59:00"))
             with self.assertRaisesRegex(ValueError, "缺少精確"):
                 run(*args)
 

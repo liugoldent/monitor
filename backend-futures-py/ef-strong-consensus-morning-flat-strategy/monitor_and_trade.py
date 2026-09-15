@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from filelock import FileLock, Timeout
 
-from auto_trade import execute_target_position
+from auto_trade import execute_target_position, BrokerOrderError
 from strategy import (
     ALL_STRATEGIES,
     ConsensusDecision,
@@ -259,7 +259,7 @@ def release_order_lock(state: dict) -> bool:
     if attempt.get("status") not in {"pending", "failed"}:
         return True
     state["last_unconfirmed_attempt"] = attempt.copy()
-    if attempt.get("key", "").startswith("04:59_live_clock_flat"):
+    if attempt.get("key", "").startswith("01:00_live_clock_flat"):
         state["manual_flat_required"] = attempt.copy()
     attempt["status"] = "failed_no_retry" if attempt["status"] == "failed" else "interrupted_no_retry"
     return save_json_atomic(STATE_PATH, state) is not False
@@ -275,6 +275,10 @@ def execute_live_target(
     if not env_flag(ENABLE_ORDERS_ENV):
         return "影子模式，未送實單"
 
+    current_time = now_local()
+    if target and signal_is_in_morning_block(current_time, current_time):
+        return "01:00～08:45禁止進場，本筆未送單，等待開盤後新訊號"
+
     broker_target = scaled_target(target)
     attempt_id = uuid.uuid4().hex
 
@@ -283,7 +287,7 @@ def execute_live_target(
     if trigger == "startup_reconcile":
         return "啟動不補單，等待新EF訊號；過往送單失敗不鎖定新單"
     order_key = (f"{trigger}/{now_local():%Y-%m-%d}"
-                 if trigger == "04:59_live_clock_flat" else trigger)
+                 if trigger == "01:00_live_clock_flat" else trigger)
     # Deduplicate the event, not its target: a NEW event may have the same target.
     if state.get("attempt", {}).get("key") == order_key:
         append_order_event(
@@ -298,26 +302,34 @@ def execute_live_target(
     state["last_order_attempt_target"] = broker_target
     state["last_order_attempt_at"] = attempted_at
     state["last_order_trigger"] = trigger
+    def persist_guard():
+        if save_json_atomic(STATE_PATH, state) is False:
+            raise OSError("無法保存券商委託追蹤狀態")
     try:
         result = perform_order(
             state, key=order_key, target=broker_target,
             persist=lambda: save_json_atomic(STATE_PATH, state),
-            execute=lambda: execute_target_position(broker_target),
+            execute=lambda: execute_target_position(
+                broker_target, guard=state.setdefault("broker_reconciliation", {}),
+                persist_guard=persist_guard),
             record=lambda **row: append_order(ORDER_ATTEMPT_PATH, clock=now_local, **row),
             clock=now_local,
         )
     except Exception as exc:
         state["last_order_error_target"] = target
         state["last_order_error_at"] = attempted_at
-        state["last_order_error"] = type(exc).__name__
+        error = str(exc) if isinstance(exc, BrokerOrderError) else type(exc).__name__
+        state["last_order_error"] = error
         release_order_lock(state)
         save_json_atomic(STATE_PATH, state)
-        if trigger == "04:59_live_clock_flat":
+        if trigger == "01:00_live_clock_flat":
             return f"🚨 清倉失敗或結果未確認：{type(exc).__name__}；請早上核對永豐庫存並手動清倉。" \
                    "不自動重送；08:45後新訊號不因本次清倉失敗鎖定。"
-        return f"❌ 下單失敗或結果未確認：{type(exc).__name__}；本筆不自動重送，不鎖單，繼續等新EF訊號"
+        return f"❌ 下單失敗或結果未確認：{error}；實際部位未確認；本筆不自動重送，下一筆先核對未確認委託與庫存"
     state["last_executed_target"] = broker_target
     state["last_executed_at"] = text_time(now_local())
+    state["last_confirmed_broker_position"] = result.actual_position
+    state["last_confirmed_broker_at"] = state["last_executed_at"]
     for field in ("last_order_error_target", "last_order_error_at", "last_order_error"):
         state.pop(field, None)
     save_json_atomic(STATE_PATH, state)
@@ -337,7 +349,7 @@ def write_position(state: dict, reason: str) -> None:
             ),
             "position_unit": position_unit(),
             "broker_target_position": scaled_target(target),
-            "rule": "E/F each net >=2; one contract; 04:59 flatten; wait for new signal",
+            "rule": "E/F each net >=2; one contract; 01:00 flatten; wait for new signal",
             "e_net": e_net,
             "f_net": f_net,
             "raw_consensus_target": target,
@@ -399,9 +411,9 @@ def decision_message(decision: ConsensusDecision, live_result: str) -> str:
         else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
     return (
-        "🚨【策略訊號｜EF強共識＋04:59清倉】\n"
+        "🚨【策略訊號｜EF強共識＋01:00清倉】\n"
         f"訊號時間：{text_time(decision.event.timestamp)}\n"
-        f"收到訊號後【最終口數】：{position_text(target_final)}\n"
+        f"策略目標部位：{position_text(target_final)}\n"
         f"模擬成交：{text_time(decision.execution_time)} @ {decision.execution_price:g}\n"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
         f"({decision.event.strategy_code})\n"
@@ -424,10 +436,9 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         if decision.previous_position == decision.target_position
         else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
-    return execution_message("EF強共識＋04:59清倉", "live", str(decision.event.timestamp),
+    return execution_message("EF強共識＋01:00清倉", "live", str(decision.event.timestamp),
                              target_final, live_result, clock=now_local) + "\n" + (
         f"收到時間：{text_time(decision.event.timestamp)}\n"
-        f"收到訊號後【最終口數】：{position_text(target_final)}\n"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
         f"({decision.event.strategy_code})\n"
         f"原訊號：{decision.event.previous_position} → {decision.event.new_position}\n"
@@ -436,8 +447,7 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         f"F明細：{position_breakdown(getattr(decision, 'f_positions', ()), PORTFOLIO_F, decision.f_net)}\n"
         f"組合目標：{action}\n"
         f"原因：{decision.reason}\n"
-        f"執行：{live_result}\n"
-        "影子績效會在下一分鐘Open可用後另行補記。"
+        f"執行：{live_result}"
     )
 
 
@@ -511,7 +521,7 @@ def process_live_rows(
 
 
 def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
-    boundary = current_time.replace(hour=4, minute=59, second=0, microsecond=0)
+    boundary = current_time.replace(hour=1, minute=0, second=0, microsecond=0)
     reopen = current_time.replace(hour=8, minute=45, second=0, microsecond=0)
     if not boundary <= current_time < reopen:
         return False
@@ -530,12 +540,12 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
         result = execute_live_target(
             state,
             0,
-            trigger="04:59_live_clock_flat",
+            trigger="01:00_live_clock_flat",
             force_reconcile=True,
         )
         mode = "live_api_key"
     else:
-        result = "Discord／影子模式：已記錄04:59目標空手，未連線永豐、未送委託"
+        result = "Discord／影子模式：已記錄01:00目標空手，未連線永豐、未送委託"
         mode = "shadow_only"
     completed_at = max(now_local(), triggered_at)
     started_ok = triggered_at < deadline
@@ -558,12 +568,12 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
         "result": result,
     })
     deadline_text = (
-        "✅ 04:59:30前已完成下單／對帳流程"
+        "✅ 01:00:30前已完成下單／對帳流程"
         if completed_ok
-        else "🚨 已超過04:59:30完成期限，請立即人工核對"
+        else "🚨 已超過01:00:30完成期限，請立即人工核對"
     )
     message = (
-        "🌅【04:59時鐘清倉｜EF強共識】\n"
+        "🌅【01:00時鐘清倉｜EF強共識】\n"
         f"排程時間：{text_time(boundary)}\n"
         f"實際觸發：{text_time(triggered_at)}（延遲{trigger_delay:.3f}秒）\n"
         f"流程完成：{text_time(completed_at)}\n"
@@ -594,11 +604,11 @@ def apply_flatten_bar(
         target=0,
         price=boundary.open,
         timestamp=boundary.bar_time,
-        trigger="04:59_morning_flat",
+        trigger="01:00_morning_flat",
         persist=persist,
     )
     state["last_flat_time"] = text_time(boundary.bar_time)
-    reason = "04:59清空強共識組合部位；08:45不自動恢復，等待新EF訊號"
+    reason = "01:00清空強共識組合部位；08:45不自動恢復，等待新EF訊號"
     if persist:
         append_csv(
             DECISION_PATH,
@@ -616,16 +626,16 @@ def apply_flatten_bar(
             },
         )
         write_position(state, reason)
-    if notify:
+    if notify and not env_flag(ENABLE_ORDERS_ENV):
         live_result = (
-            "實單已由04:59時鐘排程獨立處理"
+            "實單已由01:00時鐘排程獨立處理"
             if env_flag(ENABLE_ORDERS_ENV)
             else "影子模式，未送實單"
         )
         message = (
-            "🌅【04:59清倉｜EF強共識】\n"
+            "🌅【01:00清倉｜EF強共識】\n"
             f"時間：{text_time(boundary.bar_time)}\n"
-            "收到訊號後【最終口數】：空手\n"
+            "策略目標部位：空手\n"
             f"模擬成交價：{boundary.open:g}\n"
             f"組合部位：{position_text(scaled_target(previous))} → 空手\n"
             "08:45不自動恢復，等待新的E/F訊號。\n"
@@ -749,9 +759,10 @@ def process_new_rows(
             if env_flag(ENABLE_ORDERS_ENV)
             else "影子模式，未送實單"
         )
-        message = decision_message(decision, live_result)
-        print(message)
-        send_discord(message)
+        if not env_flag(ENABLE_ORDERS_ENV):
+            message = decision_message(decision, live_result)
+            print(message)
+            send_discord(message)
     apply_due_flatten(state, bars, cutoff)
     state["raw_positions"] = raw_positions
     if json.dumps(state, ensure_ascii=False, sort_keys=True) != state_before:
@@ -763,6 +774,8 @@ def main() -> None:
     parser.add_argument("--retry-failed", action="store_true", help="相容舊版：清理委託狀態；目前失敗不鎖單，不需此參數")
     args = parser.parse_args()
     load_env_file(ENV_PATH)
+    # Production entry point is always live, including with a legacy false .env.
+    os.environ[ENABLE_ORDERS_ENV] = "true"
     poll_seconds = max(
         0.5, float(os.getenv("EF_STRONG_MORNING_FLAT_POLL_SECONDS", "2"))
     )
@@ -774,7 +787,7 @@ def main() -> None:
     try:
         lock.acquire(timeout=0)
     except Timeout as exc:
-        raise RuntimeError("EF強共識＋04:59清倉 Shadow已有另一個實例執行中") from exc
+        raise RuntimeError("EF強共識＋01:00清倉已有另一個實例執行中") from exc
 
     try:
         rows = load_signal_rows(SOURCE_PATH)
@@ -813,13 +826,13 @@ def main() -> None:
                 trigger="startup_reconcile",
             )
         startup_message = (
-            "✅【開始監控｜EF強共識＋04:59清倉】\n"
+            "✅【開始監控｜EF強共識＋01:00清倉】\n"
             f"時間：{text_time(now_local())}\n"
-            f"收到訊號後【最終口數】：{position_text(scaled_target(startup_base_target))}\n"
+            f"策略目標部位：{position_text(scaled_target(startup_base_target))}\n"
             f"規則：E/F兩組淨部位皆至少{threshold}票同向才成立；U={unit}。\n"
-            "04:59清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
-            "新訊號各處理一次；失敗通知、不重送、不鎖單；啟動不補單。\n"
-            "成交：received_at後嚴格下一根1分K開盤價。\n"
+            "01:00清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
+            "新訊號逐筆核對；前筆委託未確認時先查證，無法確認不送單；啟動不補單。\n"
+            "執行：收到新訊號立即查實際庫存並送差額委託，結果以券商回報為準。\n"
             f"模式：{'API_KEY永豐實單' if env_flag(ENABLE_ORDERS_ENV) else '影子模式'}。"
         )
         if startup_result:
@@ -829,7 +842,7 @@ def main() -> None:
 
         while True:
             # Check the hard clock boundary before file I/O and signal processing.
-            # With the default two-second poll this normally starts by 04:59:02.
+            # With the default two-second poll this normally starts by 01:00:02.
             apply_live_clock_flatten(state, now_local())
             cutoff = now_local()
             rows = load_signal_rows(SOURCE_PATH)

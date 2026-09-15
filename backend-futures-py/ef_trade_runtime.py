@@ -89,7 +89,7 @@ def result_text(result):
 
 def execution_message(label, mode, trigger, target, detail, *, clock=now_local):
     return (f"🚨【委託結果｜{label}】\n時間：{clock():%Y-%m-%d %H:%M:%S}\n"
-            f"收到訊號後【最終口數】：{position_text(target)}\n"
+            f"策略目標部位：{position_text(target)}\n"
             f"模式：{mode}\n觸發：{trigger}\n執行：{detail}")
 
 
@@ -122,7 +122,7 @@ def perform_order(state, *, key, target, persist, execute, record, clock=now_loc
         attempt["status"] = "failed"
         attempt["error_type"] = type(exc).__name__
         persist()
-        event("failed", detail=type(exc).__name__)
+        event("failed", detail=str(exc) if type(exc).__name__ == "BrokerOrderError" else type(exc).__name__)
         raise
 
 

@@ -253,7 +253,7 @@ def max_consecutive_negative(values: list[float]) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Backtest EF strong consensus with 04:59 morning flatten"
+        description="Backtest EF strong consensus with 01:00 morning flatten"
     )
     parser.add_argument("--signals", type=Path, default=DEFAULT_SIGNALS)
     parser.add_argument("--prices", type=Path, default=DEFAULT_PRICES)

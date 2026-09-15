@@ -9,7 +9,7 @@ from typing import Mapping
 
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
-MORNING_FLAT_TIME = time(4, 59)
+MORNING_FLAT_TIME = time(1, 0)
 DAY_REOPEN_TIME = time(8, 45)
 PORTFOLIO_E = (
     "CFC07m",
@@ -170,7 +170,7 @@ def morning_boundaries(
 
     result: list[PriceBar] = []
     for _, session_bars in sorted(night_sessions.items()):
-        morning = [bar for bar in session_bars if bar.bar_time.time() < time(5, 0)]
+        morning = [bar for bar in session_bars if bar.bar_time.time() <= MORNING_FLAT_TIME]
         if not morning:
             continue
         source = morning[-1]
@@ -248,7 +248,7 @@ def evaluate_event(
     if signal_is_in_morning_block(event.timestamp, execution_bar.bar_time):
         target = 0
         relation = "morning_block"
-        reason = "04:59～08:45為早晨風控區間，不建立組合部位"
+        reason = "01:00～08:45為早晨風控區間，不建立組合部位"
     elif relation == "strong_bull":
         reason = f"E淨部位{e_net}、F淨部位{f_net}，兩組皆達多方門檻{threshold}"
     elif relation == "strong_bear":

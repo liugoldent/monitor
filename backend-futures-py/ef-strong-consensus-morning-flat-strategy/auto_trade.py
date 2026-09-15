@@ -1,4 +1,4 @@
-"""Verified Shioaji adapter for EF strong consensus + 04:59 morning flat.
+"""Verified Shioaji adapter for EF strong consensus + 01:00 morning flat.
 
 The order reconciliation implementation is shared by active TMF strategies.
 This strategy uses the primary API credential pair selected by the operator.
@@ -83,6 +83,8 @@ def execute_target_position(
     sj: Any = None,
     deadline: datetime | None = None,
     clock=now_local,
+    guard: dict | None = None,
+    persist_guard=None,
 ) -> OrderResult:
     """Reconcile API_KEY's real TMF position to the one-contract target."""
     unit = _position_unit()
@@ -93,9 +95,10 @@ def execute_target_position(
     deadline = deadline or order_deadline(clock(), target_position)
     def check_deadline():
         check_order_deadline(deadline, clock, BrokerOrderError)
+    tracking = {} if guard is None else {"guard": guard, "persist_guard": persist_guard}
     if api is not None:
         return _shared.execute_target_position(target_position, api=api, sj=sj,
-                                              before_order=check_deadline, strict_tmf=True)
+                                              before_order=check_deadline, strict_tmf=True, **tracking)
     if sj is None:
         try:
             import shioaji as sj  # type: ignore[no-redef]
@@ -105,7 +108,7 @@ def execute_target_position(
     api = _login(sj)
     try:
         return _shared.execute_target_position(target_position, api=api, sj=sj,
-                                              before_order=check_deadline, strict_tmf=True)
+                                              before_order=check_deadline, strict_tmf=True, **tracking)
     finally:
         try:
             api.logout()

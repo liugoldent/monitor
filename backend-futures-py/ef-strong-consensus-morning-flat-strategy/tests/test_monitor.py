@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, ANY
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -34,6 +34,55 @@ from strategy import ALL_STRATEGIES, PORTFOLIO_E, PORTFOLIO_F, PriceBar  # noqa:
 
 
 class PortfolioTradeTests(unittest.TestCase):
+    def test_main_forces_live_even_with_legacy_disabled_setting(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "false"}
+        ), patch.object(sys, "argv", ["monitor_and_trade.py"]), patch.object(
+            monitor, "load_env_file"
+        ), patch.object(monitor, "RUNTIME_DIR", Path(directory)), patch.object(
+            monitor, "LOCK_PATH", Path(directory) / "monitor.lock"
+        ), patch.object(monitor, "load_signal_rows", side_effect=RuntimeError("test stop")):
+            with self.assertRaisesRegex(RuntimeError, "test stop"):
+                monitor.main()
+            self.assertTrue(monitor.env_flag(monitor.ENABLE_ORDERS_ENV))
+
+    def test_live_bookkeeping_does_not_send_shadow_notifications(self):
+        state = {"position": 0, "source_row_count": 0,
+                 "raw_positions": dict.fromkeys(ALL_STRATEGIES, 0)}
+        rows = [{"received_at": "2026-09-15 09:00:15", "strategy_code": PORTFOLIO_E[0],
+                 "previous_position": "0", "new_position": "1"}]
+        bar = PriceBar(datetime(2026, 9, 15, 9, 1), datetime(2026, 9, 15, 9, 1), 100, 100)
+        with patch.dict(monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}), patch.object(
+            monitor, "send_discord"
+        ) as notify, patch.object(monitor, "append_csv"), patch.object(
+            monitor, "save_json_atomic"
+        ), patch.object(monitor, "write_position"), patch.object(monitor, "execute_target_position") as broker:
+            monitor.process_new_rows(state, rows, [bar], bar.record_time, 2)
+            monitor.apply_flatten_bar(state, PriceBar(datetime(2026, 9, 16, 1),
+                                                     datetime(2026, 9, 16, 1), 100, 100))
+        self.assertEqual(state["source_row_count"], 1)
+        notify.assert_not_called()
+        broker.assert_not_called()
+
+    def test_wall_clock_blocks_delayed_entry_until_reopen(self):
+        state = {}
+        with patch.object(monitor, "env_flag", return_value=True), patch.object(
+            monitor, "execute_target_position"
+        ) as broker:
+            for hour, minute in ((1, 0), (2, 0), (4, 59), (5, 0), (8, 44)):
+                with patch.object(monitor, "now_local", return_value=datetime(2026, 9, 15, hour, minute)):
+                    result = monitor.execute_live_target(state, 1, trigger="delayed_signal")
+                    self.assertIn("禁止進場", result)
+            broker.assert_not_called()
+
+    def test_flat_bar_uses_0100_even_when_later_night_bars_exist(self):
+        bars = [PriceBar(datetime(2026, 9, 15, h, m), datetime(2026, 9, 15, h, m), p, p)
+                for h, m, p in ((0, 59, 100), (1, 0, 101), (4, 59, 200))]
+        boundaries = monitor.morning_boundaries(bars)
+        self.assertEqual(len(boundaries), 1)
+        self.assertEqual(boundaries[0].bar_time, datetime(2026, 9, 15, 1))
+        self.assertEqual(boundaries[0].open, 101)
+
     def test_flatten_closes_one_portfolio_leg_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
             records = Path(directory)
@@ -44,7 +93,7 @@ class PortfolioTradeTests(unittest.TestCase):
                 "threshold": 2,
             }
             boundary = PriceBar(
-                datetime(2026, 8, 28, 4, 59),
+                datetime(2026, 8, 28, 1, 0),
                 datetime(2026, 8, 28, 5, 0),
                 45020,
                 45030,
@@ -94,15 +143,15 @@ class LiveOrderTests(unittest.TestCase):
             monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
         ), patch.object(monitor, "execute_target_position", side_effect=TimeoutError()) as execute:
             first = monitor.execute_live_target(state, 1, trigger="signal_1")
-            self.assertIn("不鎖單", first)
+            self.assertIn("下一筆先核對未確認委託與庫存", first)
             self.assertEqual(state["attempt"]["status"], "failed_no_retry")
             monitor.execute_live_target(state, 1, trigger="signal_1")
             self.assertEqual(execute.call_count, 1)
             monitor.execute_live_target(state, 1, trigger="signal_2")
             self.assertEqual(execute.call_count, 2)
-            monitor.execute_live_target(state, 0, trigger="04:59_live_clock_flat", force_reconcile=True)
+            monitor.execute_live_target(state, 0, trigger="01:00_live_clock_flat", force_reconcile=True)
             self.assertEqual(execute.call_count, 3)
-            monitor.execute_live_target(state, 0, trigger="04:59_live_clock_flat", force_reconcile=True)
+            monitor.execute_live_target(state, 0, trigger="01:00_live_clock_flat", force_reconcile=True)
             self.assertEqual(execute.call_count, 3)
 
     def test_restart_releases_legacy_failed_attempt_without_order(self):
@@ -125,7 +174,7 @@ class LiveOrderTests(unittest.TestCase):
         ), patch.object(monitor, "STATE_PATH", Path(directory) / "state.json"), patch.object(
             monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
         ), patch.object(monitor, "CLOCK_EVENT_PATH", Path(directory) / "clock.csv"), patch.object(
-            monitor, "now_local", return_value=datetime(2026, 9, 15, 4, 59, 2)
+            monitor, "now_local", return_value=datetime(2026, 9, 15, 1, 0, 2)
         ) as clock, patch.object(monitor, "execute_target_position", side_effect=TimeoutError()) as execute, patch.object(
             monitor, "send_discord"
         ) as notify, patch("builtins.print"):
@@ -144,8 +193,8 @@ class LiveOrderTests(unittest.TestCase):
             self.assertEqual(state["manual_flat_required"]["status"], "failed")
 
     def test_interrupted_flat_releases_duplicate_zero_target_after_reopen(self):
-        state = {"attempt": {"key": "04:59_live_clock_flat", "status": "pending",
-                             "at": "2026-09-15T04:59:00"}, "last_order_attempt_target": 0}
+        state = {"attempt": {"key": "01:00_live_clock_flat", "status": "pending",
+                             "at": "2026-09-15T01:00:00"}, "last_order_attempt_target": 0}
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}
         ), patch.object(monitor, "STATE_PATH", Path(directory) / "state.json"), patch.object(
@@ -157,7 +206,7 @@ class LiveOrderTests(unittest.TestCase):
             monitor.execute_live_target(state, 0, trigger="startup_reconcile")
             execute.assert_not_called()  # Restart must not replay the failed flat.
             monitor.execute_live_target(state, 0, trigger="immediate_ef_signal_row_2")
-            execute.assert_called_once_with(0)
+            execute.assert_called_once_with(0, guard=ANY, persist_guard=ANY)
             self.assertEqual(state["manual_flat_required"]["status"], "pending")
 
     def test_pending_attempt_allows_changed_target_and_forced_flat(self):
@@ -169,7 +218,7 @@ class LiveOrderTests(unittest.TestCase):
         ), patch.object(
             monitor, "execute_target_position"
         ) as execute:
-            for target, trigger in ((-1, "new_signal"), (0, "04:59_live_clock_flat")):
+            for target, trigger in ((-1, "new_signal"), (0, "01:00_live_clock_flat")):
                 execute.return_value = SimpleNamespace(actual_position=target, previous_position=1,
                                                         quantity=1-target, side="sell")
                 monitor.execute_live_target(state, target, trigger=trigger, force_reconcile=True)
@@ -229,7 +278,7 @@ class LiveOrderTests(unittest.TestCase):
         ) as execute:
             text = monitor.execute_live_target(state, 1, trigger="test")
 
-        execute.assert_called_once_with(2)
+        execute.assert_called_once_with(2, guard=ANY, persist_guard=ANY)
         self.assertEqual(state["last_executed_target"], 2)
         self.assertIn("已回查確認", text)
 
@@ -255,7 +304,7 @@ class LiveOrderTests(unittest.TestCase):
         ):
             message = monitor.immediate_live_message(decision, "ok")
         self.assertIn(
-            "收到時間：2026-08-28 09:01:15\n收到訊號後【最終口數】：空2口",
+            "策略目標部位：空2口",
             message,
         )
 
@@ -400,7 +449,7 @@ class LiveOrderTests(unittest.TestCase):
         self.assertEqual(state["live_target_position"], 1)
         self.assertEqual(state["live_source_row_count"], 1)
 
-    def test_0459_clock_flattens_without_waiting_for_bar_file(self):
+    def test_0100_clock_flattens_without_waiting_for_bar_file(self):
         state = {"live_target_position": 1}
         current = datetime(2026, 8, 28, 5, 0, 2)
         with tempfile.TemporaryDirectory() as directory, patch.dict(
@@ -419,15 +468,15 @@ class LiveOrderTests(unittest.TestCase):
         execute.assert_called_once_with(
             state,
             0,
-            trigger="04:59_live_clock_flat",
+            trigger="01:00_live_clock_flat",
             force_reconcile=True,
         )
         self.assertEqual(state["live_target_position"], 0)
-        self.assertEqual(state["last_live_flat_time"], "2026-08-28 04:59:00")
+        self.assertEqual(state["last_live_flat_time"], "2026-08-28 01:00:00")
 
-    def test_0459_shadow_mode_is_still_audited(self):
+    def test_0100_shadow_mode_is_still_audited(self):
         state = {"position": 1}
-        current = datetime(2026, 8, 28, 4, 59, 2)
+        current = datetime(2026, 8, 28, 1, 0, 2)
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             monitor.os.environ,
             {monitor.ENABLE_ORDERS_ENV: "false"},

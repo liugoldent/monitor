@@ -1,4 +1,4 @@
-"""Pure EF replay: next-minute Open for signals, exact 04:59 Open for flattening."""
+"""Pure EF replay: next-minute Open for signals, exact 01:00 Open for flattening."""
 import argparse
 import csv
 import json
@@ -32,7 +32,7 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             stamp = datetime.fromisoformat(row["received_at"])
             if not start < stamp < end or not calendar.is_open(stamp):
                 continue
-            if time(4, 59) <= stamp.time() < time(8, 45):
+            if time(1, 0) <= stamp.time() < time(8, 45):
                 continue
             target = integer(row["new_position"])
             if target not in {-1, 0, 1}:
@@ -71,7 +71,7 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
         raise ValueError("缺少期末評價 K 棒")
     mark = bars[max(marks)][1] if marks else 0
     return {"scope": "pure_ef_account2_morning_flat", "start_flat": True,
-            "price_proxy": "MXF1! next-minute Open; flat exact 04:59 Open; not TMF fills",
+            "price_proxy": "MXF1! next-minute Open; flat exact 01:00 Open; not TMF fills",
             "single_side_cost_points": cost, "source_unit": unit,
             "net_twd": (cash + position * mark) * 10,
             "ending_position": position, "ending_mark": mark, "ledger": ledger}

@@ -8,7 +8,6 @@ position.
 from __future__ import annotations
 
 import os
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,8 +16,7 @@ from typing import Any, Callable
 
 BACKEND_DIR = Path(__file__).resolve().parent
 ORDER_TIMEOUT_MS = 30_000
-ORDER_CALLBACK_TIMEOUT_SECONDS = 5
-POSITION_VERIFY_ATTEMPTS = 5
+POSITION_VERIFY_ATTEMPTS = 20
 POSITION_VERIFY_DELAY_SECONDS = 0.5
 
 
@@ -54,12 +52,12 @@ def _position_value(position: Any, name: str, default: Any = None) -> Any:
 
 
 def _position_quantity(position: Any) -> int:
-    value = _position_value(position, "quantity", 0)
+    value = _position_value(position, "quantity")
     try:
         quantity = int(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"無法辨識永豐部位口數: {value!r}") from exc
-    if quantity < 0:
+    if isinstance(value, bool) or str(value).strip() != str(quantity) or quantity < 0:
         raise ValueError(f"永豐部位口數不可為負數: {quantity}")
     return quantity
 
@@ -85,7 +83,20 @@ def _position_code(position: Any) -> str:
 
 def current_tmf_position(api: Any) -> int:
     """Return signed TMF net quantity, ignoring unrelated futures positions."""
-    positions = api.list_positions(api.futopt_account) or []
+    positions = _read_positions(api)
+    return _net_position(positions)
+
+
+def _read_positions(api: Any) -> list:
+    positions = api.list_positions(api.futopt_account)
+    if not isinstance(positions, list):
+        raise BrokerOrderError("庫存查詢未回傳有效清單，不能當成空手")
+    if any(not _position_code(p) for p in positions):
+        raise BrokerOrderError("庫存缺少合約代碼，無法確認 TMF 部位")
+    return positions
+
+
+def _net_position(positions: list) -> int:
     total = 0
     for position in positions:
         code = _position_code(position)
@@ -102,17 +113,20 @@ def _contract(api: Any) -> Any:
     return contract
 
 
-def validate_tmf_account(api: Any) -> None:
+def validate_tmf_account(api: Any, positions: list | None = None) -> None:
     """Reject ambiguous inventory/orders before either EF account reconciles."""
     contract_code = _contract(api).code
-    for trade in api.list_trades():
+    trades = api.list_trades()
+    if not isinstance(trades, list):
+        raise BrokerOrderError("委託查詢未回傳有效清單")
+    for trade in trades:
         code = _position_code(_position_value(trade, "contract"))
         if code.startswith("TMF") and _status_text(trade).lower() not in {
             "filled", "cancelled", "failed", "inactive",
         }:
             raise BrokerOrderError("有未確認結束的 TMF 委託；不重複下單")
     sides = set()
-    for position in api.list_positions(api.futopt_account) or []:
+    for position in _read_positions(api) if positions is None else positions:
         code = _position_code(position)
         if not code.startswith("TMF") or not _position_quantity(position):
             continue
@@ -146,11 +160,6 @@ def _status_message(trade: Any) -> str:
     return str(_position_value(status, "msg", "") or "").strip()
 
 
-def _operation_value(message: Any, name: str) -> str:
-    operation = _position_value(message, "operation", {})
-    return str(_position_value(operation, name, "") or "").strip()
-
-
 def _refresh_status(api: Any, *, trade: Any = None) -> None:
     if trade is not None:
         try:
@@ -167,7 +176,7 @@ def _refresh_status(api: Any, *, trade: Any = None) -> None:
 def _verify_target_position(api: Any, target_position: int, trade: Any) -> int:
     actual = current_tmf_position(api)
     for attempt in range(POSITION_VERIFY_ATTEMPTS):
-        if actual == target_position:
+        if actual == target_position and _status_text(trade).lower() in {"filled", "cancelled"}:
             return actual
         if attempt + 1 < POSITION_VERIFY_ATTEMPTS:
             time.sleep(POSITION_VERIFY_DELAY_SECONDS)
@@ -181,6 +190,42 @@ def _verify_target_position(api: Any, target_position: int, trade: Any) -> int:
         f"委託後部位未達目標（狀態：{status}{detail}）："
         f"目標 {target_position}，實際 {actual}"
     )
+
+
+def _trade_id(trade: Any) -> str:
+    return str(_position_value(_position_value(trade, "order"), "id", "") or
+               _position_value(_position_value(trade, "status"), "id", "") or "")
+
+
+def _resolve_pending(api: Any, guard: dict, persist: Callable[[], None]) -> None:
+    """Require terminal order evidence AND inventory reflecting its fills."""
+    pending = guard.get("pending")
+    if not pending:
+        return
+    trades = api.list_trades()
+    if not isinstance(trades, list):
+        raise BrokerOrderError("前筆委託查詢失敗，實際部位尚未確認")
+    trade_id = pending.get("trade_id")
+    matches = [t for t in trades if trade_id and _trade_id(t) == trade_id]
+    if len(matches) != 1:
+        raise BrokerOrderError("前筆委託結果不明，無法唯一核對委託；本筆不送單，需人工核對")
+    trade = matches[0]
+    _refresh_status(api, trade=trade)
+    status = _status_text(trade).lower()
+    if status not in {"filled", "cancelled", "failed", "inactive"}:
+        raise BrokerOrderError(f"前筆委託尚未結束（{status}），本筆不送單")
+    filled = _position_value(_position_value(trade, "status"), "deal_quantity")
+    if isinstance(filled, bool) or not isinstance(filled, int) or not 0 <= filled <= pending["quantity"]:
+        raise BrokerOrderError("前筆成交口數未確認，本筆不送單")
+    expected = pending["previous_position"] + (1 if pending["side"] == "buy" else -1) * filled
+    positions = _read_positions(api)
+    validate_tmf_account(api, positions)
+    if _net_position(positions) != expected:
+        raise BrokerOrderError("前筆成交與券商庫存尚未一致，本筆不送單")
+    guard["last_resolved"] = dict(pending, status=status, filled_quantity=filled,
+                                  actual_position=expected)
+    guard.pop("pending")
+    persist()
 
 
 def _login(sj: Any) -> Any:
@@ -201,7 +246,8 @@ def _login(sj: Any) -> Any:
 
 def execute_target_position(target_position: int, *, api: Any = None, sj: Any = None,
                             before_order: Callable[[], None] | None = None,
-                            strict_tmf: bool = False) -> OrderResult:
+                            strict_tmf: bool = False, guard: dict | None = None,
+                            persist_guard: Callable[[], None] | None = None) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
@@ -217,10 +263,14 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
 
     try:
         _refresh_status(api)
+        guard = guard if guard is not None else {}
+        persist_guard = persist_guard or (lambda: None)
+        _resolve_pending(api, guard, persist_guard)
+        positions = _read_positions(api)
         if strict_tmf:
-            validate_tmf_account(api)
+            validate_tmf_account(api, positions)
 
-        previous = current_tmf_position(api)
+        previous = _net_position(positions)
         delta = target_position - previous
         if delta == 0:
             return OrderResult(previous, target_position, previous, None, 0)
@@ -228,36 +278,22 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
         side = "buy" if delta > 0 else "sell"
         quantity = abs(delta)
         order = _build_order(api, sj, side, quantity)
-        order_event = threading.Event()
-        order_operation: dict[str, str] = {}
-
-        def capture_order_event(_state: Any, message: Any) -> None:
-            # Never let an exception escape into Shioaji's native callback thread.
-            try:
-                if _operation_value(message, "op_type").lower() != "new":
-                    return
-                order_operation.update(
-                    op_code=_operation_value(message, "op_code"),
-                    op_msg=_operation_value(message, "op_msg"),
-                )
-                order_event.set()
-            except BaseException:
-                order_operation.update(op_code="CALLBACK_ERROR", op_msg="無法解析委託回報")
-                order_event.set()
-
-        api.set_order_callback(capture_order_event)
-        print("委託內容", order)
         contract = _contract(api)
         if before_order is not None:
             before_order()
+        guard["pending"] = dict(previous_position=previous, target_position=target_position,
+                                side=side, quantity=quantity, trade_id="")
+        persist_guard()  # Durable intent before a request can reach the broker.
+        if before_order is not None:
+            try:
+                before_order()  # Persistence may have crossed the execution deadline.
+            except Exception:
+                guard.pop("pending")  # The broker has not been called.
+                persist_guard()
+                raise
         trade = api.place_order(contract, order, timeout=ORDER_TIMEOUT_MS)
-        print("委託回傳內容", trade)
-        order_event.wait(ORDER_CALLBACK_TIMEOUT_SECONDS)
-
-        op_code = order_operation.get("op_code", "")
-        if op_code and op_code != "00":
-            op_msg = order_operation.get("op_msg") or "無錯誤說明"
-            raise BrokerOrderError(f"永豐拒絕委託（{op_code}）：{op_msg}")
+        guard["pending"]["trade_id"] = _trade_id(trade)
+        persist_guard()
 
         _refresh_status(api, trade=trade)
         status = _status_text(trade).lower()
@@ -266,6 +302,7 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
             raise BrokerOrderError(f"永豐委託失敗（{_status_text(trade)}）：{message}")
 
         actual = _verify_target_position(api, target_position, trade)
+        _resolve_pending(api, guard, persist_guard)
         return OrderResult(previous, target_position, actual, side, quantity, trade)
     finally:
         if owns_api and api is not None:
