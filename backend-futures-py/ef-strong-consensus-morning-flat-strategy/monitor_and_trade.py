@@ -253,6 +253,18 @@ def record_transition(
     state["entry_price"] = price if target else None
 
 
+def release_order_lock(state: dict) -> bool:
+    """Retain uncertain order history without blocking the next new event."""
+    attempt = state.get("attempt", {})
+    if attempt.get("status") not in {"pending", "failed"}:
+        return True
+    state["last_unconfirmed_attempt"] = attempt.copy()
+    if attempt.get("key", "").startswith("04:59_live_clock_flat"):
+        state["manual_flat_required"] = attempt.copy()
+    attempt["status"] = "failed_no_retry" if attempt["status"] == "failed" else "interrupted_no_retry"
+    return save_json_atomic(STATE_PATH, state) is not False
+
+
 def execute_live_target(
     state: dict,
     target: int,
@@ -266,33 +278,29 @@ def execute_live_target(
     broker_target = scaled_target(target)
     attempt_id = uuid.uuid4().hex
 
-    attempted = state.get("last_order_attempt_target")
-    try:
-        attempted = int(attempted)
-    except (TypeError, ValueError):
-        attempted = None
-    if not force_reconcile and attempted == broker_target:
+    if not release_order_lock(state):
+        return "❌ 無法保存委託歷史，本筆未送單、不自動重送；下一筆新訊號仍會檢查"
+    if trigger == "startup_reconcile":
+        return "啟動不補單，等待新EF訊號；過往送單失敗不鎖定新單"
+    order_key = (f"{trigger}/{now_local():%Y-%m-%d}"
+                 if trigger == "04:59_live_clock_flat" else trigger)
+    # Deduplicate the event, not its target: a NEW event may have the same target.
+    if state.get("attempt", {}).get("key") == order_key:
         append_order_event(
             attempt_id=attempt_id,
             event="skipped_duplicate",
             trigger=trigger,
             target=broker_target,
-            detail="相同目標已嘗試過，防重送",
+            detail="同一訊號已嘗試過，防重送",
         )
-        return f"相同實單目標{position_text(broker_target)}已嘗試過，不重送"
-
-    # Migrate unresolved legacy attempts without clearing their duplicate guard.
-    if state.get("last_order_error") and "attempt" not in state:
-        state["attempt"] = {"status": "failed"}
-    if state.get("attempt", {}).get("status") in {"pending", "failed"}:
-        return "❌ 仍有未確認委託；請對帳後使用 --retry-failed（不重送）"
+        return "同一訊號已嘗試過，不重送；下一筆新訊號照常處理"
     attempted_at = text_time(now_local())
     state["last_order_attempt_target"] = broker_target
     state["last_order_attempt_at"] = attempted_at
     state["last_order_trigger"] = trigger
     try:
         result = perform_order(
-            state, key=trigger, target=broker_target,
+            state, key=order_key, target=broker_target,
             persist=lambda: save_json_atomic(STATE_PATH, state),
             execute=lambda: execute_target_position(broker_target),
             record=lambda **row: append_order(ORDER_ATTEMPT_PATH, clock=now_local, **row),
@@ -302,8 +310,12 @@ def execute_live_target(
         state["last_order_error_target"] = target
         state["last_order_error_at"] = attempted_at
         state["last_order_error"] = type(exc).__name__
+        release_order_lock(state)
         save_json_atomic(STATE_PATH, state)
-        return f"❌ 下單失敗：{type(exc).__name__}；請對帳後使用 --retry-failed（結果未確認，不自動重送）"
+        if trigger == "04:59_live_clock_flat":
+            return f"🚨 清倉失敗或結果未確認：{type(exc).__name__}；請早上核對永豐庫存並手動清倉。" \
+                   "不自動重送；08:45後新訊號不因本次清倉失敗鎖定。"
+        return f"❌ 下單失敗或結果未確認：{type(exc).__name__}；本筆不自動重送，不鎖單，繼續等新EF訊號"
     state["last_executed_target"] = broker_target
     state["last_executed_at"] = text_time(now_local())
     for field in ("last_order_error_target", "last_order_error_at", "last_order_error"):
@@ -556,10 +568,11 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
         f"實際觸發：{text_time(triggered_at)}（延遲{trigger_delay:.3f}秒）\n"
         f"流程完成：{text_time(completed_at)}\n"
         f"期限：{text_time(deadline)}；{deadline_text}\n"
-        "收到訊號後【最終口數】：空手\n"
+        "策略目標口數：空手（實際庫存以執行結果為準）\n"
         f"組合目標：{position_text(scaled_target(previous))} → 空手\n"
         f"執行：{result}\n"
-        "08:45不自動恢復，等待新的E/F訊號。"
+        "清倉失敗或未確認完成，請早上核對庫存並手動清倉；不自動重送。\n"
+        "08:45不恢復舊目標，等待新E/F訊號；本次清倉失敗不鎖定新訊號。"
     )
     print(message)
     send_discord(message)
@@ -747,7 +760,7 @@ def process_new_rows(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--retry-failed", action="store_true", help="對帳後解除未確認委託鎖定")
+    parser.add_argument("--retry-failed", action="store_true", help="相容舊版：清理委託狀態；目前失敗不鎖單，不需此參數")
     args = parser.parse_args()
     load_env_file(ENV_PATH)
     poll_seconds = max(
@@ -805,6 +818,7 @@ def main() -> None:
             f"收到訊號後【最終口數】：{position_text(scaled_target(startup_base_target))}\n"
             f"規則：E/F兩組淨部位皆至少{threshold}票同向才成立；U={unit}。\n"
             "04:59清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
+            "新訊號各處理一次；失敗通知、不重送、不鎖單；啟動不補單。\n"
             "成交：received_at後嚴格下一根1分K開盤價。\n"
             f"模式：{'API_KEY永豐實單' if env_flag(ENABLE_ORDERS_ENV) else '影子模式'}。"
         )

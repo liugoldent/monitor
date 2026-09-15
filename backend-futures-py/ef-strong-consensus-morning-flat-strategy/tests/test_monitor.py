@@ -86,15 +86,94 @@ class WebhookTests(unittest.TestCase):
 
 
 class LiveOrderTests(unittest.TestCase):
-    def test_pending_attempt_blocks_changed_target_and_forced_flat(self):
-        state = {"attempt": {"status": "pending", "target": 1}}
-        with patch.dict(monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}), patch.object(
+    def test_failed_signal_does_not_block_same_target_new_event_or_flat(self):
+        state = {}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}
+        ), patch.object(monitor, "STATE_PATH", Path(directory) / "state.json"), patch.object(
+            monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
+        ), patch.object(monitor, "execute_target_position", side_effect=TimeoutError()) as execute:
+            first = monitor.execute_live_target(state, 1, trigger="signal_1")
+            self.assertIn("不鎖單", first)
+            self.assertEqual(state["attempt"]["status"], "failed_no_retry")
+            monitor.execute_live_target(state, 1, trigger="signal_1")
+            self.assertEqual(execute.call_count, 1)
+            monitor.execute_live_target(state, 1, trigger="signal_2")
+            self.assertEqual(execute.call_count, 2)
+            monitor.execute_live_target(state, 0, trigger="04:59_live_clock_flat", force_reconcile=True)
+            self.assertEqual(execute.call_count, 3)
+            monitor.execute_live_target(state, 0, trigger="04:59_live_clock_flat", force_reconcile=True)
+            self.assertEqual(execute.call_count, 3)
+
+    def test_restart_releases_legacy_failed_attempt_without_order(self):
+        state = {"attempt": {"key": "old", "status": "failed"}, "last_order_error": "BrokerOrderError"}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}
+        ), patch.object(monitor, "STATE_PATH", Path(directory) / "state.json"), patch.object(
             monitor, "execute_target_position"
         ) as execute:
-            for target in (-1, 0):
-                text = monitor.execute_live_target(state, target, trigger="test", force_reconcile=True)
-                self.assertIn("未確認", text)
-        execute.assert_not_called()
+            text = monitor.execute_live_target(state, 1, trigger="startup_reconcile")
+            execute.assert_not_called()
+            self.assertIn("啟動不補單", text)
+            self.assertEqual(state["attempt"]["status"], "failed_no_retry")
+            self.assertEqual(state["last_unconfirmed_attempt"]["status"], "failed")
+
+    def test_failed_flat_notifies_and_new_signal_after_reopen_is_allowed(self):
+        state = {"live_target_position": 1}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}
+        ), patch.object(monitor, "STATE_PATH", Path(directory) / "state.json"), patch.object(
+            monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
+        ), patch.object(monitor, "CLOCK_EVENT_PATH", Path(directory) / "clock.csv"), patch.object(
+            monitor, "now_local", return_value=datetime(2026, 9, 15, 4, 59, 2)
+        ) as clock, patch.object(monitor, "execute_target_position", side_effect=TimeoutError()) as execute, patch.object(
+            monitor, "send_discord"
+        ) as notify, patch("builtins.print"):
+            monitor.apply_live_clock_flatten(state, clock.return_value)
+            self.assertIn("手動清倉", notify.call_args.args[0])
+            self.assertEqual(state["attempt"]["status"], "failed_no_retry")
+            monitor.apply_live_clock_flatten(state, clock.return_value)
+            self.assertEqual(execute.call_count, 1)
+            clock.return_value = datetime(2026, 9, 15, 8, 45)
+            execute.side_effect = None
+            execute.return_value = SimpleNamespace(actual_position=1, previous_position=0,
+                                                  quantity=1, side="buy")
+            monitor.execute_live_target(state, 1, trigger="immediate_ef_signal_row_2")
+            self.assertEqual(execute.call_count, 2)
+            self.assertEqual(state["attempt"]["status"], "done")
+            self.assertEqual(state["manual_flat_required"]["status"], "failed")
+
+    def test_interrupted_flat_releases_duplicate_zero_target_after_reopen(self):
+        state = {"attempt": {"key": "04:59_live_clock_flat", "status": "pending",
+                             "at": "2026-09-15T04:59:00"}, "last_order_attempt_target": 0}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}
+        ), patch.object(monitor, "STATE_PATH", Path(directory) / "state.json"), patch.object(
+            monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
+        ), patch.object(monitor, "now_local", return_value=datetime(2026, 9, 15, 8, 45)), patch.object(
+            monitor, "execute_target_position", return_value=SimpleNamespace(actual_position=0,
+                previous_position=0, quantity=0, side=None)
+        ) as execute, patch.object(monitor, "send_discord"):
+            monitor.execute_live_target(state, 0, trigger="startup_reconcile")
+            execute.assert_not_called()  # Restart must not replay the failed flat.
+            monitor.execute_live_target(state, 0, trigger="immediate_ef_signal_row_2")
+            execute.assert_called_once_with(0)
+            self.assertEqual(state["manual_flat_required"]["status"], "pending")
+
+    def test_pending_attempt_allows_changed_target_and_forced_flat(self):
+        state = {"attempt": {"status": "pending", "target": 1}}
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            monitor, "STATE_PATH", Path(directory) / "state.json"
+        ), patch.object(monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"), patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}
+        ), patch.object(
+            monitor, "execute_target_position"
+        ) as execute:
+            for target, trigger in ((-1, "new_signal"), (0, "04:59_live_clock_flat")):
+                execute.return_value = SimpleNamespace(actual_position=target, previous_position=1,
+                                                        quantity=1-target, side="sell")
+                monitor.execute_live_target(state, target, trigger=trigger, force_reconcile=True)
+        self.assertEqual(execute.call_count, 2)
 
     def test_history_rebuild_preserves_unresolved_order(self):
         previous = {"attempt": {"status": "failed", "target": 1}, "last_order_attempt_target": 1}
@@ -205,8 +284,8 @@ class LiveOrderTests(unittest.TestCase):
         self.assertIn(f"F明細：{PORTFOLIO_F[0]}(-1)", message)
         self.assertIn("= -1", message)
 
-    def test_same_failed_or_successful_target_is_not_resent(self):
-        state = {"last_order_attempt_target": -1}
+    def test_same_signal_is_not_resent(self):
+        state = {"attempt": {"key": "test", "status": "done"}, "last_order_attempt_target": -1}
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             monitor.os.environ,
             {monitor.ENABLE_ORDERS_ENV: "true"},

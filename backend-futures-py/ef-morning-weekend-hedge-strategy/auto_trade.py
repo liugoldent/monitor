@@ -46,6 +46,26 @@ def login(sj: Any):
         raise
 
 
+def confirm_flat(*, api: Any = None, sj: Any = None) -> bool:
+    """Read-only reset guard: unknown inventory must never count as flat."""
+    owned = api is None
+    if owned:
+        if sj is None:
+            import shioaji as sj
+        api = login(sj)
+    try:
+        _shared._refresh_status(api)
+        _shared.validate_tmf_account(api)
+        positions = api.list_positions(api.futopt_account)
+        if positions is None:
+            raise BrokerOrderError("庫存查詢未回傳資料")
+        return not any(_shared._position_code(p).startswith("TMF")
+                       and _shared._position_quantity(p) for p in positions)
+    finally:
+        if owned:
+            api.logout()
+
+
 def execute_target_position(target: int | None, *, deadline: datetime,
                             clock: Callable[[], datetime], api: Any = None,
                             sj: Any = None, delta: int | None = None):

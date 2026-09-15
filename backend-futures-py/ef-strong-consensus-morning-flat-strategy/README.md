@@ -119,8 +119,7 @@ python backtest.py `
 python monitor_and_trade.py
 ```
 
-預設為 shadow。實單模式啟動時會先以當前策略目標對帳；實際帳戶
-已符合目標時不送單。同一目標不論成功或失敗都不自動重送，下一次目標改變才能再委託。
+預設為 shadow。實單模式啟動不補單，等待啟動後的新 EF 訊號；04:59時鐘清倉獨立執行。每筆新訊號依券商實際庫存調整到策略目標，已符合目標則不送單。同一筆訊號不重送；下一筆新訊號即使目標相同，也照常查庫存並處理。失敗或中斷只留下紀錄與通知，不鎖住新訊號或清倉。
 
 ## 上線門檻
 
@@ -130,12 +129,13 @@ python monitor_and_trade.py
 
 ## 共用下單、通知與紀錄（2026-09-14）
 
-兩個 EF 策略共同使用 `../ef_trade_runtime.py` 與 `../shioaji_tmf_target.py`：
+強共識使用 `../ef_trade_runtime.py` 與 `../shioaji_tmf_target.py` 的下列流程；純 EF 的差額送單規則另見該策略 README：
 
 - 根據券商實際 TMF 部位計算差額，使用 TMFR1、市價 MKT、IOC、Auto；送出後回查目標部位。
 - 送單前共同檢查未結束的 TMF 委託、其他月份庫存及同時持有多空庫存；真正送單前再檢查期限。
-- 先以原子寫入、fsync 與 OneDrive 鎖定重試保存委託狀態。失敗或結果不明時，即使目標改變或程式重啟也不自動重送。
-- 人工對帳後，兩者均可使用 `monitor_and_trade.py --retry-failed` 解除鎖定；執行器仍會重新檢查券商委託與庫存。
+- 先以原子寫入、fsync 與 OneDrive 鎖定重試保存委託狀態。失敗或結果不明時，不自動重送。
+- 一般訊號與清倉失敗皆轉成 `failed_no_retry`，中斷的舊委託轉成 `interrupted_no_retry`，保留 `last_unconfirmed_attempt` 供查核，不鎖住後續新訊號。清倉異常另外保留 `manual_flat_required` 並通知早上人工處理，不補送舊清倉單。
+- 不需人工解除失敗鎖定；`--retry-failed` 僅保留舊版相容。新訊號仍會查券商實際庫存並調整到目標，券商查詢或送單異常會使該次失敗，但不會在本機建立持續鎖定。
 - Discord 共用非同步佇列、10 秒逾時、NotifierBot 與長訊息分段；通知失敗不阻塞下單。訊息包含目標部位、觸發原因與已確認的實際部位／失敗結果。
 - 新實單委託統一寫入各自的 `records/live_order_attempts.csv`，欄位為 timestamp、attempt_id、event、trigger、target_position、previous_position、actual_position、side、quantity、detail。
 - 通知發送結果統一寫入各自的 `records/notifications.jsonl`，包含 timestamp、status、content。status 可為 sent、failed、missing_webhook、queue_full；不寫入 webhook URL 或原始網路例外。

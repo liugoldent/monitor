@@ -1,68 +1,69 @@
-# 永豐 2：新訊號單次下單、04:59 清倉
+# 永豐 2：JSON 部位、04:59 清倉、05:05 重設
 
-版本：`one-shot-signals-v3`。每次啟動只接新 EF 訊號；每筆最多送一次委託，不回查成交部位、不自動重試。
+版本：`json-positions-v5`。
 
-## 執行規則
+## 每日流程
 
-- 啟動／重啟記下訊號 CSV 起點，不登入券商、不補舊部位、不處理停機期間訊號。
-- 新訊號依時間及 CSV 列順序逐筆處理，不合併多筆。一般進出場直接以該筆差額送單，不查庫存、不對齊舊目標。
-- 送單前保存已處理標記；每筆最多呼叫一次 `place_order`。收到 API 委託回傳就結束，不等待成交、不輪詢委託狀態、不回查成交後庫存。
-- 拒單、逾時、登入失敗或其他例外都記錄為 `failed_no_retry`；該筆不重送、不阻擋下一筆訊號。`--retry-failed` 已移除。
-- 每個有效夜盤 04:59 查詢第二帳戶 TMF 庫存，送一次反向差額清倉委託。當次失敗或結果不明亦不重送；保留每日標記，避免 04:59 期間重啟又送一次。
-- 04:59 至下一個交易日 08:45 不建立新倉，08:45 不恢复舊部位，只接新訊號。13:45～15:00 休市訊號不補單。
-- 04:59:40 後不送夜盤委託。持續執行期間若錯過清倉時段，於下一個可交易時段嘗試一次；普通重啟不補送舊清倉動作。
+- 12 個子策略的唯一追蹤部位來源是 `runtime/live_state.json` 的 `positions`。每個值只能是 -1、0、1。CSV 只提供新訊號及歷史查核，不再覆蓋 JSON 部位。
+- 台北時間 08:45～13:45、15:00～隔天 05:00 為同一交易日；午休、15:00、午夜與程式重啟都不歸零。
+- 04:59 查永豐 2 TMF 庫存並送一次清倉委託，保留 JSON 部位至確認空手。04:59 起停止新訊號交易。
+- 04:59 清倉失敗或結果不明，Discord 明確通知人工核對及清倉，不自動重送。
+- 05:05 查詢庫存及未結委託，確認 TMF 空手即將 12 個策略部位歸零。未確認則通知人工處理，開盤前最多每分鐘重查一次。到日曆規定的重新開盤時間（一般08:45），即使仍未確認空手，也將策略 JSON 歸零並處理新訊號；保留 `manual_flat_required`，不宣稱券商已空手，不因清倉失敗鎖定新單，也不再重設已開始的新時段部位。
+- 停機錯過 05:05，啟動後補做檢查。成功重設記錄 `last_reset_cycle`，同一周期不重設第二次。週末及休市依 config/calendar.json 處理。
+- 08:45 後，收到新訊號，計算 `(新部位 - positions[策略代碼]) × EF_HEDGE_SOURCE_UNIT`。預設每單位 1 口 TMF。
+- 啟動前、停機期間與等待重設期間已收到的訊號不補單。
 
-## 六種轉換
+| JSON 原部位 | 新部位 | 委託（每單位1口） |
+|---|---|---|
+| 0 | 0 | 不送單 |
+| 0 | +1 | 買1口 |
+| 0 | -1 | 賣1口 |
+| +1 | 0 | 賣1口 |
+| -1 | 0 | 買1口 |
+| +1 | -1 | 賣2口 |
+| -1 | +1 | 買2口 |
 
-每策略預設 1 口：
+## 重啟與送單狀態
 
-| 訊號 | 委託 |
-|---|---|
-| -1 → 0 | 買 1 |
-| 1 → 0 | 賣 1 |
-| 0 → 1 | 買 1 |
-| 0 → -1 | 賣 1 |
-| 1 → -1 | 賣 2 |
-| -1 → 1 | 買 2 |
+送單前將 positions、新訊號進度、attempt 一起原子保存。一般委託只送一次，不查成交、不重試。JSON 是策略追蹤部位，不是成交證明；拒單、未成交、手動交易仍可能造成券商實際庫存差異。
 
-每日清倉流程後，子策略從 0 開始記錄：收到舊部位的平倉訊號維持空手，收到反轉則建立新方向 1 口。清倉委託失敗亦不追補，須以券商實際紀錄確認持倉。
+若重啟發現 `attempt.status` 還是 `attempted`，代表上次在送單途中中斷，會設定 `blocked_reason`。若中斷的是04:59清倉，新時段重設會將它轉為人工清倉待辦並解除該次暫停；一般訊號委託中斷的保護仍保留。人工處理的券商殘留部位與新時段策略 JSON 分開，JSON 歸零不代表券商空手。
 
-## 帳戶與送單
+暫停新單期間仍讀取新 EF 訊號，每筆通知「收到EF訊號・暫停下單」及原因，並記錄 `signal_blocked`。獨立的 `blocked_signal_cursor` 防止重複通知與解除暫停後補單，不修改 JSON 部位或中斷委託。正常收到訊號但 JSON 差額為0時，也通知「無需下單」。啟動前的舊訊號仍不補通知。
 
-只使用 `API_KEY2`／`SECRET_KEY2` 與專用 `DISCORD_EF_hedge_WEBHOOK_URL`。合約使用 TMFR1，市價 MKT、IOC、Auto。第一帳號的策略與共用成交驗證流程不變；本策略只共用登入輔助、合約與委託格式，不呼叫共用的成交驗證執行器。
+首次升級 v4 時，從既有 `day_signal_positions` 快照遷移一次到 `positions`，保留當日部位，不回放 CSV。遷移後刪除 `day_signal_positions`；每次存檔也移除 `source.positions`、`source.net_position`，避免保存重複且可能過期的部位快照。`source.last_signal` 與該筆訊號明細仍保留作為處理進度；手動修改部位只改最外層 `positions`。
 
-清倉前檢查其他月份、多空雙邊庫存與未結委託；如有異常，記錄本次失敗，不盲目以淨額清倉。一般訊號直接送其差額；不使用 `EF_HEDGE_MAX_CONTRACTS` 做總庫存對帳。
+## 手動修改
 
-通知「已送出」僅表示取得委託回傳，不宣稱已成交。沒有回傳或即時拒單會通知失敗／結果不明，不重送。
+1. 停止 `ef-morning-weekend-hedge-strategy` 服務。
+2. 備份 `runtime/live_state.json`，核對券商實際部位及委託紀錄。
+3. 只調整 `positions` 中對應策略的 -1 / 0 / 1，必須保留全部12個策略。
+4. 啟動服務，JSON 會直接沿用；修改檔案本身不會觸發補單。
 
-## 設定與啟動
+如果在處理中斷委託，核對完成後另外將該 `attempt.status` 改為 `operator_reconciled`，並移除 `blocked_reason`；保留原委託 key、id 及其他歷史欄位。正常日常修改不需調整這些欄位。請勿在服務運行中改檔，程式不會即時重新載入，並可能覆寫人工修改。
 
-沿用上層 `.env`：
+## 帳戶、部署及紀錄
 
-```dotenv
-API_KEY2=第二組金鑰
-SECRET_KEY2=第二組密鑰
-PERSON_ID=憑證身分證字號
-CA_PATH=/absolute/path/Sinopac.pfx
-DISCORD_EF_hedge_WEBHOOK_URL=專用通知網址
-EF_HEDGE_SOURCE_UNIT=1
+只使用 API_KEY2／SECRET_KEY2，通知使用 DISCORD_EF_hedge_WEBHOOK_URL。PERSON_ID2／CA_PATH2 可覆寫憑證，EF_HEDGE_ACCOUNT_ID 可核對帳號。合約 TMFR1、市價 MKT、IOC、Auto。EF_HEDGE_SIGNAL_CSV／EF_HEDGE_CALENDAR_PATH 可覆寫來源與日曆。
+
+重新建置並只重啟此服務：
+
+```sh
+docker compose up -d --build --no-deps --force-recreate ef-morning-weekend-hedge-strategy
 ```
 
-`PERSON_ID2`／`CA_PATH2` 可覆寫憑證；`EF_HEDGE_ACCOUNT_ID` 選填核對帳號；`EF_HEDGE_SIGNAL_CSV`／`EF_HEDGE_CALENDAR_PATH` 可覆寫訊號及日曆。日曆需涵蓋日期；`closed_dates`、`no_night_dates` 設定休市日。
+啟動通知須顯示 `json-positions-v5`。`python monitor_and_trade.py` 與 `--once` 都是實單入口，不可拿來當測試。
 
-Windows 執行根目錄 `run-windows-services.cmd`：拉取更新、build，並以 `--force-recreate` 重建永豐 2。更新後不要使用 `-NoBuild`。Discord 啟動通知應顯示 `one-shot-signals-v3`；仍顯示「10 秒後自動重新對帳」即為舊版。
+- runtime/live_state.json：positions、訊號進度、單次委託與重設狀態，原子保存。
+- records/live_order_attempts.csv：委託嘗試及回應。
+- records/live_events.csv：重設與異常事件。
+- records/notifications.jsonl：通知紀錄。
+- runtime/monitor.lock：避免同目錄多個服務並行。
 
-`python monitor_and_trade.py` 與 `--once` 均為第二帳號實單入口；啟動時不補單，但遇新訊號或清倉時間可能送單。
+測試採模擬券商，不連線實單：
 
-## 紀錄與驗證
-
-- `runtime/live_state.json`：訊號進度與單次委託標記；使用原子寫入，啟動沿用檔案但不追補舊訊號。
-- `records/live_order_attempts.csv`：`submission_attempt`、`submitted`、`no_order_needed`、`failed_no_retry`；不將送出誤記為成交。
-- `records/live_events.csv` 與 `records/notifications.jsonl`：事件與非同步通知紀錄。
-- `runtime/monitor.lock`：防止同目錄重複啟動。舊避險格式狀態須先處理，不與純 EF 混用。
-
-```bash
+```sh
 python -m unittest discover -s tests -v
 ```
 
-測試使用模擬券商，不連線實單。`backtest.py` 為理想成交回放，不模擬本版拒單或不重試造成的庫存差異。
+backtest.py 為理想成交回放，不模擬本版 JSON 手動修改、拒單或重設阻擋。

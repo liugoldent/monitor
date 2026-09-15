@@ -91,6 +91,46 @@ class SourceTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
+        m = self.monitor()
+        m.state["positions"]["CFCTX21m"] = 1
+        m.state["day_signal_positions"] = dict.fromkeys(STRATEGIES, -1)
+        m.state["source"] = {"positions": dict.fromkeys(STRATEGIES, 0),
+                             "net_position": 0, "last_signal": "2026-09-14T22:00:00/0"}
+        m.state["attempt"] = {"status": "operator_unblocked", "key": "old"}
+        # Write a legacy-shaped fixture without invoking the new cleanup.
+        m.path.write_text(json.dumps(m.state), encoding="utf-8")
+        restarted = self.monitor()
+        state = json.loads(restarted.path.read_text(encoding="utf-8"))
+        self.assertEqual(state["positions"]["CFCTX21m"], 1)
+        self.assertNotIn("day_signal_positions", state)
+        self.assertEqual(state["source"], {"last_signal": "2026-09-14T22:00:00/0"})
+        self.assertEqual(state["attempt"], m.state["attempt"])
+        self.execute.assert_not_called()
+
+    def test_legacy_migration_copies_positions_before_removing_snapshot(self):
+        m = self.monitor()
+        del m.state["positions"]
+        m.state["day_signal_positions"] = dict.fromkeys(STRATEGIES, 0)
+        m.state["day_signal_positions"]["CFCTX22m"] = 1
+        m.path.write_text(json.dumps(m.state), encoding="utf-8")
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["positions"]["CFCTX22m"], 1)
+        self.assertNotIn("day_signal_positions", restarted.state)
+
+    def test_new_signal_persists_checkpoint_without_position_snapshot(self):
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
+        m.tick()
+        m.tick()
+        state = json.loads(m.path.read_text(encoding="utf-8"))
+        self.assertEqual(self.orders, [1])
+        self.assertEqual(state["positions"]["CFC07m"], 1)
+        self.assertIn("last_signal", state["source"])
+        self.assertNotIn("positions", state["source"])
+        self.assertNotIn("net_position", state["source"])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -123,7 +163,8 @@ class MonitorTests(unittest.TestCase):
                   side="buy" if target > previous else "sell")
 
     def monitor(self):
-        return Monitor(root=self.root, live=True, executor=self.execute, clock=lambda: self.now)
+        return Monitor(root=self.root, live=True, executor=self.execute, clock=lambda: self.now,
+                       flat_checker=lambda: self.actual == 0)
 
     def signal(self, previous, new, code="CFC07m", stamp=None):
         with self.signals.open("a") as f:
@@ -170,12 +211,226 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(len(self.orders), 7)
 
-    def test_first_post_start_reverse_uses_two_contracts(self):
+    def test_first_daily_reverse_opens_only_one_contract(self):
         m = self.monitor()
         self.now += timedelta(seconds=1)
         self.signal(1, -1)
         m.tick()
-        self.assertEqual(self.orders, [-2])
+        self.assertEqual(self.orders, [-1])
+
+    def test_restart_at_1603_keeps_morning_entry_context(self):
+        self.now = datetime(2026, 9, 15, 8, 45)
+        m = self.monitor()
+        self.now = datetime(2026, 9, 15, 9)
+        self.signal(0, 1)
+        m.tick()
+        self.now = datetime(2026, 9, 15, 16, 3)
+        m = self.monitor()
+        m.tick()
+        self.assertEqual(self.orders, [1])
+
+        self.now += timedelta(seconds=1)
+        self.signal(1, -1)
+        m.tick()
+        self.assertEqual(self.orders, [1, -2])
+        self.assertEqual(m.state["trading_day"], "2026-09-15")
+
+    def test_blocked_signals_notify_once_without_orders_or_position_changes(self):
+        m = self.monitor()
+        m.notify = Mock()
+        m.state["blocked_reason"] = "interrupted"
+        m.state["attempt"] = {"status": "attempted", "key": "old"}
+        m.state["positions"]["CFC07m"] = 1
+        m.state["positions"]["CFCTX16m"] = 1
+        before = m.state["positions"].copy()
+        self.now += timedelta(seconds=1)
+        self.signal(1, 0)
+        self.signal(1, 0, "CFCTX16m")
+        m.tick()
+        m.tick()
+        messages = [call.args[0] for call in m.notify.call_args_list]
+        self.assertEqual(sum("收到EF訊號・暫停下單" in msg for msg in messages), 2)
+        self.assertEqual(m.state["positions"], before)
+        self.assertEqual(m.state["attempt"], {"status": "attempted", "key": "old"})
+        self.execute.assert_not_called()
+        del m.state["blocked_reason"]
+        m.tick()
+        self.execute.assert_not_called()  # Unblocking must not replay skipped exits.
+        self.now += timedelta(seconds=1)
+        self.signal(1, 0)
+        m.tick()
+        self.assertEqual(self.orders, [-1])
+
+    def test_zero_delta_signal_notifies_once(self):
+        m = self.monitor()
+        m.notify = Mock()
+        self.now += timedelta(seconds=1)
+        self.signal(1, 0)
+        m.tick()
+        m.tick()
+        m.notify.assert_called_once()
+        self.assertIn("無需下單", m.notify.call_args.args[0])
+        self.execute.assert_not_called()
+
+    def test_failed_reset_at_reopen_allows_new_signal(self):
+        m = self.monitor()
+        m.notify = Mock()
+        self.now = datetime(2026, 9, 15, 9)
+        self.signal(0, 1)
+        m.tick()
+        m.tick()
+        messages = [call.args[0] for call in m.notify.call_args_list]
+        self.assertTrue(any("人工清倉待辦" in msg for msg in messages))
+        self.assertEqual(self.orders, [1])
+        self.assertEqual(m.state["reset_status"], "manual_flat_required")
+
+    def test_restart_first_exit_without_daily_entry_does_not_sell(self):
+        self.now = datetime(2026, 9, 15, 9)
+        self.monitor()
+        self.now = datetime(2026, 9, 15, 16, 3)
+        m = self.monitor()
+        self.signal(1, 0)
+        m.tick()
+        self.assertEqual(self.orders, [])
+
+    def test_midnight_restart_keeps_previous_day_and_next_open_resets(self):
+        self.now = datetime(2026, 9, 15, 15)
+        m = self.monitor()
+        self.signal(0, 1)
+        m.tick()
+        self.now = datetime(2026, 9, 16, 0, 3)
+        m = self.monitor()
+        self.signal(1, -1)
+        m.tick()
+        self.assertEqual(self.orders, [1, -2])
+        self.assertEqual(m.state["trading_day"], "2026-09-15")
+        self.now = datetime(2026, 9, 16, 8, 45)
+        self.actual = 0  # Broker confirms the prior session was flattened.
+        m = self.monitor()
+        self.signal(-1, 0)
+        m.tick()
+        self.assertEqual(self.orders, [1, -2])
+        self.assertEqual(m.state["trading_day"], "2026-09-16")
+
+    def test_restart_after_submission_before_source_checkpoint_no_duplicate(self):
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
+        m.tick()
+        m.state.pop("source")
+        m.persist()
+        attempt = m.state["attempt"].copy()
+        m = self.monitor()
+        m.tick()
+        self.assertEqual(m.state["attempt"], attempt)
+        self.assertEqual(self.orders, [1])
+
+    def test_json_manual_edit_is_authoritative_after_restart(self):
+        m = self.monitor()
+        m.state["positions"]["CFC07m"] = 1
+        m.persist()
+        self.now += timedelta(seconds=1)
+        m = self.monitor()
+        self.signal(1, 0)
+        m.tick()
+        self.assertEqual(self.orders, [-1])
+        self.assertEqual(m.state["positions"]["CFC07m"], 0)
+
+    def test_0505_reset_and_restart_do_not_reset_twice(self):
+        m = self.monitor()
+        m.state["positions"]["CFC07m"] = 1
+        m.persist()
+        self.now = datetime(2026, 9, 15, 4, 59)
+        m.tick()
+        self.assertEqual(m.state["positions"]["CFC07m"], 1)
+        self.now = datetime(2026, 9, 15, 5, 4, 59)
+        m.tick()
+        self.assertEqual(m.state["positions"]["CFC07m"], 1)
+        self.now += timedelta(seconds=1)
+        m.tick()
+        self.assertTrue(all(v == 0 for v in m.state["positions"].values()))
+        reset_at = m.state["reset_at"]
+        m = self.monitor()
+        m.flat_checker = Mock(side_effect=AssertionError("already reset"))
+        m.tick()
+        self.assertEqual(m.state["reset_at"], reset_at)
+
+    def test_missed_reset_warns_and_does_not_reset_again_after_new_entry(self):
+        m = self.monitor()
+        m.state["positions"]["CFC07m"] = 1
+        m.persist()
+        self.now = datetime(2026, 9, 15, 9)
+        m = self.monitor()
+        self.signal(0, 1, "CFCTX16m")
+        m.tick()
+        self.assertEqual(m.state["reset_status"], "manual_flat_required")
+        self.assertEqual(m.state["positions"]["CFC07m"], 0)
+        self.assertEqual(self.orders, [1])
+        self.actual = 0
+        self.now += timedelta(minutes=1)
+        m.tick()
+        self.assertEqual(m.state["reset_status"], "manual_flat_required")
+        self.assertEqual(m.state["positions"]["CFCTX16m"], 1)
+        self.assertEqual(self.orders, [1])
+
+    def test_reset_query_error_keeps_positions_and_blocks(self):
+        m = self.monitor()
+        m.state["positions"]["CFC07m"] = 1
+        self.now = datetime(2026, 9, 15, 5, 5)
+        m.flat_checker = Mock(side_effect=TimeoutError())
+        m.tick()
+        self.assertEqual(m.state["positions"]["CFC07m"], 1)
+        self.assertEqual(m.state["reset_status"], "blocked")
+
+    def test_failed_flat_alert_and_next_open_trade_without_retry(self):
+        m = self.monitor()
+        m.notify = Mock()
+        m.state["positions"]["CFC07m"] = 1
+        self.now = datetime(2026, 9, 15, 4, 59)
+        self.execute.side_effect = TimeoutError("unknown")
+        m.tick()
+        self.assertTrue(any("手動清倉" in c.args[0] for c in m.notify.call_args_list))
+        self.now = datetime(2026, 9, 15, 5, 5)
+        m.tick()
+        self.assertEqual(self.execute.call_count, 1)
+        self.now = datetime(2026, 9, 15, 8, 45)
+        self.execute.side_effect = self.broker
+        self.signal(0, 1, "CFCTX16m")
+        m.tick()
+        m.tick()
+        self.assertEqual(self.execute.call_count, 2)
+        self.assertEqual(self.orders, [1])
+        self.assertEqual(m.state["positions"]["CFC07m"], 0)
+
+    def test_interrupted_flat_restart_does_not_lock_next_open(self):
+        m = self.monitor()
+        m.state["attempt"] = {"key": "2026-09-15T04:59:00/flat", "status": "attempted"}
+        m.persist()
+        self.now = datetime(2026, 9, 15, 8, 44)
+        m = self.monitor()
+        m.tick()
+        self.now = datetime(2026, 9, 15, 8, 45)
+        self.signal(0, 1)
+        m.tick()
+        self.assertNotIn("blocked_reason", m.state)
+        self.assertEqual(self.orders, [1])
+
+    def test_interrupted_submission_blocks_restart(self):
+        m = self.monitor()
+        m.state["attempt"] = {"status": "attempted", "key": "uncertain"}
+        m.persist()
+        m = self.monitor()
+        self.signal(0, 1)
+        m.tick()
+        self.assertIn("blocked_reason", m.state)
+        self.assertEqual(self.orders, [])
+
+    def test_invalid_manual_position_rejected(self):
+        m = self.monitor()
+        m.state["positions"]["CFC07m"] = 2
+        m.persist()
+        with self.assertRaises(ValueError):
+            self.monitor()
 
     def test_multiple_same_second_signals_each_execute(self):
         m = self.monitor()
@@ -341,6 +596,27 @@ class BrokerTests(unittest.TestCase):
 
     def test_flat_empty_account_no_order(self):
         self.assertFalse(self.execute(0).submitted)
+        self.api.place_order.assert_not_called()
+
+    def test_reset_confirmation_is_read_only_and_rejects_unknown_inventory(self):
+        self.assertTrue(auto_trade.confirm_flat(api=self.api))
+        self.api.list_positions.return_value = [{"code": "TMFI6", "quantity": 1, "direction": "Buy"}]
+        self.assertFalse(auto_trade.confirm_flat(api=self.api))
+        self.api.list_positions.return_value = None
+        with self.assertRaises(auto_trade.BrokerOrderError):
+            auto_trade.confirm_flat(api=self.api)
+        self.api.place_order.assert_not_called()
+
+    def test_reset_confirmation_rejects_open_orders_and_offset_inventory(self):
+        self.api.list_trades.return_value = [NS(contract=self.contract, status=NS(status="PendingSubmit"))]
+        with self.assertRaises(auto_trade.BrokerOrderError):
+            auto_trade.confirm_flat(api=self.api)
+        self.api.list_trades.return_value = []
+        self.api.list_positions.return_value = [
+            {"code": "TMFI6", "quantity": 1, "direction": "Buy"},
+            {"code": "TMFI6", "quantity": 1, "direction": "Sell"}]
+        with self.assertRaises(auto_trade.BrokerOrderError):
+            auto_trade.confirm_flat(api=self.api)
         self.api.place_order.assert_not_called()
 
     def test_immediate_rejection_is_reported_without_retry(self):

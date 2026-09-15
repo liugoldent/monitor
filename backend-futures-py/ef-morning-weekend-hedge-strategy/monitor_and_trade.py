@@ -14,8 +14,8 @@ from zoneinfo import ZoneInfo
 
 from filelock import FileLock
 
-from auto_trade import execute_target_position
-from strategy import Calendar, integer, latest_closure, pure_position
+from auto_trade import execute_target_position, confirm_flat
+from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_position
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
@@ -53,7 +53,7 @@ class Notifications(SharedNotifications):
 
 class Monitor:
     def __init__(self, *, root=BASE, live=False, source=None, executor=None,
-                 notify=None, clock=now_local, calendar_path=None):
+                 notify=None, clock=now_local, calendar_path=None, flat_checker=None):
         self.root, self.live, self.clock = Path(root), live, clock
         self.mode = "live" if live else "shadow"
         self.path = self.root / "runtime" / f"{self.mode}_state.json"
@@ -70,9 +70,21 @@ class Monitor:
         started = self.clock()
         calendar = Calendar.load(self.calendar_path)
         closure = latest_closure(calendar, started)
-        previous_attempt = self.state.pop("attempt", None)
-        if previous_attempt:
-            self.event("startup_discard_previous_attempt", previous=previous_attempt)
+        self.flat_checker = flat_checker or (confirm_flat if live else lambda: True)
+        # One-time v4 migration takes the saved snapshot, never replays CSV.
+        if "positions" not in self.state:
+            self.state["positions"] = self.state.get("day_signal_positions", dict.fromkeys(STRATEGIES, 0)).copy()
+            self.state["last_reset_cycle"] = self.state.get("flat_cycle") or (closure.start.isoformat() if closure else "initial")
+            self.state["migration"] = "v5_from_saved_snapshot"
+        if set(self.state["positions"]) != set(STRATEGIES):
+            raise ValueError("JSON positions 必須包含全部12個策略")
+        for code, value in self.state["positions"].items():
+            if integer(value) not in {-1, 0, 1}:
+                raise ValueError(f"JSON {code} 部位必須是 -1/0/1")
+            self.state["positions"][code] = integer(value)
+        self.state["schema_version"] = 5
+        if self.state.get("attempt", {}).get("status") == "attempted":
+            self.state["blocked_reason"] = "上次送單途中中斷，須核對券商委託及JSON部位"
         signal_path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
         if signal_path.exists():
             with signal_path.open(encoding="utf-8-sig", newline="") as handle:
@@ -81,8 +93,8 @@ class Monitor:
             self.state["startup_signal_rows"] = 0
         self.state["boot"] = started.isoformat()
         self.state["ready_since"] = started.isoformat()
-        self.state.pop("source", None)
-        self.state["session_flat"] = False
+        # Keep the submission checkpoint across a crash/restart.
+        self.state.setdefault("session_flat", False)
         # Starting/restarting is never a catch-up or liquidation trigger.
         self.state["flat_cycle"] = closure.start.isoformat() if closure else "initial"
         if day_time(4, 59) <= started.time() < day_time(5):
@@ -94,6 +106,14 @@ class Monitor:
         self.last_alert = None
 
     def persist(self):
+        # Legacy positions are read only during migration in __init__.
+        # Keep one authoritative position map and only the signal checkpoint.
+        self.state.pop("day_signal_positions", None)
+        if isinstance(self.state.get("source"), dict):
+            self.state["source"] = {
+                key: value for key, value in self.state["source"].items()
+                if key not in {"positions", "net_position"}
+            }
         save(self.path, self.state)
 
     def event(self, kind: str, **data):
@@ -114,20 +134,69 @@ class Monitor:
 
     def read_source(self, now: datetime) -> dict:
         calendar = Calendar.load(self.calendar_path)
-        closure = latest_closure(calendar, now)
-        boot = max(datetime.fromisoformat(self.state["boot"]),
-                   datetime.fromisoformat(self.state.get("ready_since", self.state["boot"])))
-        since = closure.reopen if closure else boot.replace(microsecond=0)
-        if self.state.get("session_flat"):
-            since = max(since, datetime.fromisoformat(self.state["ready_since"]))
+        # Day and night are one session, including the hours after midnight.
+        day = now.date() if now.time() >= day_time(8, 45) else now.date() - timedelta(days=1)
+        since = datetime.combine(day, day_time(8, 45))
+        self.state["trading_day"] = day.isoformat()
         path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
+        # CSV supplies new events only; JSON positions are authoritative.
         return pure_position(path, now, since, calendar,
-                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")), boot,
-                             initial_from_signal=not self.state.get("session_flat", False),
+                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")),
                              start_index=self.state["startup_signal_rows"])
 
+    def reset_if_due(self, now, closure):
+        if not closure or now < closure.start.replace(hour=5, minute=5):
+            return True
+        cycle = closure.start.isoformat()
+        if self.state.get("last_reset_cycle") == cycle:
+            return True
+        # Retry the read-only check at most once a minute; never send a retry order.
+        retry = self.state.get("reset_check_after")
+        if retry and now < datetime.fromisoformat(retry) and now < closure.reopen:
+            return False
+        self.state["reset_check_after"] = (now + timedelta(minutes=1)).isoformat()
+        self.persist()
+        confirmed = True
+        try:
+            if not self.flat_checker():
+                raise ValueError("永豐2仍有TMF庫存")
+        except Exception as exc:
+            confirmed = False
+            self.state["reset_status"] = "blocked"
+            self.state["manual_flat_required"] = {"cycle": cycle, "reason": type(exc).__name__}
+            self.persist()
+            self.alert(f"🚨 清倉未確認完成（{type(exc).__name__}），請早上核對永豐2庫存並手動清倉；"
+                       "不自動重送。開盤後策略部位歸零，照常接收新EF訊號，不因本次清倉失敗暫停。")
+            if now < closure.reopen:
+                return False
+        previous = self.state["positions"].copy()
+        self.state["positions"] = dict.fromkeys(STRATEGIES, 0)
+        self.state["last_reset_cycle"] = cycle
+        self.state["reset_status"] = "confirmed_flat" if confirmed else "manual_flat_required"
+        self.state["reset_at"] = now.isoformat()
+        # Signals received while reset was blocked must not become catch-up orders.
+        path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
+        if confirmed and path.exists():
+            with path.open(encoding="utf-8-sig", newline="") as handle:
+                self.state["startup_signal_rows"] = sum(1 for _ in csv.DictReader(handle))
+        self.state["flat_cycle"] = cycle
+        flat_attempt = self.state.get("attempt", {}).get("key", "").endswith("/flat")
+        if confirmed or flat_attempt:
+            self.state.pop("blocked_reason", None)
+            if self.state.get("attempt", {}).get("status") == "attempted":
+                self.state["attempt"]["status"] = "resolved_by_confirmed_flat" if confirmed else "manual_flat_required"
+        if confirmed:
+            self.state.pop("manual_flat_required", None)
+        self.state.pop("reset_check_after", None)
+        self.persist()
+        self.event("daily_reset", previous_positions=previous, cycle=cycle, confirmed_flat=confirmed)
+        self.notify("【永豐2】已確認TMF空手，12個策略JSON部位已歸零。" if confirmed else
+                    "🚨【永豐2｜人工清倉待辦】券商庫存尚未確認空手，請手動核對並清倉。"
+                    "\n新交易時段已開始，12策略JSON已歸零並恢復新訊號；這不代表實際庫存已清空。")
+        return True
+
     def action(self, key: str, target: int | None, contract: str, deadline: datetime,
-               delta: int | None = None) -> bool:
+               delta: int | None = None, step: dict | None = None) -> bool:
         # Consume before external side effects: timeout/exception must never
         # cause this signal (or this flat cycle) to be submitted a second time.
         if self.state.get("attempt", {}).get("key") == key:
@@ -137,6 +206,10 @@ class Monitor:
         attempt = {"key": key, "id": uuid.uuid4().hex, "status": "attempted",
                    "delta": delta, "at": self.clock().isoformat()}
         self.state["attempt"] = attempt
+        if step is not None:
+            # Commit intent, position and cursor atomically BEFORE broker side effects.
+            self.state["positions"][step["strategy_code"]] = step["new_position"]
+            self.state["source"] = step
         if key.endswith("/flat"):
             self.state["last_flat_attempt"] = key
         self.persist()
@@ -160,6 +233,9 @@ class Monitor:
         except Exception as exc:
             attempt["status"] = "failed_no_retry"
             detail = f"本次送單失敗或送出結果不明（{type(exc).__name__}）；不重送，繼續等新訊號"
+            if delta is None:
+                detail = f"🚨 清倉失敗或結果未確認（{type(exc).__name__}）；請早上核對永豐2庫存並手動清倉。" \
+                         "不自動重送，08:45後新訊號不因本次清倉失敗暫停。"
             record("failed_no_retry", detail=detail)
         self.persist()
         self.event(attempt["status"], key=key, detail=detail)
@@ -173,6 +249,10 @@ class Monitor:
         cycle = closure.start.isoformat() if closure else "initial"
         contract = "TMFR1"
         self.state["contract"] = contract
+        # This runs even outside trading hours, and catches a missed 05:05 after restart.
+        if not self.reset_if_due(now, closure):
+            self.report_blocked_signals(now, "05:05重設尚未確認空手；暫停新單")
+            return
         # Flatten on the clock, before opening/reading any signal source.
         if self.state.get("flat_cycle") != cycle:
             self.state["target"] = 0
@@ -192,14 +272,22 @@ class Monitor:
             return
         if not calendar.is_open(now) or now >= self.session_deadline(now):
             return
+        if self.state.get("blocked_reason"):
+            self.alert(self.state["blocked_reason"] + "；暫停新單")
+            self.report_blocked_signals(now, self.state["blocked_reason"])
+            return
         source = self.source(now)
         def signal_order(value):
             stamp, index = value.rsplit("/", 1)
             return datetime.fromisoformat(stamp), int(index)
 
         cursor = self.state.get("source", {}).get("last_signal")
+        skipped = self.state.get("blocked_signal_cursor")
+        if skipped and (not cursor or signal_order(skipped) > signal_order(cursor)):
+            cursor = skipped
         steps = [step for step in source.get("steps", [])
-                 if not cursor or signal_order(step["last_signal"]) > signal_order(cursor)]
+                 if int(step["last_signal"].rsplit("/", 1)[1]) >= self.state["startup_signal_rows"]
+                 and (not cursor or signal_order(step["last_signal"]) > signal_order(cursor))]
         # Each accepted event is executed and checkpointed separately. Never
         # collapse a burst of entries/exits into its final net position.
         for step in steps:
@@ -208,13 +296,43 @@ class Monitor:
                 deadline = deadline.replace(second=0)
             if self.clock() >= deadline:
                 return
+            step["previous_position"] = self.state["positions"][step["strategy_code"]]
             delta = (step["new_position"] - step["previous_position"]) * step["unit"]
             if delta:
                 key = f"signal/{step['last_signal']}"
-                if not self.action(key, None, contract, deadline, delta=delta):
+                if not self.action(key, None, contract, deadline, delta=delta, step=step):
                     return
+            else:
+                self.event("signal_no_change", signal=step["last_signal"], strategy_code=step["strategy_code"])
+                self.notify(f"【永豐2｜收到EF訊號・無需下單】{step['strategy_code']}\n"
+                            f"JSON部位 {step['previous_position']} → {step['new_position']}，差額0口\n"
+                            f"訊號：{step['last_signal']}")
             self.state["source"] = step
             self.persist()
+
+    def report_blocked_signals(self, now: datetime, reason: str):
+        # A separate cursor consumes skipped signals without changing trading
+        # positions or the interrupted order. They must never become catch-up orders.
+        def order(value):
+            stamp, index = value.rsplit("/", 1)
+            return datetime.fromisoformat(stamp), int(index)
+
+        cursors = [value for value in (self.state.get("blocked_signal_cursor"),
+                   self.state.get("source", {}).get("last_signal")) if value]
+        cursor = max(cursors, key=order) if cursors else None
+        for step in self.source(now).get("steps", []):
+            signal = step["last_signal"]
+            if order(signal)[1] < self.state["startup_signal_rows"] or (cursor and order(signal) <= order(cursor)):
+                continue
+            self.state["blocked_signal_cursor"] = signal
+            self.persist()
+            cursor = signal
+            code = step["strategy_code"]
+            self.event("signal_blocked", signal=signal, strategy_code=code,
+                       new_position=step["new_position"], reason=reason)
+            self.notify(f"【永豐2｜收到EF訊號・暫停下單】{code}\n"
+                        f"訊號目標部位：{step['new_position']}；JSON保留：{self.state['positions'][code]}\n"
+                        f"原因：{reason}\n本筆未送單，不補單。\n訊號：{signal}")
 
     @staticmethod
     def session_deadline(now: datetime) -> datetime:
@@ -239,7 +357,8 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋04:59清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            "版本：one-shot-signals-v3；每次啟動只處理啟動後新訊號。\n"
+            "版本：json-positions-v5；12策略以JSON部位為準，重啟延續、不補舊單。\n"
+            "05:05確認空手；未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "04:59清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"
             "新訊號只送一次，不回查成交、不重試；啟動不補單，04:59送一次清倉委託。"
