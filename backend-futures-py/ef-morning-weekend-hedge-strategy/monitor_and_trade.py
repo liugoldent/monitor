@@ -19,6 +19,7 @@ from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_positio
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
+MAX_POSITION = 5
 sys.path.insert(0, str(BACKEND))
 from ef_trade_runtime import Notifications as SharedNotifications, append_order, save_state
 
@@ -298,6 +299,20 @@ class Monitor:
                 return
             step["previous_position"] = self.state["positions"][step["strategy_code"]]
             delta = (step["new_position"] - step["previous_position"]) * step["unit"]
+            projected = sum(self.state["positions"].values()) * step["unit"] + delta
+            if delta and abs(projected) > MAX_POSITION:
+                # Consume the signal, but keep positions for orders actually attempted.
+                # Otherwise a later exit could close a position we never opened.
+                self.state["source"] = step
+                self.persist()
+                self.event("signal_position_limit", signal=step["last_signal"],
+                           strategy_code=step["strategy_code"], delta=delta,
+                           projected_position=projected, max_position=MAX_POSITION)
+                self.notify(f"【永豐2｜收到EF訊號・超過5口上限】{step['strategy_code']}\n"
+                            f"預計淨部位 {projected:+d} 口，允許 -5～+5 口。\n"
+                            f"本筆只通知、不送單，JSON部位保留 {step['previous_position']}，不補單。\n"
+                            f"訊號：{step['last_signal']}")
+                continue
             if delta:
                 key = f"signal/{step['last_signal']}"
                 if not self.action(key, None, contract, deadline, delta=delta, step=step):
@@ -358,6 +373,7 @@ def main():
             "✅【開始監控｜永豐2 純EF＋04:59清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
             "版本：json-positions-v5；12策略以JSON部位為準，重啟延續、不補舊單。\n"
+            "新訊號JSON淨部位上限5口（多空皆適用）；超過只通知，04:59清倉不受上限限制。\n"
             "05:05確認空手；未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "04:59清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"

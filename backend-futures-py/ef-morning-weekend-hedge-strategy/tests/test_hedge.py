@@ -91,6 +91,44 @@ class SourceTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_position_limit_both_directions_and_flat_bypasses_limit(self):
+        m = self.monitor()
+        notices = []
+        m.notify = notices.append
+        codes = list(STRATEGIES)
+        for direction in (1, -1):
+            m.state["positions"] = dict.fromkeys(STRATEGIES, 0)
+            for code in codes[:4]:
+                m.state["positions"][code] = direction
+            self.actual = 4 * direction
+            self.orders.clear()
+            self.now += timedelta(seconds=1)
+            self.signal(0, direction, codes[4])
+            m.tick()
+            self.assertEqual(self.orders, [direction])
+            self.assertEqual(self.actual, 5 * direction)
+            self.now += timedelta(seconds=1)
+            self.signal(0, direction, codes[5])
+            m.tick()
+            m.tick()
+            self.assertEqual(self.orders, [direction])
+            self.assertEqual(m.state["positions"][codes[5]], 0)
+            self.assertIn("超過5口上限", notices[-1])
+            self.now += timedelta(seconds=1)
+            self.signal(direction, 0, codes[5])
+            m.tick()
+            self.assertEqual(self.orders, [direction])
+            self.now += timedelta(seconds=1)
+            self.signal(direction, 0, codes[4])
+            m.tick()
+            self.assertEqual(self.orders, [direction, -direction])
+        self.actual = 8
+        self.now = datetime(2026, 9, 15, 4, 59)
+        m.tick()
+        self.assertEqual(self.orders[-1], -8)
+        self.assertEqual(self.actual, 0)
+        self.assertIn("04:59清倉", notices[-1])
+
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
         m.state["positions"]["CFCTX21m"] = 1
