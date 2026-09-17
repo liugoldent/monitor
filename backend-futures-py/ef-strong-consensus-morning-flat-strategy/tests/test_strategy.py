@@ -26,6 +26,15 @@ def empty_positions() -> dict[str, int]:
 
 
 class ConsensusTests(unittest.TestCase):
+    def test_cfctx15_counts_towards_e_consensus(self):
+        positions = empty_positions()
+        positions["CFC07m"] = 1
+        positions[PORTFOLIO_F[0]] = positions[PORTFOLIO_F[1]] = 1
+        self.assertEqual(consensus_target(positions)[0], 0)
+        positions["CFCTX15m"] = 1
+        target, e_net, f_net, _ = consensus_target(positions)
+        self.assertEqual((target, e_net, f_net), (1, 2, 2))
+
     def test_requires_two_votes_in_each_group(self):
         positions = empty_positions()
         positions[PORTFOLIO_E[0]] = 1

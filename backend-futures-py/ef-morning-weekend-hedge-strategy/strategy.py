@@ -11,6 +11,7 @@ from pathlib import Path
 STRATEGIES = (
     "CFC07m", "CFCTX17m", "CFCTX18m", "CFCTX19m", "CFCTX20m", "CFCTX21m",
     "CFCWIN01m", "CFCPW3m", "CFCCPm", "CFCTX16m", "CFCTX22m", "CFCTX23m",
+    "CFCTX15m",
 )
 
 
@@ -80,7 +81,7 @@ class Calendar:
 
 
 def signal_position(path: Path, now: datetime, unit: int = 1) -> dict:
-    """Estimate from all 12 latest dated states; never infer missing legs as flat."""
+    """Estimate from all latest dated states; never infer missing legs as flat."""
     unit = integer(unit)
     if not 1 <= unit <= 20:
         raise ValueError("每策略口數必須介於 1 與 20")

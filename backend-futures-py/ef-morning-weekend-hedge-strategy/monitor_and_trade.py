@@ -98,8 +98,12 @@ class Monitor:
             self.state["positions"] = self.state.get("day_signal_positions", dict.fromkeys(STRATEGIES, 0)).copy()
             self.state["last_reset_cycle"] = self.state.get("flat_cycle") or (closure.start.isoformat() if closure else "initial")
             self.state["migration"] = "v5_from_saved_snapshot"
+        # Upgrade the former 12-leg snapshot without changing tracked holdings
+        # or replaying old signals. This new leg has no orders tracked yet.
+        if set(self.state["positions"]) == set(STRATEGIES) - {"CFCTX15m"}:
+            self.state["positions"]["CFCTX15m"] = 0
         if set(self.state["positions"]) != set(STRATEGIES):
-            raise ValueError("JSON positions 必須包含全部12個策略")
+            raise ValueError(f"JSON positions 必須包含全部{len(STRATEGIES)}個策略")
         for code, value in self.state["positions"].items():
             if integer(value) not in {-1, 0, 1}:
                 raise ValueError(f"JSON {code} 部位必須是 -1/0/1")
@@ -212,9 +216,9 @@ class Monitor:
         self.state.pop("reset_check_after", None)
         self.persist()
         self.event("daily_reset", previous_positions=previous, cycle=cycle, confirmed_flat=confirmed)
-        self.notify("【永豐2】已確認TMF空手，12個策略JSON部位已歸零。" if confirmed else
+        self.notify(f"【永豐2】已確認TMF空手，{len(STRATEGIES)}個策略JSON部位已歸零。" if confirmed else
                     "🚨【永豐2｜人工清倉待辦】券商庫存尚未確認空手，請手動核對並清倉。"
-                    "\n新交易時段已開始，12策略JSON已歸零並恢復新訊號；這不代表實際庫存已清空。")
+                    f"\n新交易時段已開始，{len(STRATEGIES)}策略JSON已歸零並恢復新訊號；這不代表實際庫存已清空。")
         return True
 
     def action(self, key: str, target: int | None, contract: str, deadline: datetime,
@@ -394,7 +398,7 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            "版本：json-positions-v5；12策略以JSON部位為準，重啟延續、不補舊單。\n"
+            f"版本：json-positions-v5；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
             f"新訊號JSON淨部位上限{MAX_POSITION}口（多空皆適用）；超過只通知，01:00清倉不受上限限制。\n"
             "05:05確認空手；未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "01:00清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"

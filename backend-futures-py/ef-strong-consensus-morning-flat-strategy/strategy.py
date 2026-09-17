@@ -18,6 +18,7 @@ PORTFOLIO_E = (
     "CFCTX19m",
     "CFCTX20m",
     "CFCTX21m",
+    "CFCTX15m",
 )
 PORTFOLIO_F = (
     "CFCWIN01m",

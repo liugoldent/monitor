@@ -18,6 +18,24 @@ from telegram_signal_relay import _discord_chunks, classify_signal
 
 
 class TelegramSignalRelayTests(unittest.TestCase):
+    def test_cfctx15_records_transitions_and_reports_portfolio_e(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(relay, "EF_SIGNAL_LOG_PATH", root / "signals.csv"), \
+                 patch.object(relay, "EF_POSITION_EVENT_PATH", root / "positions.csv"), \
+                 patch.object(relay, "_latest_mxf_close", return_value=46000), \
+                 patch.object(relay, "_latest_mxf_chips", return_value=(0, 0, 0)):
+                stamp = datetime(2026, 9, 16, 9, tzinfo=ZoneInfo("Asia/Taipei"))
+                for index, (previous, new) in enumerate(((0, 1), (1, -1), (-1, 0))):
+                    message = f"訊號通知《策略》CFCTX15m《倉位》{previous} -> {new}"
+                    self.assertEqual(classify_signal(message), "ef")
+                    self.assertTrue(relay.record_ef_signal(message, stamp, f"15:{index}"))
+                    self.assertEqual(relay._latest_ef_event_positions()["CFCTX15m"], new)
+                    notice = relay.build_ef_discord_message(message, stamp)
+                    self.assertIn("贏家E投組。財神列車15號(CFCTX15m)", notice)
+                with (root / "signals.csv").open(encoding="utf-8", newline="") as handle:
+                    self.assertEqual([row["new_position"] for row in csv.DictReader(handle)], ["1", "-1", "0"])
+
     def test_classifies_h_signal(self):
         self.assertEqual(classify_signal("浩克3V3訊號通知\n目前方向：多"), "h")
 

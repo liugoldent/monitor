@@ -59,6 +59,7 @@ MESSAGE_TIME_PATTERN = re.compile(
 STRATEGY_ALIASES = {"CFCWN01m": "CFCWIN01m"}
 STRATEGY_NAMES = {
     "CFC07m": "財神列車7號",
+    "CFCTX15m": "財神列車15號",
     "CFCTX17m": "財神列車17號",
     "CFCTX18m": "財神列車18號",
     "CFCTX19m": "財神列車19號",
@@ -72,6 +73,7 @@ STRATEGY_NAMES = {
     "CFCTX23m": "財神列車23號",
 }
 PORTFOLIO_E = {
+    "CFCTX15m",
     "CFC07m", "CFCTX17m", "CFCTX18m", "CFCTX19m", "CFCTX20m", "CFCTX21m",
 }
 EF_SIGNAL_FIELDS = [

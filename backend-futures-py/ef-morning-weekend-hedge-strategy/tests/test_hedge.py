@@ -102,6 +102,29 @@ class SourceTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_twelve_strategy_upgrade_preserves_positions_and_accepts_cfctx15(self):
+        m = self.monitor()
+        del m.state["positions"]["CFCTX15m"]
+        m.state["positions"]["CFC07m"] = 1
+        m.persist()
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["positions"]["CFC07m"], 1)
+        self.assertEqual(restarted.state["positions"]["CFCTX15m"], 0)
+        self.execute.assert_not_called()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1, "CFCTX15m")
+        restarted.tick()
+        restarted.tick()
+        self.assertEqual(self.orders, [1])
+        self.assertEqual(restarted.state["positions"]["CFCTX15m"], 1)
+
+    def test_upgrade_does_not_hide_missing_existing_strategy(self):
+        m = self.monitor()
+        del m.state["positions"]["CFC07m"]
+        m.persist()
+        with self.assertRaises(ValueError):
+            self.monitor()
+
     def test_schedule_upgrade_keeps_current_session_positions(self):
         m = self.monitor()
         m.state["last_reset_cycle"] = "2026-09-12T04:59:00"
