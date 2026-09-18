@@ -155,7 +155,7 @@ class ReconciliationTests(unittest.TestCase):
         self.assertNotIn("pending", self.guard)
         self.assertEqual(self.api.orders, [])
 
-    def test_two_signal_rows_keep_order_and_use_new_broker_inventory(self):
+    def test_hysteresis_holds_at_one_vote_then_exits_at_zero(self):
         import tempfile
         from datetime import datetime
         import monitor_and_trade as monitor
@@ -167,10 +167,15 @@ class ReconciliationTests(unittest.TestCase):
         rows = [dict(received_at="2026-09-15 22:30:16", strategy_code=PORTFOLIO_F[1],
                      previous_position="0", new_position="1"),
                 dict(received_at="2026-09-15 22:30:36", strategy_code=PORTFOLIO_F[0],
+                     previous_position="1", new_position="0"),
+                dict(received_at="2026-09-15 22:30:56", strategy_code=PORTFOLIO_F[1],
                      previous_position="1", new_position="0")]
         def execute(target, **kwargs):
-            return adapter.execute_target_position(target, api=self.api, sj=self.sj,
-                                                   strict_tmf=True, **kwargs)
+            checkpoint = kwargs.pop("on_submitted")
+            result = adapter.execute_target_position(target, api=self.api, sj=self.sj,
+                                                     strict_tmf=True, submission_only=True, **kwargs)
+            checkpoint(result)
+            return result
         with tempfile.TemporaryDirectory() as directory, patch.object(
             monitor, "STATE_PATH", Path(directory) / "state.json"
         ), patch.object(monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"), patch.object(
@@ -181,9 +186,51 @@ class ReconciliationTests(unittest.TestCase):
             monitor.process_live_rows(state, rows, 2)
             persisted = json.loads((Path(directory) / "state.json").read_text(encoding="utf-8"))
         self.assertEqual([(o.action, o.quantity) for o in self.api.orders], [("Buy", 1), ("Sell", 1)])
-        self.assertEqual(persisted["live_source_row_count"], 2)
+        self.assertEqual(persisted["live_source_row_count"], 3)
         self.assertEqual(persisted["live_target_position"], 0)
-        self.assertEqual(persisted["last_confirmed_broker_position"], 0)
+        # The middle hold signal performs a no-order reconciliation at +1.
+        # The final sell is submission-only, so +1 remains the last confirmed inventory.
+        self.assertEqual(persisted["last_confirmed_broker_position"], 1)
+        self.assertEqual(persisted["attempt"]["status"], "submitted")
+
+    def test_demo_submission_does_not_poll_or_claim_fill(self):
+        self.api.status = "Submitted"
+        self.api.update_status = Mock()
+        original = self.api.place_order
+        self.api.place_order = Mock(side_effect=original)
+        result = adapter.execute_target_position(1, api=self.api, sj=self.sj,
+            strict_tmf=True, submission_only=True, guard=self.guard)
+        self.assertFalse(result.confirmed)
+        self.assertIsNone(result.actual_position)
+        self.assertEqual(self.api.place_order.call_args.kwargs["timeout"], 0)
+        self.api.update_status.assert_called_once()  # Pre-order only.
+        self.assertNotIn("pending", self.guard)
+
+    def test_logout_termination_preserves_monitor_submission_without_false_fill(self):
+        import tempfile
+        from datetime import datetime
+        import monitor_and_trade as monitor
+        real_execute = auto_trade.execute_target_position
+        self.api.logout = Mock(side_effect=SystemExit("native termination"))
+        self.api.status = "Submitted"
+        now = datetime(2026, 9, 18, 10)
+        def execute(target, **kwargs):
+            return real_execute(target, sj=self.sj, clock=lambda: now, **kwargs)
+        state = {}
+        with tempfile.TemporaryDirectory() as folder, patch.object(
+            monitor, "STATE_PATH", Path(folder) / "state.json"
+        ), patch.object(monitor, "ORDER_ATTEMPT_PATH", Path(folder) / "orders.csv"), patch.object(
+            monitor, "now_local", return_value=now
+        ), patch.object(monitor, "env_flag", return_value=True), patch.object(
+            monitor, "execute_target_position", side_effect=execute
+        ), patch.object(auto_trade, "_login", return_value=self.api):
+            with self.assertRaises(SystemExit):
+                monitor.execute_live_target(state, 1, trigger="test-signal")
+            restored = json.loads((Path(folder) / "state.json").read_text())
+            self.assertEqual(restored["attempt"]["status"], "submitted")
+            self.assertNotIn("last_confirmed_broker_position", restored)
+            self.assertIn("不重送", monitor.execute_live_target(restored, 1, trigger="test-signal"))
+            self.assertEqual(len(self.api.orders), 1)
 
 
 if __name__ == "__main__":

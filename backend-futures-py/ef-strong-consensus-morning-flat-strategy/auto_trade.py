@@ -1,4 +1,4 @@
-"""Verified Shioaji adapter for EF strong consensus + 01:00 morning flat.
+"""One-shot Shioaji adapter for EF Hysteresis + 01:00 morning flat.
 
 The order reconciliation implementation is shared by active TMF strategies.
 This strategy uses the primary API credential pair selected by the operator.
@@ -19,12 +19,13 @@ BACKEND_DIR = BASE_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 from ef_trade_runtime import now_local, order_deadline, check_order_deadline
 SHARED_ADAPTER_PATH = BACKEND_DIR / "shioaji_tmf_target.py"
-POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
+POSITION_UNIT_ENV = "EF_HYSTERESIS_MORNING_FLAT_POSITION_UNIT"
+LEGACY_POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
 
 
 def _load_shared_adapter():
-    module_name = "_shioaji_tmf_target_shared_for_ef_strong_morning_flat"
+    module_name = "_shioaji_tmf_target_shared_for_ef_hysteresis_morning_flat"
     existing = sys.modules.get(module_name)
     if existing is not None:
         return existing
@@ -52,7 +53,7 @@ def _required_env(name: str) -> str:
 
 def _position_unit() -> int:
     try:
-        unit = int(os.getenv(POSITION_UNIT_ENV, "1"))
+        unit = int(os.getenv(POSITION_UNIT_ENV) or os.getenv(LEGACY_POSITION_UNIT_ENV, "1"))
     except ValueError as exc:
         raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數") from exc
     if not 1 <= unit <= MAX_POSITION_UNIT:
@@ -65,7 +66,7 @@ def _login(sj: Any) -> Any:
     if not ca_path.is_file():
         raise FileNotFoundError(f"找不到永豐憑證檔: {ca_path}")
 
-    api = sj.Shioaji(simulation=False)
+    api = sj.Shioaji(simulation=True)
     api.login(_required_env("API_KEY"), _required_env("SECRET_KEY"))
     person_id = _required_env("PERSON_ID")
     api.activate_ca(
@@ -85,20 +86,28 @@ def execute_target_position(
     clock=now_local,
     guard: dict | None = None,
     persist_guard=None,
+    on_submitted=None,
 ) -> OrderResult:
-    """Reconcile API_KEY's real TMF position to the one-contract target."""
+    """Read API_KEY inventory, submit the target delta once, checkpoint before logout."""
     unit = _position_unit()
     if target_position not in {-unit, 0, unit} or isinstance(target_position, bool):
         raise ValueError(
-            f"強共識實單目標只能是-{unit}、0或{unit}口，目前為{target_position!r}"
+            f"Hysteresis實單目標只能是-{unit}、0或{unit}口，目前為{target_position!r}"
         )
     deadline = deadline or order_deadline(clock(), target_position)
     def check_deadline():
         check_order_deadline(deadline, clock, BrokerOrderError)
-    tracking = {} if guard is None else {"guard": guard, "persist_guard": persist_guard}
+    tracking = {"submission_only": True}
+    if guard is not None:
+        tracking.update(guard=guard, persist_guard=persist_guard)
+    def submit(api):
+        result = _shared.execute_target_position(target_position, api=api, sj=sj,
+                                                before_order=check_deadline, strict_tmf=True, **tracking)
+        if on_submitted is not None:
+            on_submitted(result)
+        return result
     if api is not None:
-        return _shared.execute_target_position(target_position, api=api, sj=sj,
-                                              before_order=check_deadline, strict_tmf=True, **tracking)
+        return submit(api)
     if sj is None:
         try:
             import shioaji as sj  # type: ignore[no-redef]
@@ -107,10 +116,11 @@ def execute_target_position(
 
     api = _login(sj)
     try:
-        return _shared.execute_target_position(target_position, api=api, sj=sj,
-                                              before_order=check_deadline, strict_tmf=True, **tracking)
+        return submit(api)
     finally:
         try:
+            print("登出開始", flush=True)
             api.logout()
+            print("登出完成", flush=True)
         except Exception:
             pass

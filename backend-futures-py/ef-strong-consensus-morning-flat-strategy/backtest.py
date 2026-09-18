@@ -12,8 +12,6 @@ from strategy import (
     ALL_STRATEGIES,
     PriceBar,
     SignalEvent,
-    consensus_target,
-    evaluate_event,
     load_price_bars,
     load_signal_rows,
     morning_boundaries,
@@ -21,6 +19,7 @@ from strategy import (
     parse_signal_row,
     parse_time,
 )
+from hysteresis_strategy import evaluate_hysteresis_event, hysteresis_target
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -95,6 +94,7 @@ def run(
     start: datetime,
     end: datetime,
     threshold: int,
+    hold_threshold: int = 1,
 ) -> Result:
     eligible_bars = [bar for bar in bars if start <= bar.bar_time <= end]
     if not eligible_bars:
@@ -107,7 +107,12 @@ def run(
             break
         raw_positions[event.strategy_code] = event.new_position
 
-    position = consensus_target(raw_positions, threshold)[0]
+    position = hysteresis_target(
+        raw_positions,
+        0,
+        entry_threshold=threshold,
+        hold_threshold=hold_threshold,
+    )[0]
     entry_price: float | None = first_bar.open if position else None
     realized = 0.0
     peak = 0.0
@@ -145,12 +150,13 @@ def run(
                 target = 0
             else:
                 assert event is not None
-                decision = evaluate_event(
+                decision = evaluate_hysteresis_event(
                     raw_positions,
                     position,
                     event,
                     fill_bar,
-                    threshold=threshold,
+                    entry_threshold=threshold,
+                    hold_threshold=hold_threshold,
                 )
                 target = decision.target_position
             if target != position:
@@ -253,13 +259,14 @@ def max_consecutive_negative(values: list[float]) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Backtest EF strong consensus with 01:00 morning flatten"
+        description="Backtest EF Hysteresis consensus with 01:00 morning flatten"
     )
     parser.add_argument("--signals", type=Path, default=DEFAULT_SIGNALS)
     parser.add_argument("--prices", type=Path, default=DEFAULT_PRICES)
     parser.add_argument("--start", default="2026-06-24 00:00:00")
     parser.add_argument("--end", required=True)
     parser.add_argument("--threshold", type=int, default=2)
+    parser.add_argument("--hold-threshold", type=int, default=1)
     parser.add_argument(
         "--one-way-cost",
         type=float,
@@ -284,6 +291,7 @@ def main() -> None:
         start=start,
         end=end,
         threshold=args.threshold,
+        hold_threshold=args.hold_threshold,
     )
     estimated_net = result.total - result.turnover * args.one_way_cost
     win_rate = (
@@ -295,6 +303,7 @@ def main() -> None:
     print(
         f"period={start}..{end} event_time=received_at fill=next_minute_open "
         f"untimed_skipped={untimed} duplicate_events={duplicate_events} "
+        f"entry_threshold={args.threshold} hold_threshold={args.hold_threshold} "
         f"one_way_cost_points={args.one_way_cost:g} point_value={args.point_value:g}"
     )
     print(

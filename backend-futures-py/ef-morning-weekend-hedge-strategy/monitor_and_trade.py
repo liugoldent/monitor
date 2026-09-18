@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import faulthandler
 import json
 import os
 import sys
@@ -14,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from filelock import FileLock
 
-from auto_trade import execute_target_position, confirm_flat
+from auto_trade import execute_target_position, confirm_flat, confirm_target
 from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_position
 
 BASE = Path(__file__).resolve().parent
@@ -69,7 +70,8 @@ def signal_message(step: dict) -> str:
 
 class Monitor:
     def __init__(self, *, root=BASE, live=False, source=None, executor=None,
-                 notify=None, clock=now_local, calendar_path=None, flat_checker=None):
+                 notify=None, clock=now_local, calendar_path=None, flat_checker=None,
+                 recovery_checker=None):
         self.root, self.live, self.clock = Path(root), live, clock
         self.mode = "live" if live else "shadow"
         self.path = self.root / "runtime" / f"{self.mode}_state.json"
@@ -93,6 +95,7 @@ class Monitor:
         calendar = Calendar.load(self.calendar_path)
         closure = latest_closure(calendar, started)
         self.flat_checker = flat_checker or (confirm_flat if live else lambda: True)
+        self.recovery_checker = recovery_checker or (confirm_target if live else lambda target: False)
         # One-time v4 migration takes the saved snapshot, never replays CSV.
         if "positions" not in self.state:
             self.state["positions"] = self.state.get("day_signal_positions", dict.fromkeys(STRATEGIES, 0)).copy()
@@ -141,6 +144,12 @@ class Monitor:
                 if key not in {"positions", "net_position"}
             }
         save(self.path, self.state)
+
+    def target_heading(self, step: dict | None = None) -> str:
+        # Report accepted JSON intent, never an over-limit projection or broker inventory.
+        target = sum(self.state["positions"].values()) * step["unit"] if step is not None else 0
+        position = f"{'多' if target > 0 else '空'}{abs(target)}口" if target else "空手（0口）"
+        return f"[策略目標部位：{position}]\n"
 
     def event(self, kind: str, **data):
         self.records.parent.mkdir(parents=True, exist_ok=True)
@@ -244,14 +253,22 @@ class Monitor:
             append_order(self.root / "records" / f"{self.mode}_order_attempts.csv",
                          clock=self.clock, attempt_id=attempt["id"], event=event,
                          trigger=key, **data)
+        def checkpoint(result):
+            attempt["status"] = "submitted" if result.submitted else "no_order_needed"
+            attempt["submission_returned_at"] = self.clock().isoformat()
+            self.persist()
+            record(attempt["status"], side=result.side or "", quantity=result.quantity,
+                   detail="API已返回，已於登出前保存；不代表成交確認")
         try:
             record("submission_attempt", detail=label)
             if self.live:
-                result = self.execute(target, delta=delta, deadline=deadline, clock=self.clock)
+                kwargs = {"on_submitted": checkpoint} if self.execute is execute_target_position else {}
+                result = self.execute(target, delta=delta, deadline=deadline, clock=self.clock, **kwargs)
                 detail = (f"已送出{'買進' if result.side == 'buy' else '賣出'} TMF {result.quantity} 口委託"
                           if result.submitted else "查詢庫存為空手，無需送單")
                 attempt["status"] = "submitted" if result.submitted else "no_order_needed"
-                record(attempt["status"], side=result.side or "", quantity=result.quantity, detail=detail)
+                if "submission_returned_at" not in attempt:
+                    record(attempt["status"], side=result.side or "", quantity=result.quantity, detail=detail)
             else:
                 detail = "影子模式，未送實單"
                 attempt["status"] = "shadow"
@@ -266,8 +283,38 @@ class Monitor:
         self.persist()
         self.event(attempt["status"], key=key, detail=detail, signal=step)
         source_text = signal_message(step) + "\n" if step is not None else ""
-        self.notify(f"【永豐2｜單次委託】{label}\n{source_text}{detail}\n觸發：{key}")
+        self.notify(self.target_heading(step) + f"【永豐2｜單次委託】{label}\n{source_text}{detail}\n觸發：{key}")
         return True
+
+    def recover_interrupted(self, now):
+        attempt = self.state.get("attempt", {})
+        if attempt.get("status") != "attempted" or not attempt.get("key", "").startswith("signal/"):
+            return
+        target = None
+        failure = None
+        try:
+            unit = integer(self.state.get("source", {}).get("unit", os.getenv("EF_HEDGE_SOURCE_UNIT", "1")))
+            if unit <= 0:
+                raise ValueError("口數倍率必須大於0")
+            target = sum(self.state["positions"].values()) * unit
+            if not self.recovery_checker(target):
+                raise ValueError("TMF實際庫存與JSON目標不一致")
+        except Exception as exc:
+            failure = str(exc)
+        # Consume the interrupted attempt permanently even when reconciliation fails.
+        # Keep JSON intent and existing cursors; subsequent new signals may proceed.
+        attempt["status"] = "recovery_skipped_no_retry" if failure else "broker_reconciled"
+        attempt["reconciled_at"] = self.clock().isoformat()
+        attempt["reconciled_target"] = target
+        if failure:
+            attempt["recovery_warning"] = failure
+        self.state.pop("blocked_reason", None)
+        self.persist()
+        self.event(attempt["status"], target=target, key=attempt["key"], reason=failure)
+        if failure:
+            self.notify(f"【永豐2｜中斷委託核對未通過】{failure}\n中斷那筆不重送、不補單，保留JSON部位；後續新訊號繼續處理，維持JSON淨部位±2口限制。")
+        else:
+            self.notify(f"【永豐2｜恢復接收新單】TMF庫存與JSON目標 {target:+d} 口一致，且無未結TMF委託。中斷那筆不補單。")
 
     def tick(self, now: datetime | None = None):
         now = now or self.clock()
@@ -299,6 +346,8 @@ class Monitor:
             return
         if not calendar.is_open(now) or now >= self.session_deadline(now):
             return
+        if self.state.get("blocked_reason"):
+            self.recover_interrupted(now)
         if self.state.get("blocked_reason"):
             self.alert(self.state["blocked_reason"] + "；暫停新單")
             self.report_blocked_signals(now, self.state["blocked_reason"])
@@ -334,7 +383,7 @@ class Monitor:
                 self.event("signal_position_limit", signal=step["last_signal"],
                            strategy_code=step["strategy_code"], delta=delta,
                            projected_position=projected, max_position=MAX_POSITION)
-                self.notify(f"【永豐2｜收到EF訊號・超過{MAX_POSITION}口上限】\n{signal_message(step)}\n"
+                self.notify(self.target_heading(step) + f"【永豐2｜收到EF訊號・超過{MAX_POSITION}口上限】\n{signal_message(step)}\n"
                             f"預計淨部位 {projected:+d} 口，允許 -{MAX_POSITION}～+{MAX_POSITION} 口。\n"
                             f"本筆只通知、不送單，JSON部位保留 {step['previous_position']}，不補單。\n"
                             f"訊號：{step['last_signal']}")
@@ -345,7 +394,7 @@ class Monitor:
                     return
             else:
                 self.event("signal_no_change", signal=step["last_signal"], strategy_code=step["strategy_code"])
-                self.notify(f"【永豐2｜收到EF訊號・無需下單】\n{signal_message(step)}\n"
+                self.notify(self.target_heading(step) + f"【永豐2｜收到EF訊號・無需下單】\n{signal_message(step)}\n"
                             f"JSON部位 {step['previous_position']} → {step['new_position']}，差額0口\n"
                             f"訊號：{step['last_signal']}")
             self.state["source"] = step
@@ -371,7 +420,7 @@ class Monitor:
             code = step["strategy_code"]
             self.event("signal_blocked", signal=signal, strategy_code=code,
                        new_position=step["new_position"], reason=reason)
-            self.notify(f"【永豐2｜收到EF訊號・暫停下單】\n{signal_message(step)}\n"
+            self.notify(self.target_heading(step) + f"【永豐2｜收到EF訊號・暫停下單】\n{signal_message(step)}\n"
                         f"訊號目標部位：{step['new_position']}；JSON保留：{self.state['positions'][code]}\n"
                         f"原因：{reason}\n本筆未送單，不補單。\n訊號：{signal}")
 
@@ -385,6 +434,7 @@ class Monitor:
 
 
 def main():
+    faulthandler.enable(all_threads=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="執行一次目前時鐘檢查")
     args = parser.parse_args()

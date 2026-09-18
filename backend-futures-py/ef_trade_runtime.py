@@ -80,6 +80,9 @@ def position_text(value):
 
 
 def result_text(result):
+    if not getattr(result, "confirmed", True):
+        return (f"已呼叫{'買進' if result.side == 'buy' else '賣出'} TMF {result.quantity}口委託；"
+                "API已返回，未回查成交，不自動重送")
     if result.quantity:
         return (f"✅ 已送{'買進' if result.side == 'buy' else '賣出'} TMF {result.quantity}口；"
                 f"實際部位{position_text(result.previous_position)} → "
@@ -93,7 +96,8 @@ def execution_message(label, mode, trigger, target, detail, *, clock=now_local):
             f"模式：{mode}\n觸發：{trigger}\n執行：{detail}")
 
 
-def perform_order(state, *, key, target, persist, execute, record, clock=now_local):
+def perform_order(state, *, key, target, persist, execute, record, clock=now_local,
+                  execute_checkpointed=None):
     """Persist intent before calling the broker; uncertain attempts require reconciliation."""
     if state.get("attempt", {}).get("status") in {"pending", "failed"}:
         raise RuntimeError("仍有未確認委託；請對帳後使用 --retry-failed")
@@ -103,20 +107,27 @@ def perform_order(state, *, key, target, persist, execute, record, clock=now_loc
     def event(kind, **data):
         record(attempt_id=attempt["id"], event=kind, trigger=key,
                target_position=target, **data)
+    completed = False
+    def checkpoint(result):
+        nonlocal completed
+        if completed:
+            return
+        confirmed = getattr(result, "confirmed", True)
+        if confirmed and result.actual_position != target:
+            raise RuntimeError("券商實際部位未達目標")
+        event(("order_sent_confirmed" if confirmed else "submitted") if result.quantity else "no_order_needed",
+              previous_position=result.previous_position, actual_position=result.actual_position,
+              side=result.side or "", quantity=result.quantity, detail=result_text(result))
+        attempt["status"] = "done" if confirmed else "submitted"
+        if persist() is False:
+            raise OSError("送單後狀態無法安全寫入，請對帳")
+        completed = True
     try:
         if persist() is False:
             raise OSError("狀態檔無法安全寫入，基於安全未送單")
         event("attempt_started", detail="準備登入永豐、查詢TMF部位並對帳")
-        result = execute()
-        if result.actual_position != target:
-            raise RuntimeError("券商實際部位未達目標")
-        # Keep pending until the confirmation audit is durable.
-        event("order_sent_confirmed" if result.quantity else "no_order_needed",
-              previous_position=result.previous_position, actual_position=result.actual_position,
-              side=result.side or "", quantity=result.quantity, detail=result_text(result))
-        attempt["status"] = "done"
-        if persist() is False:
-            raise OSError("成交後狀態無法安全寫入，請對帳")
+        result = execute_checkpointed(checkpoint) if execute_checkpointed else execute()
+        checkpoint(result)
         return result
     except Exception as exc:
         attempt["status"] = "failed"

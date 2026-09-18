@@ -62,6 +62,7 @@ services:
       - ./backend-futures-py/tv/_doc:/app/backend-futures-py/tv/_doc
 
   ef-strong-consensus-morning-flat-strategy:
+    # Legacy service identifier retained so runtime/order state is reused.
     build:
       context: .
     container_name: monitor-ef-strong-consensus-morning-flat-strategy
@@ -72,7 +73,7 @@ services:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
       CA_PATH: /app/backend-futures-py/Sinopac.pfx
-      EF_STRONG_MORNING_FLAT_ENABLE_ORDERS: "true"
+      EF_HYSTERESIS_MORNING_FLAT_ENABLE_ORDERS: "true"
     depends_on:
       - telegram-signal-relay
       - webhook-server

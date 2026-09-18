@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -33,7 +34,7 @@ def login(sj: Any):
     ca = Path(os.getenv("CA_PATH2") or os.getenv("CA_PATH") or BACKEND_DIR / "Sinopac.pfx")
     if not ca.is_file():
         raise FileNotFoundError(f"找不到憑證 {ca}")
-    api = sj.Shioaji(simulation=False)
+    api = sj.Shioaji(simulation=True)
     try:
         api.login(key, secret)
         api.activate_ca(ca_path=str(ca), ca_passwd=person, person_id=person)
@@ -44,6 +45,24 @@ def login(sj: Any):
     except Exception:
         api.logout()
         raise
+
+
+def confirm_target(target: int, *, api: Any = None, sj: Any = None, sleep=time.sleep) -> bool:
+    """Read-only recovery: wait, refresh orders, then compare TMF inventory."""
+    owned = api is None
+    if owned:
+        if sj is None:
+            import shioaji as sj
+        api = login(sj)
+    try:
+        sleep(1)
+        _shared._refresh_status(api)
+        positions = _shared._read_positions(api)
+        _shared.validate_tmf_account(api, positions)
+        return _shared._net_position(positions) == target
+    finally:
+        if owned:
+            api.logout()
 
 
 def confirm_flat(*, api: Any = None, sj: Any = None) -> bool:
@@ -68,7 +87,8 @@ def confirm_flat(*, api: Any = None, sj: Any = None) -> bool:
 
 def execute_target_position(target: int | None, *, deadline: datetime,
                             clock: Callable[[], datetime], api: Any = None,
-                            sj: Any = None, delta: int | None = None):
+                            sj: Any = None, delta: int | None = None,
+                            on_submitted=None):
     """Submit once. Signals use their delta directly; flat queries inventory once."""
     if delta is not None:
         if isinstance(delta, bool) or not isinstance(delta, int) or not 1 <= abs(delta) <= 40:
@@ -87,21 +107,32 @@ def execute_target_position(target: int | None, *, deadline: datetime,
             delta = -_shared.current_tmf_position(api)
         from types import SimpleNamespace
         if delta == 0:
-            return SimpleNamespace(side=None, quantity=0, submitted=False)
+            result = SimpleNamespace(side=None, quantity=0, submitted=False)
+            if on_submitted is not None:
+                on_submitted(result)
+            return result
         side, quantity = ("buy" if delta > 0 else "sell"), abs(delta)
         order = _shared._build_order(api, sj, side, quantity)
         contract = _shared._contract(api)
         check_order_deadline(deadline, clock, BrokerOrderError)
-        trade = api.place_order(contract, order, timeout=_shared.ORDER_TIMEOUT_MS)
+        print(f"委託內容 TMFR1 {side} {quantity}口 MKT IOC Auto", flush=True)
+        trade = api.place_order(contract, order, timeout=0)
+        print(f"委託回傳狀態：{_shared._status_text(trade)}（非成交確認）", flush=True)
         if trade is None:
             raise BrokerOrderError("送單未取得回傳")
         if _shared._status_text(trade).lower() in {"failed", "inactive"}:
             raise BrokerOrderError("券商即時回覆拒絕委託")
         # A returned order is submission acknowledgement, never proof of fill.
-        return SimpleNamespace(side=side, quantity=quantity, submitted=True, trade=trade)
+        result = SimpleNamespace(side=side, quantity=quantity, submitted=True, trade=trade)
+        # Persist the API return BEFORE SDK cleanup can crash or hang.
+        if on_submitted is not None:
+            on_submitted(result)
+        return result
     finally:
         if owned:
             try:
+                print("登出開始", flush=True)
                 api.logout()
+                print("登出完成", flush=True)
             except Exception:
                 pass

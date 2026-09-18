@@ -28,10 +28,11 @@ class BrokerOrderError(RuntimeError):
 class OrderResult:
     previous_position: int
     target_position: int
-    actual_position: int
+    actual_position: int | None
     side: str | None
     quantity: int
     trade: Any = None
+    confirmed: bool = True
 
     @property
     def order_sent(self) -> bool:
@@ -247,7 +248,8 @@ def _login(sj: Any) -> Any:
 def execute_target_position(target_position: int, *, api: Any = None, sj: Any = None,
                             before_order: Callable[[], None] | None = None,
                             strict_tmf: bool = False, guard: dict | None = None,
-                            persist_guard: Callable[[], None] | None = None) -> OrderResult:
+                            persist_guard: Callable[[], None] | None = None,
+                            submission_only: bool = False) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
@@ -291,15 +293,25 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
                 guard.pop("pending")  # The broker has not been called.
                 persist_guard()
                 raise
-        trade = api.place_order(contract, order, timeout=ORDER_TIMEOUT_MS)
+        print(f"委託內容 TMFR1 {side} {quantity}口 MKT IOC Auto", flush=True)
+        trade = api.place_order(contract, order, timeout=0 if submission_only else ORDER_TIMEOUT_MS)
+        print(f"委託回傳狀態：{_status_text(trade)}（非成交確認）", flush=True)
+        if trade is None:
+            raise BrokerOrderError("送單未取得回傳")
         guard["pending"]["trade_id"] = _trade_id(trade)
         persist_guard()
 
-        _refresh_status(api, trade=trade)
+        if not submission_only:
+            _refresh_status(api, trade=trade)
         status = _status_text(trade).lower()
         if status in {"failed", "inactive"}:
             message = _status_message(trade) or "券商未接受委託"
             raise BrokerOrderError(f"永豐委託失敗（{_status_text(trade)}）：{message}")
+
+        if submission_only:
+            guard["last_submission"] = dict(guard.pop("pending"), status="api_returned")
+            persist_guard()
+            return OrderResult(previous, target_position, None, side, quantity, trade, confirmed=False)
 
         actual = _verify_target_position(api, target_position, trade)
         _resolve_pending(api, guard, persist_guard)

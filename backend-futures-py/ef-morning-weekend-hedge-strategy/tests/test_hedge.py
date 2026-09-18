@@ -102,6 +102,42 @@ class SourceTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_interrupted_mismatch_warns_once_and_allows_new_signals(self):
+        m = self.monitor()
+        m.state["attempt"] = {"status": "attempted", "key": "signal/old"}
+        m.state["blocked_reason"] = "interrupted"
+        m.recovery_checker = Mock(return_value=False)
+        m.notify = Mock()
+        m.recover_interrupted(self.now)
+        m.recover_interrupted(self.now)
+        m.recovery_checker.assert_called_once()
+        self.assertNotIn("blocked_reason", m.state)
+        m.notify.assert_called_once()
+        self.assertEqual(m.state["attempt"]["status"], "recovery_skipped_no_retry")
+        self.assertEqual(self.orders, [])
+        saved = json.loads(m.path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["attempt"]["status"], "recovery_skipped_no_retry")
+        restarted = self.monitor()
+        self.assertNotIn("blocked_reason", restarted.state)
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
+        restarted.tick()
+        self.assertEqual(self.orders, [1])
+
+    def test_interrupted_recovery_success_or_query_error_resumes(self):
+        for failure in (False, True):
+            m = self.monitor()
+            m.state["attempt"] = {"status": "attempted", "key": "signal/old"}
+            m.state["blocked_reason"] = "interrupted"
+            m.recovery_checker = Mock(side_effect=RuntimeError("query failed")) if failure else Mock(return_value=True)
+            m.notify = Mock()
+            m.recover_interrupted(self.now)
+            m.recover_interrupted(self.now)
+            self.assertNotIn("blocked_reason", m.state)
+            self.assertEqual(m.state["attempt"]["status"], "recovery_skipped_no_retry" if failure else "broker_reconciled")
+            m.notify.assert_called_once()
+            self.assertEqual(self.orders, [])
+
     def test_twelve_strategy_upgrade_preserves_positions_and_accepts_cfctx15(self):
         m = self.monitor()
         del m.state["positions"]["CFCTX15m"]
@@ -534,7 +570,7 @@ class MonitorTests(unittest.TestCase):
         for code in ("CFC07m", "CFCTX16m", "CFCTX21m"):
             self.signal(0, 1, code)
         m.tick()
-        self.assertEqual(self.orders, [1, 1, 1])
+        self.assertEqual(self.orders, [1, 1])  # Third entry exceeds the current two-lot limit.
 
     def test_restart_ignores_signals_received_while_stopped(self):
         self.monitor()
@@ -654,14 +690,29 @@ class MonitorTests(unittest.TestCase):
 
 
 class BrokerTests(unittest.TestCase):
+    def test_recovery_waits_and_counts_signed_tmf_quantity_only(self):
+        sleep = Mock()
+        self.api.list_positions.return_value = [
+            {"code": "TMFI6", "quantity": 3, "direction": "Sell"},
+            {"code": "MXFI6", "quantity": 9, "direction": "Buy"}]
+        self.assertTrue(auto_trade.confirm_target(-3, api=self.api, sleep=sleep))
+        sleep.assert_called_once_with(1)
+        self.api.update_status.assert_called_once()
+        self.assertFalse(auto_trade.confirm_target(-1, api=self.api, sleep=Mock()))
+        self.api.list_trades.return_value = [NS(contract=NS(code="TMFI6"), status=NS(status="PendingSubmit"))]
+        with self.assertRaises(auto_trade.BrokerOrderError):
+            auto_trade.confirm_target(-3, api=self.api, sleep=Mock())
+        self.api.list_trades.return_value = []
+        self.api.list_positions.return_value = None
+        with self.assertRaises(auto_trade.BrokerOrderError):
+            auto_trade.confirm_target(0, api=self.api, sleep=Mock())
+        self.api.place_order.assert_not_called()
+
     def setUp(self):
         self.now = datetime(2026, 9, 15, 1, 0)
         self.contract = NS(code="TMFI6")
         self.api = Mock()
         self.api.Contracts = NS(Futures=NS(TMF=NS(TMFR1=self.contract)))
-        timeout = patch.object(auto_trade._shared, "ORDER_CALLBACK_TIMEOUT_SECONDS", 0)
-        timeout.start()
-        self.addCleanup(timeout.stop)
         self.api.list_trades.return_value = []
         self.api.list_positions.return_value = []
         self.api.place_order.return_value = NS(status=NS(status="Filled"))
@@ -682,6 +733,7 @@ class BrokerTests(unittest.TestCase):
                 result = self.execute(None, delta=delta)
                 self.assertTrue(result.submitted)
                 self.api.place_order.assert_called_once()
+                self.assertEqual(self.api.place_order.call_args.kwargs["timeout"], 0)
                 self.api.list_positions.assert_not_called()
                 self.api.update_status.assert_not_called()
                 self.api.list_trades.assert_not_called()
@@ -732,6 +784,39 @@ class BrokerTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             self.execute(None, delta=1)
         self.api.place_order.assert_called_once()
+
+    def test_submission_checkpoint_survives_logout_process_exit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            now = datetime(2026, 9, 18, 9)
+            m = Monitor(root=root, live=True, clock=lambda: now,
+                        executor=Mock(), flat_checker=lambda: True)
+            m.state["last_reset_cycle"] = "2026-09-18T01:00:00"
+            m.persist()
+            real_execute = auto_trade.execute_target_position
+            def execute(*args, **kwargs):
+                return real_execute(*args, sj=self.sj, **kwargs)
+            self.api.logout.side_effect = SystemExit("simulate native termination during logout")
+            with patch("monitor_and_trade.execute_target_position", execute), patch.object(auto_trade, "login", return_value=self.api):
+                m.execute = execute
+                with self.assertRaises(SystemExit):
+                    m.action("signal/test", None, "TMFR1", now + timedelta(seconds=40), delta=1)
+            saved = json.loads(m.path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["attempt"]["status"], "submitted")
+            self.assertIn("submission_returned_at", saved["attempt"])
+            restarted = Monitor(root=root, live=True, clock=lambda: now,
+                                executor=Mock(), flat_checker=lambda: True)
+            self.assertNotIn("blocked_reason", restarted.state)
+            restarted.action("signal/test", None, "TMFR1", now + timedelta(seconds=40), delta=1)
+            restarted.execute.assert_not_called()
+            self.api.place_order.assert_called_once()
+
+    def test_rejection_does_not_save_submission_checkpoint(self):
+        callback = Mock()
+        self.api.place_order.return_value = NS(status=NS(status="Failed"))
+        with self.assertRaises(auto_trade.BrokerOrderError):
+            self.execute(None, delta=1, on_submitted=callback)
+        callback.assert_not_called()
 
     def test_past_deadline_never_submits(self):
         with self.assertRaises(auto_trade.BrokerOrderError):

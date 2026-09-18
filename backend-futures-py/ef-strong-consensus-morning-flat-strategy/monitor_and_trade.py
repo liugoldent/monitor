@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import sys
 import csv
 import json
@@ -14,13 +15,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from filelock import FileLock, Timeout
 
 from auto_trade import execute_target_position, BrokerOrderError
+from hysteresis_strategy import evaluate_hysteresis_event, hysteresis_target
 from strategy import (
     ALL_STRATEGIES,
     ConsensusDecision,
     PORTFOLIO_E,
     PORTFOLIO_F,
     PriceBar,
-    evaluate_event,
     latest_morning_boundary,
     load_price_bars,
     load_signal_rows,
@@ -30,7 +31,6 @@ from strategy import (
     parse_position_row,
     parse_signal_row,
     position_text,
-    consensus_target,
     signal_is_in_morning_block,
 )
 
@@ -91,8 +91,9 @@ CLOCK_EVENT_FIELDS = [
     "deadline_at", "started_before_deadline", "completed_before_deadline",
     "mode", "previous_target", "target_position", "result",
 ]
-ENABLE_ORDERS_ENV = "EF_STRONG_MORNING_FLAT_ENABLE_ORDERS"
-POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
+ENABLE_ORDERS_ENV = "EF_HYSTERESIS_MORNING_FLAT_ENABLE_ORDERS"
+POSITION_UNIT_ENV = "EF_HYSTERESIS_MORNING_FLAT_POSITION_UNIT"
+LEGACY_POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
 
 
@@ -116,7 +117,7 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 def position_unit() -> int:
     try:
-        unit = int(os.getenv(POSITION_UNIT_ENV, "1"))
+        unit = int(os.getenv(POSITION_UNIT_ENV) or os.getenv(LEGACY_POSITION_UNIT_ENV, "1"))
     except ValueError as exc:
         raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數") from exc
     if not 1 <= unit <= MAX_POSITION_UNIT:
@@ -164,7 +165,9 @@ def append_csv(path: Path, fields: list[str], row: dict[str, object]) -> None:
 
 def webhook_url() -> str:
     return (
-        os.getenv("DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL", "").strip()
+        os.getenv("DISCORD_EF_HYSTERESIS_MORNING_FLAT_WEBHOOK_URL", "").strip()
+        or os.getenv("DISCORD_EFHYSTERESIS_MORNING_FLAT_WEBHOOK_URL", "").strip()
+        or os.getenv("DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL", "").strip()
         or os.getenv("DISCORD_EF_STRONG_MORNING_FLAT_WEBHOOK_URL", "").strip()
         or os.getenv("DISCORD_MXF_ALERT_WEBHOOK_URL", "").strip()
     )
@@ -312,6 +315,9 @@ def execute_live_target(
             execute=lambda: execute_target_position(
                 broker_target, guard=state.setdefault("broker_reconciliation", {}),
                 persist_guard=persist_guard),
+            execute_checkpointed=lambda checkpoint: execute_target_position(
+                broker_target, guard=state.setdefault("broker_reconciliation", {}),
+                persist_guard=persist_guard, on_submitted=checkpoint),
             record=lambda **row: append_order(ORDER_ATTEMPT_PATH, clock=now_local, **row),
             clock=now_local,
         )
@@ -328,8 +334,9 @@ def execute_live_target(
         return f"❌ 下單失敗或結果未確認：{error}；實際部位未確認；本筆不自動重送，下一筆先核對未確認委託與庫存"
     state["last_executed_target"] = broker_target
     state["last_executed_at"] = text_time(now_local())
-    state["last_confirmed_broker_position"] = result.actual_position
-    state["last_confirmed_broker_at"] = state["last_executed_at"]
+    if getattr(result, "confirmed", True):
+        state["last_confirmed_broker_position"] = result.actual_position
+        state["last_confirmed_broker_at"] = state["last_executed_at"]
     for field in ("last_order_error_target", "last_order_error_at", "last_order_error"):
         state.pop(field, None)
     save_json_atomic(STATE_PATH, state)
@@ -339,24 +346,33 @@ def execute_live_target(
 def write_position(state: dict, reason: str) -> None:
     raw_positions = normalized_positions(state.get("raw_positions"))
     threshold = int(state.get("threshold") or 2)
-    target, e_net, f_net, relation = consensus_target(raw_positions, threshold)
+    hold_threshold = int(state.get("hold_threshold", 1))
+    current = int(state.get("position") or 0)
+    target, e_net, f_net, relation = hysteresis_target(
+        raw_positions,
+        current,
+        entry_threshold=threshold,
+        hold_threshold=hold_threshold,
+    )
     save_json_atomic(
         POSITION_PATH,
         {
-            "strategy": "EF Strong Consensus + Morning Flat",
+            "strategy": "EF Hysteresis Consensus + Morning Flat",
             "mode": (
                 "live_api_key" if env_flag(ENABLE_ORDERS_ENV) else "shadow_only"
             ),
             "position_unit": position_unit(),
             "broker_target_position": scaled_target(target),
-            "rule": "E/F each net >=2; one contract; 01:00 flatten; wait for new signal",
+            "rule": "E/F each reach entry threshold; hold while both retain hold threshold; one contract; 01:00 flatten",
             "e_net": e_net,
             "f_net": f_net,
             "raw_consensus_target": target,
+            "raw_hysteresis_target": target,
             "relation": relation,
             "shadow_position": int(state.get("position") or 0),
             "entry_price": state.get("entry_price"),
             "threshold": threshold,
+            "hold_threshold": hold_threshold,
             "last_flat_time": state.get("last_flat_time", ""),
             "last_reason": reason,
             "raw_positions": raw_positions,
@@ -411,7 +427,7 @@ def decision_message(decision: ConsensusDecision, live_result: str) -> str:
         else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
     return (
-        "🚨【策略訊號｜EF強共識＋01:00清倉】\n"
+        "🚨【策略訊號｜EF Hysteresis＋01:00清倉】\n"
         f"訊號時間：{text_time(decision.event.timestamp)}\n"
         f"策略目標部位：{position_text(target_final)}\n"
         f"模擬成交：{text_time(decision.execution_time)} @ {decision.execution_price:g}\n"
@@ -436,7 +452,7 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         if decision.previous_position == decision.target_position
         else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
-    return execution_message("EF強共識＋01:00清倉", "live", str(decision.event.timestamp),
+    return execution_message("EF Hysteresis＋01:00清倉", "live", str(decision.event.timestamp),
                              target_final, live_result, clock=now_local) + "\n" + (
         f"收到時間：{text_time(decision.event.timestamp)}\n"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
@@ -470,6 +486,7 @@ def process_live_rows(
     state: dict,
     rows: list[dict[str, str]],
     threshold: int,
+    hold_threshold: int = 1,
 ) -> None:
     if not env_flag(ENABLE_ORDERS_ENV):
         return
@@ -493,12 +510,13 @@ def process_live_rows(
             open=0,
             close=0,
         )
-        decision = evaluate_event(
+        decision = evaluate_hysteresis_event(
             positions,
             current,
             event,
             intended_bar,
-            threshold=threshold,
+            entry_threshold=threshold,
+            hold_threshold=hold_threshold,
         )
         state["live_raw_positions"] = positions
         state["live_source_row_count"] = row_number
@@ -573,7 +591,7 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
         else "🚨 已超過01:00:30完成期限，請立即人工核對"
     )
     message = (
-        "🌅【01:00時鐘清倉｜EF強共識】\n"
+        "🌅【01:00時鐘清倉｜EF Hysteresis】\n"
         f"排程時間：{text_time(boundary)}\n"
         f"實際觸發：{text_time(triggered_at)}（延遲{trigger_delay:.3f}秒）\n"
         f"流程完成：{text_time(completed_at)}\n"
@@ -608,7 +626,7 @@ def apply_flatten_bar(
         persist=persist,
     )
     state["last_flat_time"] = text_time(boundary.bar_time)
-    reason = "01:00清空強共識組合部位；08:45不自動恢復，等待新EF訊號"
+    reason = "01:00清空Hysteresis組合部位；08:45不自動恢復，等待新EF訊號"
     if persist:
         append_csv(
             DECISION_PATH,
@@ -633,7 +651,7 @@ def apply_flatten_bar(
             else "影子模式，未送實單"
         )
         message = (
-            "🌅【01:00清倉｜EF強共識】\n"
+            "🌅【01:00清倉｜EF Hysteresis】\n"
             f"時間：{text_time(boundary.bar_time)}\n"
             "策略目標部位：空手\n"
             f"模擬成交價：{boundary.open:g}\n"
@@ -662,6 +680,7 @@ def initialize_state(
     bars: list[PriceBar],
     cutoff: datetime,
     threshold: int,
+    hold_threshold: int = 1,
     previous_state: dict | None = None,
 ) -> dict:
     boundary = latest_morning_boundary(bars, cutoff)
@@ -673,6 +692,7 @@ def initialize_state(
         "position": 0,
         "entry_price": None,
         "threshold": threshold,
+        "hold_threshold": hold_threshold,
         "last_flat_time": "" if boundary is None else text_time(boundary.bar_time),
         "started_at": text_time(cutoff),
     }
@@ -692,8 +712,13 @@ def initialize_state(
             raw_positions[event.strategy_code] = event.new_position
         else:
             current = int(state.get("position") or 0)
-            decision = evaluate_event(
-                raw_positions, current, event, execution_bar, threshold=threshold
+            decision = evaluate_hysteresis_event(
+                raw_positions,
+                current,
+                event,
+                execution_bar,
+                entry_threshold=threshold,
+                hold_threshold=hold_threshold,
             )
             record_transition(
                 state,
@@ -721,6 +746,7 @@ def process_new_rows(
     bars: list[PriceBar],
     cutoff: datetime,
     threshold: int,
+    hold_threshold: int = 1,
 ) -> None:
     state_before = json.dumps(state, ensure_ascii=False, sort_keys=True)
     previous_count = int(state.get("source_row_count") or 0)
@@ -739,8 +765,13 @@ def process_new_rows(
             break
         apply_due_flatten(state, bars, execution_bar.record_time)
         previous = int(state.get("position") or 0)
-        decision = evaluate_event(
-            raw_positions, previous, event, execution_bar, threshold=threshold
+        decision = evaluate_hysteresis_event(
+            raw_positions,
+            previous,
+            event,
+            execution_bar,
+            entry_threshold=threshold,
+            hold_threshold=hold_threshold,
         )
         record_transition(
             state,
@@ -770,24 +801,32 @@ def process_new_rows(
 
 
 def main() -> None:
+    faulthandler.enable(all_threads=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--retry-failed", action="store_true", help="相容舊版：清理委託狀態；目前失敗不鎖單，不需此參數")
     args = parser.parse_args()
     load_env_file(ENV_PATH)
     # Production entry point is always live, including with a legacy false .env.
     os.environ[ENABLE_ORDERS_ENV] = "true"
-    poll_seconds = max(
-        0.5, float(os.getenv("EF_STRONG_MORNING_FLAT_POLL_SECONDS", "2"))
+    poll_seconds = max(0.5, float(
+        os.getenv("EF_HYSTERESIS_MORNING_FLAT_POLL_SECONDS")
+        or os.getenv("EF_STRONG_MORNING_FLAT_POLL_SECONDS", "2")
+    ))
+    threshold = int(
+        os.getenv("EF_HYSTERESIS_ENTRY_GROUP_NET")
+        or os.getenv("EF_STRONG_MORNING_FLAT_MIN_GROUP_NET", "2")
     )
-    threshold = int(os.getenv("EF_STRONG_MORNING_FLAT_MIN_GROUP_NET", "2"))
+    hold_threshold = int(os.getenv("EF_HYSTERESIS_HOLD_GROUP_NET", "1"))
     if not 1 <= threshold <= 6:
-        raise ValueError("EF_STRONG_MORNING_FLAT_MIN_GROUP_NET必須是1到6")
+        raise ValueError("EF_HYSTERESIS_ENTRY_GROUP_NET必須是1到6")
+    if not 0 <= hold_threshold <= threshold:
+        raise ValueError("EF_HYSTERESIS_HOLD_GROUP_NET必須介於0與進場門檻")
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(LOCK_PATH))
     try:
         lock.acquire(timeout=0)
     except Timeout as exc:
-        raise RuntimeError("EF強共識＋01:00清倉已有另一個實例執行中") from exc
+        raise RuntimeError("EF Hysteresis＋01:00清倉已有另一個實例執行中") from exc
 
     try:
         rows = load_signal_rows(SOURCE_PATH)
@@ -803,9 +842,17 @@ def main() -> None:
                 raise RuntimeError("無法儲存解除鎖定狀態")
         previous_count = state.get("source_row_count")
         if previous_count is None or int(previous_count) > len(rows):
-            state = initialize_state(rows, bars, now_local(), threshold, previous_state=state)
+            state = initialize_state(
+                rows,
+                bars,
+                now_local(),
+                threshold,
+                hold_threshold,
+                previous_state=state,
+            )
         else:
             state["threshold"] = threshold
+            state["hold_threshold"] = hold_threshold
             save_json_atomic(STATE_PATH, state)
             write_position(state, "startup threshold sync")
 
@@ -826,10 +873,10 @@ def main() -> None:
                 trigger="startup_reconcile",
             )
         startup_message = (
-            "✅【開始監控｜EF強共識＋01:00清倉】\n"
+            "✅【開始監控｜EF Hysteresis＋01:00清倉】\n"
             f"時間：{text_time(now_local())}\n"
             f"策略目標部位：{position_text(scaled_target(startup_base_target))}\n"
-            f"規則：E/F兩組淨部位皆至少{threshold}票同向才成立；U={unit}。\n"
+            f"規則：E/F兩組皆達{threshold}票同向才進場；持倉後兩組皆保留至少{hold_threshold}票才續抱；U={unit}。\n"
             "01:00清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
             "新訊號逐筆核對；前筆委託未確認時先查證，無法確認不送單；啟動不補單。\n"
             "執行：收到新訊號立即查實際庫存並送差額委託，結果以券商回報為準。\n"
@@ -851,12 +898,21 @@ def main() -> None:
             apply_live_clock_flatten(state, now_local())
             if env_flag(ENABLE_ORDERS_ENV):
                 initialize_live_cursor(state, rows)
-                process_live_rows(state, rows, threshold)
+                process_live_rows(state, rows, threshold, hold_threshold)
             previous_count = int(state.get("source_row_count") or 0)
             if len(rows) < previous_count:
-                state = initialize_state(rows, bars, cutoff, threshold, previous_state=state)
+                state = initialize_state(
+                    rows,
+                    bars,
+                    cutoff,
+                    threshold,
+                    hold_threshold,
+                    previous_state=state,
+                )
             else:
-                process_new_rows(state, rows, bars, cutoff, threshold)
+                process_new_rows(
+                    state, rows, bars, cutoff, threshold, hold_threshold
+                )
             time.sleep(poll_seconds)
     finally:
         lock.release()

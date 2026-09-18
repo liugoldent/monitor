@@ -206,7 +206,7 @@ class LiveOrderTests(unittest.TestCase):
             monitor.execute_live_target(state, 0, trigger="startup_reconcile")
             execute.assert_not_called()  # Restart must not replay the failed flat.
             monitor.execute_live_target(state, 0, trigger="immediate_ef_signal_row_2")
-            execute.assert_called_once_with(0, guard=ANY, persist_guard=ANY)
+            execute.assert_called_once_with(0, guard=ANY, persist_guard=ANY, on_submitted=ANY)
             self.assertEqual(state["manual_flat_required"]["status"], "pending")
 
     def test_pending_attempt_allows_changed_target_and_forced_flat(self):
@@ -278,7 +278,7 @@ class LiveOrderTests(unittest.TestCase):
         ) as execute:
             text = monitor.execute_live_target(state, 1, trigger="test")
 
-        execute.assert_called_once_with(2, guard=ANY, persist_guard=ANY)
+        execute.assert_called_once_with(2, guard=ANY, persist_guard=ANY, on_submitted=ANY)
         self.assertEqual(state["last_executed_target"], 2)
         self.assertIn("已回查確認", text)
 

@@ -1,6 +1,19 @@
-# EF 強共識＋01:00 清倉策略
+# EF Hysteresis 共識＋01:00 清倉策略
 
-## 2026-09-15：逐筆目標對帳與成交一致性
+本目錄保留原 `ef-strong-consensus-morning-flat-strategy` 路徑與 Docker service 名稱，
+只為延續既有 runtime、委託防重紀錄與掛載。正式策略已改為 Hysteresis；原本「進場、
+退出都要求 E/F 各達門檻 2」的強共識規則不再用於實單決策。
+
+## 2026-09-18：沿用 demo 單次送單方式（目前行為）
+
+- 使用主帳號 `API_KEY` / `SECRET_KEY`，委託格式維持 TMFR1、市價 MKT、IOC、Auto，`place_order(..., timeout=0)`。
+- 新訊號先查券商庫存，以目標減實際庫存計算差額；送單後不輪詢成交、不重送。送單前的庫存與未結束委託檢查仍保留。
+- API 返回後，先保存委託 ID 與送單紀錄，再保存監控狀態 `submitted`，最後登出。登出中斷不會抹掉已保存的送單結果。
+- API 返回不代表券商受理或成交，通知標示「API已返回，未回查成交」，不更新「已確認券商部位」。庫存原本已達目標而未下單時，可以記錄當下查到的庫存。
+- API 返回前結果不明、或舊版仍有未核對委託時，保留核對保護；同一訊號不重送。此修改不保證消除 SDK 原生崩潰，啟用 faulthandler 並記錄分段 log 以便定位。
+- 以下 2026-09-15 的送單後回查說明是歷史行為，與本節衝突時以本節為準。
+
+## 2026-09-15：逐筆目標對帳與成交一致性（歷史）
 
 - 每筆訊號依接收順序更新十二策略狀態、計算目標，再查永豐實際 TMF 庫存，以「目標 − 實際」送差額。兩筆連續訊號可以依序進場、出場；不合併訊號，也不以策略舊目標代替實際庫存。
 - 庫存 `None`、無效口數或缺合約代碼是查詢異常，不能視為空手。送單前驗證與差額計算使用同一份庫存快照。
@@ -13,23 +26,25 @@
 
 券商介面依據：[更新委託狀態](https://sinotrade.github.io/tutor/order/UpdateStatus/)、[查詢庫存](https://sinotrade.github.io/tutor/accounting/position/)。
 
-這是一套獨立的 EF 衍生策略。它讀取十二套 E/F 策略訊號，但只維護一個
-組合部位；不會把十二套訊號口數直接相加。
+這是一套獨立的 EF 衍生策略。它讀取十三套 E/F 策略訊號，但只維護一個
+組合部位；不會把十三套訊號口數直接相加。E 組七套、F 組六套。
 
 正式入口 `monitor_and_trade.py` 固定以實單模式啟動，舊的
-`EF_STRONG_MORNING_FLAT_ENABLE_ORDERS=false` 設定不再停用實單。使用獨立的
-`API_KEY` / `SECRET_KEY` 查詢永豐 TMF 實際淨部位、送差額 IOC 市價單並回查確認。
+`EF_HYSTERESIS_MORNING_FLAT_ENABLE_ORDERS=false` 設定不再停用實單。使用獨立的
+`API_KEY` / `SECRET_KEY` 查詢永豐 TMF 實際淨部位、送差額 IOC 市價單；送單後不回查成交。
 
 ## 規則
 
 ```text
-E 組淨部位 >= +2 且 F 組淨部位 >= +2：組合多 1 口
-E 組淨部位 <= -2 且 F 組淨部位 <= -2：組合空 1 口
-其他情況：空手
+空手時，E 組淨部位 >= +2 且 F 組淨部位 >= +2：組合多 1 口
+空手時，E 組淨部位 <= -2 且 F 組淨部位 <= -2：組合空 1 口
+持有多單時，E、F 皆仍 >= +1：續抱；任一組 < +1：平倉
+持有空單時，E、F 皆仍 <= -1：續抱；任一組 > -1：平倉
+持倉中若兩組同時達到反方向進場門檻：直接反轉
 
 每天 01:00 清空組合部位
 08:45 不自動恢復清倉前的部位
-08:45 後收到新的 E/F 訊號時，才重新計算強共識
+08:45 後收到新的 E/F 訊號時，才重新計算 Hysteresis 目標
 ```
 
 E 組與 F 組各包含六套既有策略。無論同向票數多高，組合最多只有一口。
@@ -81,7 +96,7 @@ runtime/ef_strong_morning_flat.lock
 
 ```dotenv
 # 專用 Discord webhook（未設定才回退到既有 MXF webhook）。
-DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL=
+DISCORD_EF_HYSTERESIS_MORNING_FLAT_WEBHOOK_URL=
 
 # 這套策略指定使用主憑證。
 API_KEY=
@@ -90,16 +105,17 @@ PERSON_ID=
 CA_PATH=
 
 # 正式入口固定實單；此舊開關不再控制正式入口。
-EF_STRONG_MORNING_FLAT_ENABLE_ORDERS=true
-EF_STRONG_MORNING_FLAT_POSITION_UNIT=1
+EF_HYSTERESIS_MORNING_FLAT_ENABLE_ORDERS=true
+EF_HYSTERESIS_MORNING_FLAT_POSITION_UNIT=1
 
-# 研究固定值為 2；除非重新回測，不建議調整。
-EF_STRONG_MORNING_FLAT_MIN_GROUP_NET=2
+# 回測選定：兩組各達2才進場，持倉後兩組各保留1才續抱。
+EF_HYSTERESIS_ENTRY_GROUP_NET=2
+EF_HYSTERESIS_HOLD_GROUP_NET=1
 
-EF_STRONG_MORNING_FLAT_POLL_SECONDS=2
+EF_HYSTERESIS_MORNING_FLAT_POLL_SECONDS=2
 ```
 
-`EF_STRONG_MORNING_FLAT_POSITION_UNIT` 是 U，允許 1～20。強共識方向仍是
+`EF_HYSTERESIS_MORNING_FLAT_POSITION_UNIT` 是 U，允許 1～20。Hysteresis 方向仍是
 -1/0/1，永豐最終目標會縮放成 -U/0/+U；修改 U 後重啟會依新口數對帳。
 
 ## 測試
@@ -118,6 +134,7 @@ python backtest.py `
   --start "2026-06-24 00:00:00" `
   --end "2026-08-27 16:01:00" `
   --threshold 2 `
+  --hold-threshold 1 `
   --one-way-cost 2 `
   --point-value 10
 ```
@@ -142,7 +159,7 @@ python monitor_and_trade.py
 
 ## 共用下單、通知與紀錄（2026-09-14）
 
-強共識使用 `../ef_trade_runtime.py` 與 `../shioaji_tmf_target.py` 的下列流程；純 EF 的差額送單規則另見該策略 README：
+Hysteresis 使用 `../ef_trade_runtime.py` 與 `../shioaji_tmf_target.py` 的下列流程；純 EF 的差額送單規則另見該策略 README：
 
 - 根據券商實際 TMF 部位計算差額，使用 TMFR1、市價 MKT、IOC、Auto；送出後回查目標部位。
 - 送單前共同檢查未結束的 TMF 委託、其他月份庫存及同時持有多空庫存；真正送單前再檢查期限。
