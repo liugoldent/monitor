@@ -35,8 +35,7 @@ run-windows-services.cmd
 ```
 
 它會開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、`Webhook Server`、
-`Cloudflare Tunnel`、`EF Strong Consensus LIVE - API KEY`，以及
-`TX Options Level Monitor` 六個頁籤。
+`Cloudflare Tunnel`、`EF Strong Consensus LIVE - API KEY` 與另一個 EF 策略頁籤。
 
 看 log：
 
@@ -50,8 +49,7 @@ docker compose logs -f telegram-signal-relay
 docker compose down
 ```
 
-預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`、
-`options-level-monitor`，以及已授權的 EF 強共識實單策略（API KEY）。
+預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`，以及已授權的 EF 強共識實單策略（API KEY）。
 前三個服務維持核心資料：
 
 ```text

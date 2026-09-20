@@ -23,8 +23,8 @@ run-windows-services.cmd
 1. 執行 `git pull --ff-only` 拉取目前分支更新；失敗時停止啟動流程，不重啟服務。
 2. 檢查必要檔案與 Docker。
 3. 必要時啟動 Docker Desktop並等待引擎就緒。
-4. 重新 build 並啟動七個 Docker 服務，包含 `ef-strong-consensus-morning-flat-strategy`、`ef-morning-weekend-hedge-strategy` 與 `options-level-monitor`。
-5. 在 Windows Terminal 開七個分頁顯示各服務 log；沒有 Windows Terminal 時改開 PowerShell。
+4. 重新 build 並啟動六個 Docker 服務，包含 `ef-strong-consensus-morning-flat-strategy` 與 `ef-morning-weekend-hedge-strategy`。
+5. 在 Windows Terminal 開六個分頁顯示各服務 log；沒有 Windows Terminal 時改開 PowerShell。
 
 `ef-morning-weekend-hedge-strategy` 使用第二組 `API_KEY2` / `SECRET_KEY2`，
 監控入口固定使用實單，不以 `EF_PURE_FLAT_ENABLE_ORDERS` 切換。

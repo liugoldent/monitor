@@ -52,20 +52,6 @@ services:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
-  options-level-monitor:
-    build: *app-build
-    image: *app-image
-    container_name: monitor-options-level-monitor
-    restart: unless-stopped
-    command: ["python", "/app/backend-futures-py/options-level-monitor/monitor.py", "--clear-screen"]
-    working_dir: /app/backend-futures-py/options-level-monitor
-    environment:
-      TZ: Asia/Taipei
-      PYTHONUNBUFFERED: "1"
-    volumes:
-      - ./backend-futures-py/options-level-monitor/runtime:/app/backend-futures-py/options-level-monitor/runtime
-      - ./backend-futures-py/tv/_doc:/app/backend-futures-py/tv/_doc
-
   ef-strong-consensus-morning-flat-strategy:
     # Legacy service identifier retained so runtime/order state is reused.
     build: *app-build

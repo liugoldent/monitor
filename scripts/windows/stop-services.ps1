@@ -9,7 +9,6 @@ $services = @(
     'webhook-server',
     'ef-strong-consensus-morning-flat-strategy',
     'ef-morning-weekend-hedge-strategy',
-    'options-level-monitor',
     'cloudflared'
 )
 

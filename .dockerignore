@@ -12,3 +12,13 @@
 **/*.session-journal
 backend-futures-py/tv_doc/backups
 backend-futures-py/tv_doc/research_outputs
+
+# Runtime-generated trading records are mounted by Compose and must not be
+# traversed as part of the image build context.
+backend-futures-py/ef-morning-weekend-hedge-strategy/records/
+backend-futures-py/ef-strong-consensus-morning-flat-strategy/records/
+backend-futures-py/ef-morning-weekend-hedge-strategy/runtime/
+backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime/
+backend-futures-py/options-level-monitor/runtime/
+backend-futures-py/telegram-relay-runtime/
+backend-futures-py/telegram-relay-records/

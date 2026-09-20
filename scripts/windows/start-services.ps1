@@ -12,8 +12,7 @@ $services = @(
     'webhook-server',
     'cloudflared',
     'ef-strong-consensus-morning-flat-strategy',
-    'ef-morning-weekend-hedge-strategy',
-    'options-level-monitor'
+    'ef-morning-weekend-hedge-strategy'
 )
 function Get-RootEnvValue([string]$Name) {
     if (-not (Test-Path -LiteralPath $rootEnvPath -PathType Leaf)) { return $null }
@@ -132,12 +131,7 @@ $logWindows = @(
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'EF Hysteresis Consensus LIVE - API KEY'; Service = 'ef-strong-consensus-morning-flat-strategy' },
-    @{ Title = 'EF Pure Morning Flat - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' },
-    @{
-        Title = 'TX Options Level Monitor'
-        Service = 'options-level-monitor'
-        ClearMarker = '__OPTIONS_LEVEL_MONITOR_CLEAR__'
-    }
+    @{ Title = 'EF Pure Morning Flat - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {

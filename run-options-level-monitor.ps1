@@ -1,8 +1,7 @@
 [CmdletBinding()]
 param(
     [double]$IntervalSeconds = 60,
-    [switch]$Once,
-    [switch]$NoSave
+    [switch]$Once
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +28,6 @@ if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
 
 $arguments = @($monitorScript, '--interval', $IntervalSeconds)
 if ($Once) { $arguments += '--once' }
-if ($NoSave) { $arguments += '--no-save' }
 
 Write-Host 'Starting TX options support/resistance monitor...' -ForegroundColor Green
 & $python @arguments

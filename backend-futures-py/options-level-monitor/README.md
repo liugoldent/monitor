@@ -48,23 +48,7 @@ run-options-level-monitor.cmd
 
 ## 紀錄
 
-預設將現價上下1,500點內的快照追加至：
-
-```text
-runtime/options_level_snapshots.jsonl
-```
-
-`runtime/` 已被專案 `.gitignore` 排除，可供後續回測，不會提交到 Git。
-
-每次成功分析也會新增一列至：
-
-```text
-backend-futures-py/tv/_doc/tx_options_direction_1min.csv
-```
-
-CSV 使用 UTF-8（含 BOM，Excel 可直接辨識中文），包含時間、方向與分數、期貨價量、
-近一分鐘價量差、選擇權隱含中心與跨式區間，以及前三組支撐/壓力的價位、分數、OI
-與本分鐘量。第一輪尚無前次快照，會以 `warming_up` 紀錄；第二輪起為 `live`。
+目前只在終端機顯示分析結果，不會寫入快照或方向 CSV。
 
 ## 限制
 
