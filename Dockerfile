@@ -1,12 +1,18 @@
 FROM node:22-bookworm
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Taipei \
     PATH="/opt/venv/bin:${PATH}" \
     RUN_SERVICES_DOCKER=1
 
-RUN apt-get update \
+RUN sed -i \
+        -e 's|http://deb.debian.org/debian-security|https://mirror.twds.com.tw/debian-security|g' \
+        -e 's|http://deb.debian.org/debian|https://mirror.twds.com.tw/debian|g' \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 update \
     && apt-get install -y --no-install-recommends \
         bash \
         build-essential \
@@ -18,23 +24,16 @@ RUN apt-get update \
         tini \
         tzdata \
     && python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
-    && corepack enable \
-    && corepack prepare pnpm@10.24.0 --activate \
-    && arch="$(dpkg --print-architecture)" \
-    && case "$arch" in \
-        amd64) cloudflared_arch="amd64" ;; \
-        arm64) cloudflared_arch="arm64" ;; \
-        *) echo "Unsupported architecture for cloudflared: $arch" >&2; exit 1 ;; \
-       esac \
-    && curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${cloudflared_arch}.deb" -o /tmp/cloudflared.deb \
-    && apt-get install -y /tmp/cloudflared.deb \
-    && rm -rf /var/lib/apt/lists/* /tmp/cloudflared.deb
+    && /opt/venv/bin/pip install --index-url "$PIP_INDEX_URL" --retries 5 --timeout 60 --upgrade pip setuptools wheel \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable \
+    && corepack prepare pnpm@10.24.0 --activate
 
 WORKDIR /app
 
 COPY backend-futures-py/requirements.txt backend-futures-py/requirements.txt
-RUN pip install --no-cache-dir -r backend-futures-py/requirements.txt
+RUN pip install --index-url "$PIP_INDEX_URL" --no-cache-dir --retries 5 --timeout 60 -r backend-futures-py/requirements.txt
 
 COPY backend-heyu-node/package.json backend-heyu-node/pnpm-lock.yaml backend-heyu-node/
 COPY frontend-vue/package.json frontend-vue/pnpm-lock.yaml frontend-vue/

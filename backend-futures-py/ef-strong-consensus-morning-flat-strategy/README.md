@@ -7,10 +7,11 @@
 ## 2026-09-18：沿用 demo 單次送單方式（目前行為）
 
 - 使用主帳號 `API_KEY` / `SECRET_KEY`，委託格式維持 TMFR1、市價 MKT、IOC、Auto，`place_order(..., timeout=0)`。
-- 新訊號先查券商庫存，以目標減實際庫存計算差額；送單後不輪詢成交、不重送。送單前的庫存與未結束委託檢查仍保留。
+- 新訊號只查當下券商庫存，以「最終口數 − 券商庫存」計算本次差額；送單後不輪詢成交、不重送。
 - API 返回後，先保存委託 ID 與送單紀錄，再保存監控狀態 `submitted`，最後登出。登出中斷不會抹掉已保存的送單結果。
 - API 返回不代表券商受理或成交，通知標示「API已返回，未回查成交」，不更新「已確認券商部位」。庫存原本已達目標而未下單時，可以記錄當下查到的庫存。
-- API 返回前結果不明、或舊版仍有未核對委託時，保留核對保護；同一訊號不重送。此修改不保證消除 SDK 原生崩潰，啟用 faulthandler 並記錄分段 log 以便定位。
+- API 返回前結果不明時，本筆不重送；後續新訊號不掃描舊委託，直接重新查庫存、計算差額。同一訊號仍只嘗試一次。
+- 即時通知固定列出：EF 策略與訊號、目前券商庫存、本次預計下單、收到策略後最終口數、實際送單結果。
 - 以下 2026-09-15 的送單後回查說明是歷史行為，與本節衝突時以本節為準。
 
 ## 2026-09-15：逐筆目標對帳與成交一致性（歷史）
@@ -159,14 +160,14 @@ python monitor_and_trade.py
 
 ## 共用下單、通知與紀錄（2026-09-14）
 
-Hysteresis 使用 `../ef_trade_runtime.py` 與 `../shioaji_tmf_target.py` 的下列流程；純 EF 的差額送單規則另見該策略 README：
+Hysteresis 使用 `../ef_trade_runtime.py` 與 `../shioaji_tmf_target.py` 的低階庫存、合約及建單工具；純 EF 的差額送單規則另見該策略 README：
 
-- 根據券商實際 TMF 部位計算差額，使用 TMFR1、市價 MKT、IOC、Auto；送出後回查目標部位。
-- 送單前共同檢查未結束的 TMF 委託、其他月份庫存及同時持有多空庫存；真正送單前再檢查期限。
+- 根據券商當下 TMF 淨部位計算差額，使用 TMFR1、市價 MKT、IOC、Auto；送出後不回查成交。
+- 不查舊委託、不以 `broker_reconciliation.pending` 擋住新訊號；每筆新訊號都以當下庫存重算。
 - 先以原子寫入、fsync 與 OneDrive 鎖定重試保存委託狀態。失敗或結果不明時，不自動重送。
 - 一般訊號與清倉失敗皆轉成 `failed_no_retry`，中斷的舊委託轉成 `interrupted_no_retry`，保留 `last_unconfirmed_attempt` 供查核，不鎖住後續新訊號。清倉異常另外保留 `manual_flat_required` 並通知早上人工處理，不補送舊清倉單。
 - 不需人工解除失敗鎖定；`--retry-failed` 僅保留舊版相容。新訊號仍會查券商實際庫存並調整到目標，券商查詢或送單異常會使該次失敗，但不會在本機建立持續鎖定。
-- Discord 共用非同步佇列、10 秒逾時、NotifierBot 與長訊息分段；通知失敗不阻塞下單。訊息包含目標部位、觸發原因與已確認的實際部位／失敗結果。
+- Discord 共用非同步佇列、10 秒逾時、NotifierBot 與長訊息分段；通知失敗不阻塞下單。訊息包含策略訊號、券商庫存、預計下單、最終口數與實際送單結果。
 - 新實單委託統一寫入各自的 `records/live_order_attempts.csv`，欄位為 timestamp、attempt_id、event、trigger、target_position、previous_position、actual_position、side、quantity、detail。
 - 通知發送結果統一寫入各自的 `records/notifications.jsonl`，包含 timestamp、status、content。status 可為 sent、failed、missing_webhook、queue_full；不寫入 webhook URL 或原始網路例外。
 

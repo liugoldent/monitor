@@ -39,7 +39,7 @@ BASE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BASE_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 from ef_trade_runtime import (Notifications, ORDER_FIELDS, append_order, perform_order,
-                              result_text, execution_message, save_state)
+                              save_state)
 ENV_PATH = BACKEND_DIR / ".env"
 SOURCE_PATH = BACKEND_DIR / "tv_doc" / "six_strategy_signal_events.csv"
 PRICE_PATH = BACKEND_DIR / "tv_doc" / "webhook_data_1min.csv"
@@ -288,7 +288,7 @@ def execute_live_target(
     if not release_order_lock(state):
         return "❌ 無法保存委託歷史，本筆未送單、不自動重送；下一筆新訊號仍會檢查"
     if trigger == "startup_reconcile":
-        return "啟動不補單，等待新EF訊號；過往送單失敗不鎖定新單"
+        return "啟動不補單，等待新EF訊號"
     order_key = (f"{trigger}/{now_local():%Y-%m-%d}"
                  if trigger == "01:00_live_clock_flat" else trigger)
     # Deduplicate the event, not its target: a NEW event may have the same target.
@@ -305,19 +305,48 @@ def execute_live_target(
     state["last_order_attempt_target"] = broker_target
     state["last_order_attempt_at"] = attempted_at
     state["last_order_trigger"] = trigger
-    def persist_guard():
+    def prepared(data):
+        state["attempt"].update(data)
+        state["attempt"]["broker_phase"] = "prepared"
         if save_json_atomic(STATE_PATH, state) is False:
-            raise OSError("無法保存券商委託追蹤狀態")
+            raise OSError("無法保存本次庫存與預計下單")
+
+    def submitted(checkpoint, result):
+        raw_status = getattr(
+            getattr(getattr(result, "trade", None), "status", None), "status", ""
+        )
+        state["attempt"]["broker_status"] = str(getattr(raw_status, "value", raw_status) or "")
+        state["attempt"]["broker_trade_id"] = getattr(
+            getattr(getattr(result, "trade", None), "order", None), "id", ""
+        )
+        checkpoint(result)
+
+    def calculation_text(result_detail: str) -> str:
+        attempt = state.get("attempt", {})
+        previous = attempt.get("broker_before_position")
+        side = attempt.get("broker_side")
+        quantity = attempt.get("broker_quantity")
+        current_text = position_text(previous) if isinstance(previous, int) else "查詢失敗"
+        if isinstance(quantity, int):
+            planned = ("無需下單" if quantity == 0 else
+                       f"{'買進' if side == 'buy' else '賣出'} TMF {quantity}口")
+        else:
+            planned = "無法計算"
+        return (
+            f"2. 目前券商庫存：{current_text}\n"
+            f"3. 本次預計下單：{planned}\n"
+            f"4. 收到策略後最終口數：{position_text(broker_target)}\n"
+            f"5. 實際送單結果：{result_detail}"
+        )
     try:
         result = perform_order(
             state, key=order_key, target=broker_target,
             persist=lambda: save_json_atomic(STATE_PATH, state),
             execute=lambda: execute_target_position(
-                broker_target, guard=state.setdefault("broker_reconciliation", {}),
-                persist_guard=persist_guard),
+                broker_target, on_prepared=prepared),
             execute_checkpointed=lambda checkpoint: execute_target_position(
-                broker_target, guard=state.setdefault("broker_reconciliation", {}),
-                persist_guard=persist_guard, on_submitted=checkpoint),
+                broker_target, on_prepared=prepared,
+                on_submitted=lambda result: submitted(checkpoint, result)),
             record=lambda **row: append_order(ORDER_ATTEMPT_PATH, clock=now_local, **row),
             clock=now_local,
         )
@@ -329,9 +358,12 @@ def execute_live_target(
         release_order_lock(state)
         save_json_atomic(STATE_PATH, state)
         if trigger == "01:00_live_clock_flat":
-            return f"🚨 清倉失敗或結果未確認：{type(exc).__name__}；請早上核對永豐庫存並手動清倉。" \
-                   "不自動重送；08:45後新訊號不因本次清倉失敗鎖定。"
-        return f"❌ 下單失敗或結果未確認：{error}；實際部位未確認；本筆不自動重送，下一筆先核對未確認委託與庫存"
+            return calculation_text(
+                f"🚨 清倉送單失敗或回傳不明：{error}；本筆不重送，新訊號照常處理"
+            )
+        return calculation_text(
+            f"❌ 本次送單失敗或回傳不明：{error}；本筆不重送，新訊號照常處理"
+        )
     state["last_executed_target"] = broker_target
     state["last_executed_at"] = text_time(now_local())
     if getattr(result, "confirmed", True):
@@ -340,7 +372,13 @@ def execute_live_target(
     for field in ("last_order_error_target", "last_order_error_at", "last_order_error"):
         state.pop(field, None)
     save_json_atomic(STATE_PATH, state)
-    return result_text(result)
+    if result.quantity:
+        status = state.get("attempt", {}).get("broker_status") or "API已回傳"
+        detail = (f"已送出{'買進' if result.side == 'buy' else '賣出'} TMF "
+                  f"{result.quantity}口（狀態：{status}；未回查成交）")
+    else:
+        detail = "券商庫存已符合最終口數，無需送單"
+    return calculation_text(detail)
 
 
 def write_position(state: dict, reason: str) -> None:
@@ -452,8 +490,10 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         if decision.previous_position == decision.target_position
         else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
-    return execution_message("EF Hysteresis＋01:00清倉", "live", str(decision.event.timestamp),
-                             target_final, live_result, clock=now_local) + "\n" + (
+    return (
+        "🚨【強共識｜EF訊號與送單計算】\n"
+        f"1. EF策略與進出場訊號：{decision.event.strategy_name or decision.event.strategy_code} "
+        f"({decision.event.strategy_code}) {decision.event.previous_position} → {decision.event.new_position}\n"
         f"收到時間：{text_time(decision.event.timestamp)}\n"
         f"策略：{decision.event.strategy_name or decision.event.strategy_code} "
         f"({decision.event.strategy_code})\n"
@@ -463,7 +503,7 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         f"F明細：{position_breakdown(getattr(decision, 'f_positions', ()), PORTFOLIO_F, decision.f_net)}\n"
         f"組合目標：{action}\n"
         f"原因：{decision.reason}\n"
-        f"執行：{live_result}"
+        f"{live_result}"
     )
 
 
@@ -599,8 +639,8 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
         "策略目標口數：空手（實際庫存以執行結果為準）\n"
         f"組合目標：{position_text(scaled_target(previous))} → 空手\n"
         f"執行：{result}\n"
-        "清倉失敗或未確認完成，請早上核對庫存並手動清倉；不自動重送。\n"
-        "08:45不恢復舊目標，等待新E/F訊號；本次清倉失敗不鎖定新訊號。"
+        "08:45不恢復舊目標，等待新E/F訊號；"
+        "後續訊號仍以當下券商庫存重新計算。"
     )
     print(message)
     send_discord(message)
@@ -878,7 +918,7 @@ def main() -> None:
             f"策略目標部位：{position_text(scaled_target(startup_base_target))}\n"
             f"規則：E/F兩組皆達{threshold}票同向才進場；持倉後兩組皆保留至少{hold_threshold}票才續抱；U={unit}。\n"
             "01:00清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
-            "新訊號逐筆核對；前筆委託未確認時先查證，無法確認不送單；啟動不補單。\n"
+            "每筆新訊號查當下券商庫存，以最終口數減庫存計算本次下單；啟動不補單。\n"
             "執行：收到新訊號立即查實際庫存並送差額委託，結果以券商回報為準。\n"
             f"模式：{'API_KEY永豐實單' if env_flag(ENABLE_ORDERS_ENV) else '影子模式'}。"
         )

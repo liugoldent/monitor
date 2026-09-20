@@ -4,7 +4,6 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -34,7 +33,7 @@ def login(sj: Any):
     ca = Path(os.getenv("CA_PATH2") or os.getenv("CA_PATH") or BACKEND_DIR / "Sinopac.pfx")
     if not ca.is_file():
         raise FileNotFoundError(f"找不到憑證 {ca}")
-    api = sj.Shioaji(simulation=True)
+    api = sj.Shioaji(simulation=False)
     try:
         api.login(key, secret)
         api.activate_ca(ca_path=str(ca), ca_passwd=person, person_id=person)
@@ -47,22 +46,15 @@ def login(sj: Any):
         raise
 
 
-def confirm_target(target: int, *, api: Any = None, sj: Any = None, sleep=time.sleep) -> bool:
-    """Read-only recovery: wait, refresh orders, then compare TMF inventory."""
-    owned = api is None
-    if owned:
-        if sj is None:
-            import shioaji as sj
-        api = login(sj)
+def _deal_quantity(trade: Any) -> int | None:
+    value = _shared._position_value(_shared._position_value(trade, "status"), "deal_quantity")
+    if isinstance(value, bool):
+        return None
     try:
-        sleep(1)
-        _shared._refresh_status(api)
-        positions = _shared._read_positions(api)
-        _shared.validate_tmf_account(api, positions)
-        return _shared._net_position(positions) == target
-    finally:
-        if owned:
-            api.logout()
+        quantity = int(value)
+    except (TypeError, ValueError):
+        return None
+    return quantity if quantity >= 0 else None
 
 
 def confirm_flat(*, api: Any = None, sj: Any = None) -> bool:
@@ -85,33 +77,44 @@ def confirm_flat(*, api: Any = None, sj: Any = None) -> bool:
             api.logout()
 
 
-def execute_target_position(target: int | None, *, deadline: datetime,
+def execute_target_position(target: int, *, deadline: datetime,
                             clock: Callable[[], datetime], api: Any = None,
-                            sj: Any = None, delta: int | None = None,
-                            on_submitted=None):
-    """Submit once. Signals use their delta directly; flat queries inventory once."""
-    if delta is not None:
-        if isinstance(delta, bool) or not isinstance(delta, int) or not 1 <= abs(delta) <= 40:
-            raise ValueError("訊號差額須為非零整數，最多 40 口")
-    elif target != 0:
-        raise ValueError("僅接受新訊號差額或清倉目標 0")
+                            sj: Any = None, on_prepared=None, on_submitted=None):
+    """Read current TMF inventory and submit the difference to one final target."""
+    if isinstance(target, bool) or not isinstance(target, int):
+        raise ValueError(f"最終目標口數必須是整數，目前為 {target!r}")
     if sj is None:
         import shioaji as sj
     owned = api is None
     if owned:
         api = login(sj)
     try:
-        # New signal: no inventory reconciliation or old-target catch-up.
-        if delta is None:
-            _shared.validate_tmf_account(api)
-            delta = -_shared.current_tmf_position(api)
         from types import SimpleNamespace
+        check_order_deadline(deadline, clock, BrokerOrderError)
+        before_position = _shared.current_tmf_position(api)
+        delta = target - before_position
+        if abs(delta) > 40:
+            raise BrokerOrderError(
+                f"券商庫存 {before_position} 口到目標 {target} 口需下 {abs(delta)} 口，超過單次上限 40 口"
+            )
+        side = "buy" if delta > 0 else "sell" if delta < 0 else None
+        prepared = dict(broker_before_position=before_position,
+                        broker_contract=str(_shared._contract(api).code), broker_side=side,
+                        broker_quantity=abs(delta), target_position=target,
+                        broker_request_at=clock().isoformat())
+        if on_prepared is not None:
+            on_prepared(prepared)
         if delta == 0:
-            result = SimpleNamespace(side=None, quantity=0, submitted=False)
+            result = SimpleNamespace(
+                side=None, quantity=0, submitted=False,
+                previous_position=before_position, target_position=target,
+                broker_before_position=before_position, broker_trade_id="",
+                broker_status="NoOrderNeeded", broker_deal_quantity=0,
+            )
             if on_submitted is not None:
                 on_submitted(result)
             return result
-        side, quantity = ("buy" if delta > 0 else "sell"), abs(delta)
+        quantity = abs(delta)
         order = _shared._build_order(api, sj, side, quantity)
         contract = _shared._contract(api)
         check_order_deadline(deadline, clock, BrokerOrderError)
@@ -120,13 +123,20 @@ def execute_target_position(target: int | None, *, deadline: datetime,
         print(f"委託回傳狀態：{_shared._status_text(trade)}（非成交確認）", flush=True)
         if trade is None:
             raise BrokerOrderError("送單未取得回傳")
-        if _shared._status_text(trade).lower() in {"failed", "inactive"}:
-            raise BrokerOrderError("券商即時回覆拒絕委託")
         # A returned order is submission acknowledgement, never proof of fill.
-        result = SimpleNamespace(side=side, quantity=quantity, submitted=True, trade=trade)
+        broker_status = _shared._status_text(trade)
+        result = SimpleNamespace(
+            side=side, quantity=quantity, submitted=True, trade=trade,
+            previous_position=before_position, target_position=target,
+            broker_before_position=before_position,
+            broker_trade_id=_shared._trade_id(trade), broker_status=broker_status,
+            broker_deal_quantity=_deal_quantity(trade),
+        )
         # Persist the API return BEFORE SDK cleanup can crash or hang.
         if on_submitted is not None:
             on_submitted(result)
+        if broker_status.lower() in {"failed", "inactive"}:
+            raise BrokerOrderError("券商即時回覆拒絕委託")
         return result
     finally:
         if owned:

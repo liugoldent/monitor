@@ -1,7 +1,12 @@
+x-app-build: &app-build
+  context: .
+  network: host
+x-app-image: &app-image monitor-app:local
+
 services:
   telegram-signal-relay:
-    build:
-      context: .
+    build: *app-build
+    image: *app-image
     container_name: monitor-telegram-signal-relay
     restart: unless-stopped
     command: ["python", "/app/backend-futures-py/telegram_signal_relay.py"]
@@ -18,8 +23,8 @@ services:
       - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
 
   monitor-mxf:
-    build:
-      context: .
+    build: *app-build
+    image: *app-image
     container_name: monitor-mxf
     restart: unless-stopped
     command: ["python", "/app/backend-futures-py/monitor_mxf.py"]
@@ -32,8 +37,8 @@ services:
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
   webhook-server:
-    build:
-      context: .
+    build: *app-build
+    image: *app-image
     container_name: monitor-webhook-server
     restart: unless-stopped
     command: ["python", "/app/backend-futures-py/webhook_server.py"]
@@ -48,8 +53,8 @@ services:
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
   options-level-monitor:
-    build:
-      context: .
+    build: *app-build
+    image: *app-image
     container_name: monitor-options-level-monitor
     restart: unless-stopped
     command: ["python", "/app/backend-futures-py/options-level-monitor/monitor.py", "--clear-screen"]
@@ -63,8 +68,8 @@ services:
 
   ef-strong-consensus-morning-flat-strategy:
     # Legacy service identifier retained so runtime/order state is reused.
-    build:
-      context: .
+    build: *app-build
+    image: *app-image
     container_name: monitor-ef-strong-consensus-morning-flat-strategy
     restart: unless-stopped
     command: ["python", "/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/monitor_and_trade.py"]
@@ -85,8 +90,8 @@ services:
       - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime
 
   ef-morning-weekend-hedge-strategy:
-    build:
-      context: .
+    build: *app-build
+    image: *app-image
     container_name: monitor-ef-morning-weekend-hedge-strategy
     restart: unless-stopped
     command: ["python", "/app/backend-futures-py/ef-morning-weekend-hedge-strategy/monitor_and_trade.py"]
@@ -109,24 +114,20 @@ services:
 
   cloudflared:
     profiles: ["tunnel"]
-    build:
-      context: .
+    image: cloudflare/cloudflared:latest
     container_name: monitor-cloudflared
     restart: unless-stopped
-    command:
-      - sh
-      - -c
-      - exec cloudflared tunnel run --token "$${CLOUDFLARED_TOKEN}"
+    command: ["tunnel", "run"]
     environment:
       TZ: Asia/Taipei
-      CLOUDFLARED_TOKEN: ${CLOUDFLARED_TOKEN:-}
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:-}
     depends_on:
       - webhook-server
 
   monitor:
     profiles: ["legacy"]
-    build:
-      context: .
+    build: *app-build
+    image: *app-image
     container_name: monitor-services
     restart: unless-stopped
     environment:

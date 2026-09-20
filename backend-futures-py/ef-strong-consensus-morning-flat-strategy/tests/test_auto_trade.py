@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -45,29 +45,47 @@ class AutoTradeCredentialTests(unittest.TestCase):
     def test_u_two_allows_two_contract_target(self):
         api = Mock()
         sj = Mock()
-        expected = Mock()
+        contract = SimpleNamespace(code="TMFR1")
+        trade = SimpleNamespace(
+            status=SimpleNamespace(status="Submitted", msg="", deal_quantity=0),
+            order=SimpleNamespace(id="order-1"),
+        )
+        api.place_order.return_value = trade
         with patch.dict(
             os.environ, {auto_trade.POSITION_UNIT_ENV: "2"}, clear=False
         ), patch.object(
-            auto_trade._shared, "execute_target_position", return_value=expected
-        ) as execute:
+            auto_trade, "current_tmf_position", return_value=1
+        ), patch.object(
+            auto_trade._shared, "_contract", return_value=contract
+        ), patch.object(
+            auto_trade._shared, "_build_order", return_value="order"
+        ):
             result = auto_trade.execute_target_position(-2, api=api, sj=sj)
-        self.assertIs(result, expected)
-        execute.assert_called_once_with(-2, api=api, sj=sj, before_order=ANY, strict_tmf=True, submission_only=True)
+        self.assertEqual(result.previous_position, 1)
+        self.assertEqual(result.target_position, -2)
+        self.assertEqual(result.side, "sell")
+        self.assertEqual(result.quantity, 3)
+        self.assertFalse(result.confirmed)
+        api.place_order.assert_called_once_with(contract, "order", timeout=0)
 
-    def test_reconciliation_delegates_to_shared_verified_adapter(self):
+    def test_matching_inventory_needs_no_order_or_trade_scan(self):
         api = Mock()
-        sj = Mock()
-        expected = Mock()
-        with patch.object(
-            auto_trade._shared,
-            "execute_target_position",
-            return_value=expected,
-        ) as execute:
-            result = auto_trade.execute_target_position(-1, api=api, sj=sj)
+        prepared = Mock()
+        submitted = Mock()
+        with patch.object(auto_trade, "current_tmf_position", return_value=-1), patch.object(
+            auto_trade._shared, "_contract", return_value=SimpleNamespace(code="TMFR1")
+        ), patch.object(auto_trade._shared, "execute_target_position") as legacy_execute:
+            result = auto_trade.execute_target_position(
+                -1, api=api, sj=Mock(), on_prepared=prepared, on_submitted=submitted
+            )
 
-        self.assertIs(result, expected)
-        execute.assert_called_once_with(-1, api=api, sj=sj, before_order=ANY, strict_tmf=True, submission_only=True)
+        self.assertEqual(result.actual_position, -1)
+        self.assertEqual(result.quantity, 0)
+        prepared.assert_called_once()
+        submitted.assert_called_once_with(result)
+        api.place_order.assert_not_called()
+        api.list_trades.assert_not_called()
+        legacy_execute.assert_not_called()
 
 
 if __name__ == "__main__":

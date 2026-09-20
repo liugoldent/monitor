@@ -172,6 +172,11 @@ class ReconciliationTests(unittest.TestCase):
                      previous_position="1", new_position="0")]
         def execute(target, **kwargs):
             checkpoint = kwargs.pop("on_submitted")
+            prepared = kwargs.pop("on_prepared")
+            delta = target - self.api.position
+            prepared({"broker_before_position": self.api.position,
+                      "broker_side": "buy" if delta > 0 else "sell" if delta < 0 else None,
+                      "broker_quantity": abs(delta), "target_position": target})
             result = adapter.execute_target_position(target, api=self.api, sj=self.sj,
                                                      strict_tmf=True, submission_only=True, **kwargs)
             checkpoint(result)

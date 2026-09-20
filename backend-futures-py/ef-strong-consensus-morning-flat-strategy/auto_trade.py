@@ -1,7 +1,9 @@
 """One-shot Shioaji adapter for EF Hysteresis + 01:00 morning flat.
 
-The order reconciliation implementation is shared by active TMF strategies.
-This strategy uses the primary API credential pair selected by the operator.
+Each call reads the current TMF inventory, calculates one target delta and
+submits that delta once.  Previous orders are deliberately not scanned or
+replayed here; the next EF event always starts from the broker inventory then
+visible at that time.
 """
 
 from __future__ import annotations
@@ -66,7 +68,7 @@ def _login(sj: Any) -> Any:
     if not ca_path.is_file():
         raise FileNotFoundError(f"找不到永豐憑證檔: {ca_path}")
 
-    api = sj.Shioaji(simulation=True)
+    api = sj.Shioaji(simulation=False)
     api.login(_required_env("API_KEY"), _required_env("SECRET_KEY"))
     person_id = _required_env("PERSON_ID")
     api.activate_ca(
@@ -84,27 +86,56 @@ def execute_target_position(
     sj: Any = None,
     deadline: datetime | None = None,
     clock=now_local,
-    guard: dict | None = None,
-    persist_guard=None,
+    on_prepared=None,
     on_submitted=None,
 ) -> OrderResult:
-    """Read API_KEY inventory, submit the target delta once, checkpoint before logout."""
+    """Read API_KEY inventory and submit its difference from the final target once."""
     unit = _position_unit()
     if target_position not in {-unit, 0, unit} or isinstance(target_position, bool):
         raise ValueError(
             f"Hysteresis實單目標只能是-{unit}、0或{unit}口，目前為{target_position!r}"
         )
     deadline = deadline or order_deadline(clock(), target_position)
-    def check_deadline():
-        check_order_deadline(deadline, clock, BrokerOrderError)
-    tracking = {"submission_only": True}
-    if guard is not None:
-        tracking.update(guard=guard, persist_guard=persist_guard)
+
     def submit(api):
-        result = _shared.execute_target_position(target_position, api=api, sj=sj,
-                                                before_order=check_deadline, strict_tmf=True, **tracking)
+        check_order_deadline(deadline, clock, BrokerOrderError)
+        previous = current_tmf_position(api)
+        delta = target_position - previous
+        side = "buy" if delta > 0 else "sell" if delta < 0 else None
+        quantity = abs(delta)
+        contract = _shared._contract(api)
+        prepared = {
+            "broker_before_position": previous,
+            "broker_contract": str(contract.code),
+            "broker_side": side,
+            "broker_quantity": quantity,
+            "target_position": target_position,
+            "broker_request_at": clock().isoformat(),
+        }
+        if on_prepared is not None:
+            on_prepared(prepared)
+        if delta == 0:
+            result = OrderResult(previous, target_position, previous, None, 0)
+            if on_submitted is not None:
+                on_submitted(result)
+            return result
+
+        order = _shared._build_order(api, sj, side, quantity)
+        check_order_deadline(deadline, clock, BrokerOrderError)
+        print(f"委託內容 TMFR1 {side} {quantity}口 MKT IOC Auto", flush=True)
+        trade = api.place_order(contract, order, timeout=0)
+        if trade is None:
+            raise BrokerOrderError("送單未取得回傳")
+        status = _shared._status_text(trade)
+        print(f"委託回傳狀態：{status}（非成交確認）", flush=True)
+        result = OrderResult(
+            previous, target_position, None, side, quantity, trade, confirmed=False
+        )
         if on_submitted is not None:
             on_submitted(result)
+        if status.lower() in {"failed", "inactive"}:
+            message = _shared._status_message(trade) or "券商未接受委託"
+            raise BrokerOrderError(f"永豐委託失敗（{status}）：{message}")
         return result
     if api is not None:
         return submit(api)

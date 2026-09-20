@@ -49,6 +49,27 @@ function Test-DockerEngine {
     } finally { $ErrorActionPreference = $previousPreference }
 }
 
+function Enable-ProjectBuilder {
+    $builderName = 'monitor-builder'
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        & docker buildx inspect $builderName *> $null
+        $builderExists = $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if (-not $builderExists) {
+        Write-Host "Creating the project Docker builder ($builderName)..." -ForegroundColor Cyan
+        & docker buildx create --name $builderName --driver docker-container | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Could not create Docker builder: $builderName" }
+    }
+    Write-Host "Preparing the project Docker builder ($builderName)..." -ForegroundColor Cyan
+    & docker buildx inspect $builderName --bootstrap | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Docker builder is not ready: $builderName" }
+    return $builderName
+}
+
 foreach ($requiredFile in @(
     (Join-Path $backendDir '.env'),
     (Join-Path $backendDir 'Sinopac.pfx'),
@@ -75,21 +96,35 @@ if (-not (Test-DockerEngine)) {
     }
     if (-not $ready) { throw 'Docker did not become ready within 120 seconds.' }
 }
+$previousBuilder = $env:BUILDX_BUILDER
+if (-not $NoBuild) {
+    # Docker Desktop's default embedded BuildKit can be severely throttled while
+    # RUN steps download packages.  The container driver uses the normal Docker
+    # network path and is dramatically faster on affected Windows installations.
+    $env:BUILDX_BUILDER = (Enable-ProjectBuilder)
+}
 Push-Location $projectDir
 try {
-    $composeArgs = @('compose', '--profile', 'tunnel', 'up', '--detach')
-    if (-not $NoBuild) { $composeArgs += '--build' }
+    if (-not $NoBuild) {
+        # Every application service uses monitor-app:local. Build and import it
+        # once; asking Compose to build every service repeats the large export.
+        & docker compose --progress plain build telegram-signal-relay
+        if ($LASTEXITCODE -ne 0) { throw "Docker image build failed: $LASTEXITCODE" }
+    }
+    $composeArgs = @('compose', '--progress', 'plain', '--profile', 'tunnel', 'up', '--detach', '--no-build')
     $composeArgs += @($services | Where-Object { $_ -ne 'ef-morning-weekend-hedge-strategy' })
     & docker @composeArgs
     if ($LASTEXITCODE -ne 0) { throw "docker compose failed: $LASTEXITCODE" }
     # Always start a fresh account-2 process, even when its image is unchanged.
     # Other services retain their ordinary compose lifecycle.
-    $efArgs = @('compose', 'up', '--detach', '--no-deps', '--force-recreate')
-    if (-not $NoBuild) { $efArgs += '--build' }
+    $efArgs = @('compose', '--progress', 'plain', 'up', '--detach', '--no-build', '--no-deps', '--force-recreate')
     $efArgs += 'ef-morning-weekend-hedge-strategy'
     & docker @efArgs
     if ($LASTEXITCODE -ne 0) { throw "EF account 2 startup failed: $LASTEXITCODE" }
-} finally { Pop-Location }
+} finally {
+    Pop-Location
+    $env:BUILDX_BUILDER = $previousBuilder
+}
 
 $logWindows = @(
     @{ Title = 'Telegram H-EF Relay'; Service = 'telegram-signal-relay' },

@@ -25,7 +25,17 @@ try:
     import filelock  # noqa: F401
 except ModuleNotFoundError:
     filelock_stub = types.ModuleType("filelock")
-    filelock_stub.FileLock = object
+    class FileLockStub:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def acquire(self, *args, **kwargs):
+            return self
+
+        def release(self):
+            pass
+
+    filelock_stub.FileLock = FileLockStub
     filelock_stub.Timeout = RuntimeError
     sys.modules["filelock"] = filelock_stub
 
@@ -143,7 +153,7 @@ class LiveOrderTests(unittest.TestCase):
             monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
         ), patch.object(monitor, "execute_target_position", side_effect=TimeoutError()) as execute:
             first = monitor.execute_live_target(state, 1, trigger="signal_1")
-            self.assertIn("下一筆先核對未確認委託與庫存", first)
+            self.assertIn("新訊號照常處理", first)
             self.assertEqual(state["attempt"]["status"], "failed_no_retry")
             monitor.execute_live_target(state, 1, trigger="signal_1")
             self.assertEqual(execute.call_count, 1)
@@ -179,7 +189,7 @@ class LiveOrderTests(unittest.TestCase):
             monitor, "send_discord"
         ) as notify, patch("builtins.print"):
             monitor.apply_live_clock_flatten(state, clock.return_value)
-            self.assertIn("手動清倉", notify.call_args.args[0])
+            self.assertIn("清倉送單失敗", notify.call_args.args[0])
             self.assertEqual(state["attempt"]["status"], "failed_no_retry")
             monitor.apply_live_clock_flatten(state, clock.return_value)
             self.assertEqual(execute.call_count, 1)
@@ -206,7 +216,7 @@ class LiveOrderTests(unittest.TestCase):
             monitor.execute_live_target(state, 0, trigger="startup_reconcile")
             execute.assert_not_called()  # Restart must not replay the failed flat.
             monitor.execute_live_target(state, 0, trigger="immediate_ef_signal_row_2")
-            execute.assert_called_once_with(0, guard=ANY, persist_guard=ANY, on_submitted=ANY)
+            execute.assert_called_once_with(0, on_prepared=ANY, on_submitted=ANY)
             self.assertEqual(state["manual_flat_required"]["status"], "pending")
 
     def test_pending_attempt_allows_changed_target_and_forced_flat(self):
@@ -256,15 +266,25 @@ class LiveOrderTests(unittest.TestCase):
             self.assertEqual(calls, 2)
             self.assertEqual(monitor.load_json(path, {}), {"position": 1})
 
-    def test_live_target_uses_verified_reconciliation(self):
+    def test_live_target_reports_inventory_delta_and_submission(self):
         state = {}
         result = SimpleNamespace(
             order_sent=True,
             side="buy",
             quantity=2,
             previous_position=0,
-            actual_position=2,
+            actual_position=None,
+            confirmed=False,
+            trade=SimpleNamespace(
+                status=SimpleNamespace(status="Submitted"),
+                order=SimpleNamespace(id="order-1"),
+            ),
         )
+        def execute_target(target, *, on_prepared, on_submitted):
+            on_prepared({"broker_before_position": 0, "broker_side": "buy",
+                         "broker_quantity": 2, "target_position": target})
+            on_submitted(result)
+            return result
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             monitor.os.environ,
             {monitor.ENABLE_ORDERS_ENV: "true", monitor.POSITION_UNIT_ENV: "2"},
@@ -274,13 +294,16 @@ class LiveOrderTests(unittest.TestCase):
         ), patch.object(
             monitor, "ORDER_ATTEMPT_PATH", Path(directory) / "orders.csv"
         ), patch.object(
-            monitor, "execute_target_position", return_value=result
+            monitor, "execute_target_position", side_effect=execute_target
         ) as execute:
             text = monitor.execute_live_target(state, 1, trigger="test")
 
-        execute.assert_called_once_with(2, guard=ANY, persist_guard=ANY, on_submitted=ANY)
+        execute.assert_called_once_with(2, on_prepared=ANY, on_submitted=ANY)
         self.assertEqual(state["last_executed_target"], 2)
-        self.assertIn("已回查確認", text)
+        self.assertIn("目前券商庫存：空手", text)
+        self.assertIn("本次預計下單：買進 TMF 2口", text)
+        self.assertIn("收到策略後最終口數：多2口", text)
+        self.assertIn("實際送單結果：已送出買進 TMF 2口", text)
 
     def test_webhook_places_scaled_final_quantity_below_time(self):
         decision = SimpleNamespace(
@@ -304,7 +327,7 @@ class LiveOrderTests(unittest.TestCase):
         ):
             message = monitor.immediate_live_message(decision, "ok")
         self.assertIn(
-            "策略目標部位：空2口",
+            "組合目標：空手 → 空2口",
             message,
         )
 
@@ -365,7 +388,7 @@ class LiveOrderTests(unittest.TestCase):
                 text = monitor.execute_live_target(state, 1, trigger="test_failure")
             with order_path.open(newline="", encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
-        self.assertIn("下單失敗", text)
+        self.assertIn("本次送單失敗", text)
         self.assertEqual([row["event"] for row in rows], ["attempt_started", "failed"])
         self.assertEqual(rows[-1]["trigger"], "test_failure")
 
@@ -383,7 +406,7 @@ class LiveOrderTests(unittest.TestCase):
             text = monitor.execute_live_target(state, 1, trigger="test")
 
         execute.assert_not_called()
-        self.assertIn("不自動重送", text)
+        self.assertIn("本筆不重送", text)
 
     def test_idle_poll_does_not_rewrite_state(self):
         positions = {code: 0 for code in ALL_STRATEGIES}

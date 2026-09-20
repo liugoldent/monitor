@@ -102,41 +102,18 @@ class SourceTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.TestCase):
-    def test_interrupted_mismatch_warns_once_and_allows_new_signals(self):
+    def test_interrupted_attempt_is_consumed_without_lock_or_warning(self):
         m = self.monitor()
         m.state["attempt"] = {"status": "attempted", "key": "signal/old"}
         m.state["blocked_reason"] = "interrupted"
-        m.recovery_checker = Mock(return_value=False)
-        m.notify = Mock()
-        m.recover_interrupted(self.now)
-        m.recover_interrupted(self.now)
-        m.recovery_checker.assert_called_once()
-        self.assertNotIn("blocked_reason", m.state)
-        m.notify.assert_called_once()
-        self.assertEqual(m.state["attempt"]["status"], "recovery_skipped_no_retry")
-        self.assertEqual(self.orders, [])
-        saved = json.loads(m.path.read_text(encoding="utf-8"))
-        self.assertEqual(saved["attempt"]["status"], "recovery_skipped_no_retry")
+        m.persist()
         restarted = self.monitor()
         self.assertNotIn("blocked_reason", restarted.state)
+        self.assertEqual(restarted.state["attempt"]["status"], "interrupted_no_retry")
         self.now += timedelta(seconds=1)
         self.signal(0, 1)
         restarted.tick()
         self.assertEqual(self.orders, [1])
-
-    def test_interrupted_recovery_success_or_query_error_resumes(self):
-        for failure in (False, True):
-            m = self.monitor()
-            m.state["attempt"] = {"status": "attempted", "key": "signal/old"}
-            m.state["blocked_reason"] = "interrupted"
-            m.recovery_checker = Mock(side_effect=RuntimeError("query failed")) if failure else Mock(return_value=True)
-            m.notify = Mock()
-            m.recover_interrupted(self.now)
-            m.recover_interrupted(self.now)
-            self.assertNotIn("blocked_reason", m.state)
-            self.assertEqual(m.state["attempt"]["status"], "recovery_skipped_no_retry" if failure else "broker_reconciled")
-            m.notify.assert_called_once()
-            self.assertEqual(self.orders, [])
 
     def test_twelve_strategy_upgrade_preserves_positions_and_accepts_cfctx15(self):
         m = self.monitor()
@@ -151,7 +128,7 @@ class MonitorTests(unittest.TestCase):
         self.signal(0, 1, "CFCTX15m")
         restarted.tick()
         restarted.tick()
-        self.assertEqual(self.orders, [1])
+        self.assertEqual(self.orders, [2])
         self.assertEqual(restarted.state["positions"]["CFCTX15m"], 1)
 
     def test_upgrade_does_not_hide_missing_existing_strategy(self):
@@ -261,15 +238,13 @@ class MonitorTests(unittest.TestCase):
         env = patch.dict(os.environ, {"EF_HEDGE_SIGNAL_CSV": str(self.signals)}, clear=True)
         env.start()
         self.addCleanup(env.stop)
-        self.actual = 1
+        self.actual = 0
         self.orders = []
         self.fail_after_fill = False
         self.execute = Mock(side_effect=self.broker)
 
-    def broker(self, target, *, delta=None, on_target=None, **kwargs):
+    def broker(self, target, **kwargs):
         previous = self.actual
-        if delta is not None:
-            target = previous + delta
         state = json.loads((self.root / "runtime/live_state.json").read_text())
         self.assertEqual(state["attempt"]["status"], "attempted")
         quantity = abs(target - previous)
@@ -280,7 +255,8 @@ class MonitorTests(unittest.TestCase):
             self.fail_after_fill = False
             raise auto_trade.BrokerOrderError("filled but response lost")
         return NS(quantity=quantity, submitted=bool(quantity),
-                  side="buy" if target > previous else "sell")
+                  side="buy" if target > previous else "sell" if target < previous else None,
+                  previous_position=previous, target_position=target)
 
     def monitor(self):
         return Monitor(root=self.root, live=True, executor=self.execute, clock=lambda: self.now,
@@ -301,7 +277,7 @@ class MonitorTests(unittest.TestCase):
         self.now += timedelta(minutes=1)
         m.tick()
         self.execute.assert_not_called()
-        self.assertEqual(self.actual, 1)
+        self.assertEqual(self.actual, 0)
 
     def test_order_notification_identifies_source_entry_and_exit(self):
         m = self.monitor()
@@ -312,7 +288,9 @@ class MonitorTests(unittest.TestCase):
             message = m.notify.call_args.args[0]
             self.assertIn("CFC07m", message)
             self.assertIn(action, message)
-            self.assertIn("已送出", message)
+            self.assertIn("目前券商庫存", message)
+            self.assertIn("本次預計下單", message)
+            self.assertIn("收到策略後最終口數", message)
         self.assertEqual(self.orders, [1, -1])
 
     def test_new_signal_in_startup_second_is_not_lost(self):
@@ -324,14 +302,14 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(self.orders, [1])
 
-    def test_new_entry_adds_one_to_actual_not_old_theoretical_four(self):
+    def test_new_entry_reconciles_actual_to_json_target_not_old_target_field(self):
         m = self.monitor()
         m.state["target"] = 4
         self.now += timedelta(seconds=1)
         self.signal(0, 1)
         m.tick()
         self.assertEqual(self.orders, [1])
-        self.assertEqual(self.actual, 2)
+        self.assertEqual(self.actual, 1)
 
     def test_six_transitions_and_batch_not_collapsed(self):
         m = self.monitor()
@@ -367,31 +345,23 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [1, -2])
         self.assertEqual(m.state["trading_day"], "2026-09-15")
 
-    def test_blocked_signals_notify_once_without_orders_or_position_changes(self):
+    def test_stale_blocked_reason_does_not_stop_inventory_reconciliation(self):
         m = self.monitor()
         m.notify = Mock()
         m.state["blocked_reason"] = "interrupted"
         m.state["attempt"] = {"status": "attempted", "key": "old"}
         m.state["positions"]["CFC07m"] = 1
         m.state["positions"]["CFCTX16m"] = 1
-        before = m.state["positions"].copy()
         self.now += timedelta(seconds=1)
         self.signal(1, 0)
         self.signal(1, 0, "CFCTX16m")
         m.tick()
         m.tick()
         messages = [call.args[0] for call in m.notify.call_args_list]
-        self.assertEqual(sum("收到EF訊號・暫停下單" in msg for msg in messages), 2)
-        self.assertEqual(m.state["positions"], before)
-        self.assertEqual(m.state["attempt"], {"status": "attempted", "key": "old"})
-        self.execute.assert_not_called()
-        del m.state["blocked_reason"]
-        m.tick()
-        self.execute.assert_not_called()  # Unblocking must not replay skipped exits.
-        self.now += timedelta(seconds=1)
-        self.signal(1, 0)
-        m.tick()
-        self.assertEqual(self.orders, [-1])
+        self.assertEqual(sum("永豐2｜EF訊號計算" in msg for msg in messages), 2)
+        self.assertEqual(m.state["positions"]["CFC07m"], 0)
+        self.assertEqual(m.state["positions"]["CFCTX16m"], 0)
+        self.assertEqual(self.orders, [1, -1])
 
     def test_zero_delta_signal_notifies_once(self):
         m = self.monitor()
@@ -402,18 +372,19 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         m.notify.assert_called_once()
         self.assertIn("無需下單", m.notify.call_args.args[0])
-        self.execute.assert_not_called()
+        self.execute.assert_called_once()
 
     def test_failed_reset_at_reopen_allows_new_signal(self):
         m = self.monitor()
         m.notify = Mock()
+        self.actual = 1
         self.now = datetime(2026, 9, 15, 9)
         self.signal(0, 1)
         m.tick()
         m.tick()
         messages = [call.args[0] for call in m.notify.call_args_list]
         self.assertTrue(any("人工清倉待辦" in msg for msg in messages))
-        self.assertEqual(self.orders, [1])
+        self.assertEqual(self.orders, [])
         self.assertEqual(m.state["reset_status"], "manual_flat_required")
 
     def test_restart_first_exit_without_daily_entry_does_not_sell(self):
@@ -465,7 +436,7 @@ class MonitorTests(unittest.TestCase):
         m = self.monitor()
         self.signal(1, 0)
         m.tick()
-        self.assertEqual(self.orders, [-1])
+        self.assertEqual(self.orders, [])
         self.assertEqual(m.state["positions"]["CFC07m"], 0)
 
     def test_0505_reset_and_restart_do_not_reset_twice(self):
@@ -491,19 +462,20 @@ class MonitorTests(unittest.TestCase):
         m = self.monitor()
         m.state["positions"]["CFC07m"] = 1
         m.persist()
+        self.actual = 1
         self.now = datetime(2026, 9, 15, 9)
         m = self.monitor()
         self.signal(0, 1, "CFCTX16m")
         m.tick()
         self.assertEqual(m.state["reset_status"], "manual_flat_required")
         self.assertEqual(m.state["positions"]["CFC07m"], 0)
-        self.assertEqual(self.orders, [1])
+        self.assertEqual(self.orders, [])
         self.actual = 0
         self.now += timedelta(minutes=1)
         m.tick()
         self.assertEqual(m.state["reset_status"], "manual_flat_required")
         self.assertEqual(m.state["positions"]["CFCTX16m"], 1)
-        self.assertEqual(self.orders, [1])
+        self.assertEqual(self.orders, [])
 
     def test_reset_query_error_keeps_positions_and_blocks(self):
         m = self.monitor()
@@ -554,8 +526,8 @@ class MonitorTests(unittest.TestCase):
         m = self.monitor()
         self.signal(0, 1)
         m.tick()
-        self.assertIn("blocked_reason", m.state)
-        self.assertEqual(self.orders, [])
+        self.assertNotIn("blocked_reason", m.state)
+        self.assertEqual(self.orders, [1])
 
     def test_invalid_manual_position_rejected(self):
         m = self.monitor()
@@ -598,7 +570,7 @@ class MonitorTests(unittest.TestCase):
         self.now += timedelta(seconds=8)
         m.tick()
         self.assertEqual(self.orders, [1, 1])
-        self.assertEqual(self.actual, 3)
+        self.assertEqual(self.actual, 2)
         self.assertEqual(self.execute.call_count, 2)
 
     def test_flat_on_clock_then_reopen_only_new_signals(self):
@@ -626,6 +598,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [-4, 1])
 
     def test_start_at_flat_time_liquidates(self):
+        self.actual = 1
         self.now = datetime(2026, 9, 15, 1, 0)
         self.monitor().tick()
         self.assertEqual(self.orders, [-1])
@@ -639,10 +612,11 @@ class MonitorTests(unittest.TestCase):
         self.now = datetime(2026, 9, 15, 1, 0)
         m.tick()
         self.assertEqual(self.actual, 0)
-        self.assertEqual(self.orders, [1, -2])
+        self.assertEqual(self.orders, [1, -1])
 
     def test_failed_flat_is_not_retried(self):
         m = self.monitor()
+        self.actual = 1
         self.now = datetime(2026, 9, 15, 1, 0)
         self.fail_after_fill = True
         m.tick()
@@ -685,29 +659,11 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(self.orders, [1])
         m.tick()
-        self.assertEqual(self.orders, [1, -2])
+        self.assertEqual(self.orders, [1, -1])
 
 
 
 class BrokerTests(unittest.TestCase):
-    def test_recovery_waits_and_counts_signed_tmf_quantity_only(self):
-        sleep = Mock()
-        self.api.list_positions.return_value = [
-            {"code": "TMFI6", "quantity": 3, "direction": "Sell"},
-            {"code": "MXFI6", "quantity": 9, "direction": "Buy"}]
-        self.assertTrue(auto_trade.confirm_target(-3, api=self.api, sleep=sleep))
-        sleep.assert_called_once_with(1)
-        self.api.update_status.assert_called_once()
-        self.assertFalse(auto_trade.confirm_target(-1, api=self.api, sleep=Mock()))
-        self.api.list_trades.return_value = [NS(contract=NS(code="TMFI6"), status=NS(status="PendingSubmit"))]
-        with self.assertRaises(auto_trade.BrokerOrderError):
-            auto_trade.confirm_target(-3, api=self.api, sleep=Mock())
-        self.api.list_trades.return_value = []
-        self.api.list_positions.return_value = None
-        with self.assertRaises(auto_trade.BrokerOrderError):
-            auto_trade.confirm_target(0, api=self.api, sleep=Mock())
-        self.api.place_order.assert_not_called()
-
     def setUp(self):
         self.now = datetime(2026, 9, 15, 1, 0)
         self.contract = NS(code="TMFI6")
@@ -725,16 +681,16 @@ class BrokerTests(unittest.TestCase):
             deadline=self.now + timedelta(seconds=40), clock=lambda: self.now,
             api=self.api, sj=self.sj, **kwargs)
 
-    def test_six_transitions_submit_exactly_once_without_inventory_or_fill_query(self):
+    def test_six_transitions_snapshot_inventory_and_submit_once_without_fill_query(self):
         for delta, side, quantity in ((1, "Buy", 1), (-1, "Sell", 1), (2, "Buy", 2), (-2, "Sell", 2)):
             with self.subTest(delta=delta):
                 self.api.reset_mock()
                 self.api.place_order.return_value = NS(status=NS(status="PendingSubmit"))
-                result = self.execute(None, delta=delta)
+                result = self.execute(delta)
                 self.assertTrue(result.submitted)
                 self.api.place_order.assert_called_once()
                 self.assertEqual(self.api.place_order.call_args.kwargs["timeout"], 0)
-                self.api.list_positions.assert_not_called()
+                self.api.list_positions.assert_called_once_with(self.api.futopt_account)
                 self.api.update_status.assert_not_called()
                 self.api.list_trades.assert_not_called()
                 self.assertEqual(self.api.Order.call_args.kwargs["quantity"], quantity)
@@ -746,6 +702,30 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual((result.side, result.quantity), ("sell", 4))
         self.api.place_order.assert_called_once()
         self.api.update_status.assert_not_called()
+
+    def test_order_is_always_final_target_minus_current_inventory(self):
+        cases = (
+            (2, -1, "Sell", 3),
+            (-2, 1, "Buy", 3),
+            (1, 1, None, 0),
+        )
+        for current, target, action, quantity in cases:
+            with self.subTest(current=current, target=target):
+                self.api.reset_mock()
+                self.api.list_positions.return_value = [{
+                    "code": "TMFI6", "quantity": abs(current),
+                    "direction": "Buy" if current > 0 else "Sell",
+                }]
+                self.api.place_order.return_value = NS(status=NS(status="PendingSubmit"))
+                result = self.execute(target)
+                self.assertEqual(result.previous_position, current)
+                self.assertEqual(result.target_position, target)
+                self.assertEqual(result.quantity, quantity)
+                if quantity:
+                    self.assertEqual(self.api.Order.call_args.kwargs["action"], action)
+                    self.api.place_order.assert_called_once()
+                else:
+                    self.api.place_order.assert_not_called()
 
     def test_flat_empty_account_no_order(self):
         self.assertFalse(self.execute(0).submitted)
@@ -775,14 +755,14 @@ class BrokerTests(unittest.TestCase):
     def test_immediate_rejection_is_reported_without_retry(self):
         self.api.place_order.return_value = NS(status=NS(status="Failed"))
         with self.assertRaises(auto_trade.BrokerOrderError):
-            self.execute(None, delta=1)
+            self.execute(1)
         self.api.place_order.assert_called_once()
         self.api.update_status.assert_not_called()
 
     def test_timeout_is_not_retried(self):
         self.api.place_order.side_effect = TimeoutError("unknown")
         with self.assertRaises(TimeoutError):
-            self.execute(None, delta=1)
+            self.execute(1)
         self.api.place_order.assert_called_once()
 
     def test_submission_checkpoint_survives_logout_process_exit(self):
@@ -800,27 +780,31 @@ class BrokerTests(unittest.TestCase):
             with patch("monitor_and_trade.execute_target_position", execute), patch.object(auto_trade, "login", return_value=self.api):
                 m.execute = execute
                 with self.assertRaises(SystemExit):
-                    m.action("signal/test", None, "TMFR1", now + timedelta(seconds=40), delta=1)
+                    m.action("signal/test", 1, "TMFR1", now + timedelta(seconds=40))
             saved = json.loads(m.path.read_text(encoding="utf-8"))
             self.assertEqual(saved["attempt"]["status"], "submitted")
             self.assertIn("submission_returned_at", saved["attempt"])
+            self.assertEqual(saved["attempt"]["broker_before_position"], 0)
+            self.assertEqual(saved["attempt"]["broker_phase"], "api_returned")
+            self.assertEqual(saved["attempt"]["broker_status"], "Filled")
             restarted = Monitor(root=root, live=True, clock=lambda: now,
                                 executor=Mock(), flat_checker=lambda: True)
             self.assertNotIn("blocked_reason", restarted.state)
-            restarted.action("signal/test", None, "TMFR1", now + timedelta(seconds=40), delta=1)
+            restarted.action("signal/test", 1, "TMFR1", now + timedelta(seconds=40))
             restarted.execute.assert_not_called()
             self.api.place_order.assert_called_once()
 
-    def test_rejection_does_not_save_submission_checkpoint(self):
+    def test_rejection_saves_broker_response_before_reporting_failure(self):
         callback = Mock()
         self.api.place_order.return_value = NS(status=NS(status="Failed"))
         with self.assertRaises(auto_trade.BrokerOrderError):
-            self.execute(None, delta=1, on_submitted=callback)
-        callback.assert_not_called()
+            self.execute(1, on_submitted=callback)
+        callback.assert_called_once()
+        self.assertEqual(callback.call_args.args[0].broker_status, "Failed")
 
     def test_past_deadline_never_submits(self):
         with self.assertRaises(auto_trade.BrokerOrderError):
-            auto_trade.execute_target_position(None, delta=1, deadline=self.now,
+            auto_trade.execute_target_position(1, deadline=self.now,
                 clock=lambda: self.now, api=self.api, sj=self.sj)
         self.api.place_order.assert_not_called()
 
