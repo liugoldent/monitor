@@ -15,7 +15,8 @@ from zoneinfo import ZoneInfo
 
 from filelock import FileLock
 
-from auto_trade import execute_target_position, confirm_flat
+from auto_trade import (broker_error_summary, confirm_flat, execute_target_position,
+                        initialize_broker_session)
 from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_position
 
 BASE = Path(__file__).resolve().parent
@@ -33,6 +34,41 @@ def load_env(path: Path) -> None:
     if path.exists():
         from dotenv import load_dotenv
         load_dotenv(path, override=False)
+
+
+def reload_env(path: Path) -> None:
+    if path.exists():
+        from dotenv import load_dotenv
+        load_dotenv(path, override=True)
+
+
+def env_stamp(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_size
+    except OSError:
+        return None
+
+
+def wait_for_broker_session(env_path: Path, notify) -> None:
+    """Fail closed without consuming signals until broker credentials change."""
+    stamp = env_stamp(env_path)
+    while True:
+        try:
+            initialize_broker_session()
+            return
+        except Exception as exc:
+            summary = broker_error_summary(exc)
+            message = (f"🚨【永豐2】Shioaji 啟動登入失敗：{summary}。"
+                       "服務安全待命，不讀取或消耗新訊號；更新 .env 憑證後將重新登入。")
+            print(message, file=sys.stderr, flush=True)
+            notify(message)
+        # Keep the container healthy and quiet instead of entering Docker's
+        # rapid restart loop. Retry only after the bind-mounted file changes.
+        while env_stamp(env_path) == stamp:
+            time.sleep(5)
+        stamp = env_stamp(env_path)
+        reload_env(env_path)
 
 
 def flag(name: str) -> bool:
@@ -377,9 +413,11 @@ class Monitor:
             step["previous_position"] = self.state["positions"][step["strategy_code"]]
             delta = (step["new_position"] - step["previous_position"]) * step["unit"]
             projected = sum(self.state["positions"].values()) * step["unit"] + delta
-            if delta and abs(projected) > MAX_POSITION:
-                # Consume the signal, but keep positions for orders actually attempted.
-                # Otherwise a later exit could close a position we never opened.
+            if abs(projected) > MAX_POSITION:
+                # JSON positions are authoritative even while over the trading
+                # limit.  Persist the signal so every later event remains
+                # fail-closed until the JSON net position returns within range.
+                self.state["positions"][step["strategy_code"]] = step["new_position"]
                 self.state["source"] = step
                 self.persist()
                 self.event("signal_position_limit", signal=step["last_signal"],
@@ -387,7 +425,7 @@ class Monitor:
                            projected_position=projected, max_position=MAX_POSITION)
                 self.notify(self.target_heading(step) + f"【永豐2｜收到EF訊號・超過{MAX_POSITION}口上限】\n{signal_message(step)}\n"
                             f"預計淨部位 {projected:+d} 口，允許 -{MAX_POSITION}～+{MAX_POSITION} 口。\n"
-                            f"本筆只通知、不送單，JSON部位保留 {step['previous_position']}，不補單。\n"
+                            f"JSON部位已更新為 {step['new_position']}；目前淨部位超限，本筆只通知、不送單。\n"
                             f"訊號：{step['last_signal']}")
                 continue
             key = f"signal/{step['last_signal']}"
@@ -410,13 +448,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="執行一次目前時鐘檢查")
     args = parser.parse_args()
-    load_env(BACKEND / ".env")
+    env_path = BACKEND / ".env"
+    load_env(env_path)
     # This entry point always runs account 2 in live trading mode.
     live = True
     (BASE / "runtime").mkdir(parents=True, exist_ok=True)
     # Shared lock across shadow/live prevents mode changes while another monitor runs.
     with FileLock(str(BASE / "runtime/monitor.lock"), timeout=0):
-        monitor = Monitor(live=live, notify=Notifications())
+        # Establish one process-long native session before reading/consuming
+        # any signal.  A startup failure can therefore never turn a signal
+        # into a consumed-but-unsent order attempt.
+        notifications = Notifications()
+        wait_for_broker_session(env_path, notifications)
+        monitor = Monitor(live=live, notify=notifications)
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"

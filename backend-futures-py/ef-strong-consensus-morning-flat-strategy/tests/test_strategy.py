@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ from strategy import (  # noqa: E402
     consensus_target,
     evaluate_event,
     next_minute_open,
+    load_price_bars,
+    load_signal_rows,
     parse_signal_row,
 )
 
@@ -52,6 +55,40 @@ class ConsensusTests(unittest.TestCase):
 
 
 class TimingTests(unittest.TestCase):
+    def test_csv_loaders_reuse_data_until_source_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            signals = root / "signals.csv"
+            prices = root / "prices.csv"
+            signals.write_text(
+                "received_at,strategy_code,previous_position,new_position\n"
+                "2026-08-27 08:45:04,CFC07m,0,1\n",
+                encoding="utf-8",
+            )
+            prices.write_text(
+                "TradingView Time,Record Time,Open,Close\n"
+                "2026-08-27 08:46:00,2026-08-27 08:47:00,100,101\n",
+                encoding="utf-8",
+            )
+
+            signal_rows = load_signal_rows(signals)
+            price_bars = load_price_bars(prices)
+            self.assertIs(load_signal_rows(signals), signal_rows)
+            self.assertIs(load_price_bars(prices), price_bars)
+
+            signals.write_text(
+                signals.read_text(encoding="utf-8")
+                + "2026-08-27 08:46:04,CFC07m,1,0\n",
+                encoding="utf-8",
+            )
+            prices.write_text(
+                prices.read_text(encoding="utf-8")
+                + "2026-08-27 08:47:00,2026-08-27 08:48:00,102,103\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(len(load_signal_rows(signals)), 2)
+            self.assertEqual(len(load_price_bars(prices)), 2)
+
     def test_uses_received_at_and_next_minute_open(self):
         event = parse_signal_row(
             {

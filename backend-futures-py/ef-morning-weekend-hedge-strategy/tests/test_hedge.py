@@ -171,7 +171,14 @@ class MonitorTests(unittest.TestCase):
             m.tick()
             m.tick()
             self.assertEqual(self.orders, [direction])
-            self.assertEqual(m.state["positions"][codes[2]], 0)
+            self.assertEqual(m.state["positions"][codes[2]], direction)
+            self.assertIn("超過2口上限", notices[-1])
+            # A different strategy's no-change signal must not reconcile the
+            # broker while the authoritative JSON net position is still 3.
+            self.now += timedelta(seconds=1)
+            self.signal(-direction, 0, codes[3])
+            m.tick()
+            self.assertEqual(self.orders, [direction])
             self.assertIn("超過2口上限", notices[-1])
             self.now += timedelta(seconds=1)
             self.signal(direction, 0, codes[2])
@@ -765,34 +772,27 @@ class BrokerTests(unittest.TestCase):
             self.execute(1)
         self.api.place_order.assert_called_once()
 
-    def test_submission_checkpoint_survives_logout_process_exit(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            now = datetime(2026, 9, 18, 9)
-            m = Monitor(root=root, live=True, clock=lambda: now,
-                        executor=Mock(), flat_checker=lambda: True)
-            m.state["last_reset_cycle"] = "2026-09-18T01:00:00"
-            m.persist()
-            real_execute = auto_trade.execute_target_position
-            def execute(*args, **kwargs):
-                return real_execute(*args, sj=self.sj, **kwargs)
-            self.api.logout.side_effect = SystemExit("simulate native termination during logout")
-            with patch("monitor_and_trade.execute_target_position", execute), patch.object(auto_trade, "login", return_value=self.api):
-                m.execute = execute
-                with self.assertRaises(SystemExit):
-                    m.action("signal/test", 1, "TMFR1", now + timedelta(seconds=40))
-            saved = json.loads(m.path.read_text(encoding="utf-8"))
-            self.assertEqual(saved["attempt"]["status"], "submitted")
-            self.assertIn("submission_returned_at", saved["attempt"])
-            self.assertEqual(saved["attempt"]["broker_before_position"], 0)
-            self.assertEqual(saved["attempt"]["broker_phase"], "api_returned")
-            self.assertEqual(saved["attempt"]["broker_status"], "Filled")
-            restarted = Monitor(root=root, live=True, clock=lambda: now,
-                                executor=Mock(), flat_checker=lambda: True)
-            self.assertNotIn("blocked_reason", restarted.state)
-            restarted.action("signal/test", 1, "TMFR1", now + timedelta(seconds=40))
-            restarted.execute.assert_not_called()
-            self.api.place_order.assert_called_once()
+    def test_process_long_session_is_reused_without_logout(self):
+        with patch.object(auto_trade, "_broker_api", None), \
+             patch.object(auto_trade, "_broker_sj", None), \
+             patch.object(auto_trade, "login", return_value=self.api) as login:
+            first = auto_trade.initialize_broker_session(sj=self.sj)
+            second = auto_trade.initialize_broker_session(sj=self.sj)
+            self.assertIs(first, self.api)
+            self.assertIs(second, self.api)
+            login.assert_called_once_with(self.sj)
+
+            auto_trade.execute_target_position(
+                1, deadline=self.now + timedelta(seconds=40), clock=lambda: self.now)
+            self.api.list_positions.return_value = [{
+                "code": "TMFI6", "quantity": 1, "direction": "Buy",
+            }]
+            auto_trade.execute_target_position(
+                0, deadline=self.now + timedelta(seconds=40), clock=lambda: self.now)
+
+            login.assert_called_once_with(self.sj)
+            self.api.logout.assert_not_called()
+            self.assertEqual(self.api.place_order.call_count, 2)
 
     def test_rejection_saves_broker_response_before_reporting_failure(self):
         callback = Mock()
@@ -829,6 +829,27 @@ class BrokerTests(unittest.TestCase):
                 del os.environ["API_KEY2"]
                 with self.assertRaisesRegex(ValueError, "API_KEY2"):
                     auto_trade.login(sj)
+
+    def test_expired_credential_error_is_redacted_and_partial_api_is_not_logged_out(self):
+        secret = "sensitive-token-and-person-id"
+        self.assertEqual(
+            auto_trade.broker_error_summary(Exception(f"{secret} is expired")),
+            "API 憑證已過期",
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            ca = Path(folder) / "test.pfx"
+            ca.touch()
+            env = {"API_KEY2": "key2", "SECRET_KEY2": "secret2",
+                   "PERSON_ID": "person", "CA_PATH": str(ca)}
+            sj = Mock()
+            api = sj.Shioaji.return_value
+            api.login.side_effect = Exception(f"{secret} is expired")
+            with patch.dict(os.environ, env, clear=True), \
+                 patch.object(auto_trade, "_failed_apis", []):
+                with self.assertRaises(Exception):
+                    auto_trade.login(sj)
+                api.logout.assert_not_called()
+                self.assertIn(api, auto_trade._failed_apis)
 
 
 class BacktestTests(unittest.TestCase):

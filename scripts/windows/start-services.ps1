@@ -96,11 +96,13 @@ if (-not (Test-DockerEngine)) {
     if (-not $ready) { throw 'Docker did not become ready within 120 seconds.' }
 }
 $previousBuilder = $env:BUILDX_BUILDER
+$projectBuilder = $null
 if (-not $NoBuild) {
     # Docker Desktop's default embedded BuildKit can be severely throttled while
     # RUN steps download packages.  The container driver uses the normal Docker
     # network path and is dramatically faster on affected Windows installations.
-    $env:BUILDX_BUILDER = (Enable-ProjectBuilder)
+    $projectBuilder = Enable-ProjectBuilder
+    $env:BUILDX_BUILDER = $projectBuilder
 }
 Push-Location $projectDir
 try {
@@ -122,6 +124,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "EF account 2 startup failed: $LASTEXITCODE" }
 } finally {
     Pop-Location
+    if ($projectBuilder) {
+        & docker buildx stop $projectBuilder | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Could not stop the idle Docker builder: $projectBuilder"
+        }
+    }
     $env:BUILDX_BUILDER = $previousBuilder
 }
 

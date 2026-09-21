@@ -1,6 +1,10 @@
+import csv
+import os
+import tempfile
 import unittest
 
 from webhook_server import CSV_HEADER, _build_webhook_row, _parse_webhook_json
+from strategy_common import ensure_csv_header
 
 
 class ParseWebhookJsonTests(unittest.TestCase):
@@ -40,6 +44,36 @@ class BuildWebhookRowTests(unittest.TestCase):
         self.assertEqual(len(row), len(CSV_HEADER))
         self.assertEqual(row[-3:], ["", "", ""])
         self.assertEqual(dict(zip(CSV_HEADER, row))["Close"], 24005)
+
+
+class EnsureCsvHeaderTests(unittest.TestCase):
+    def test_matching_header_does_not_rewrite_existing_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "prices.csv")
+            rows = [["time", "close"], ["09:00", "24000"]]
+            with open(path, "w", newline="", encoding="utf-8") as handle:
+                csv.writer(handle).writerows(rows)
+
+            ensure_csv_header(path, rows[0])
+
+            with open(path, "r", newline="", encoding="utf-8") as handle:
+                self.assertEqual(list(csv.reader(handle)), rows)
+
+    def test_stale_header_is_replaced_while_streaming_data_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "prices.csv")
+            with open(path, "w", newline="", encoding="utf-8") as handle:
+                csv.writer(handle).writerows(
+                    [["old_time", "old_close"], ["09:00", "24000"], ["09:01", "24001"]]
+                )
+
+            ensure_csv_header(path, ["time", "close"])
+
+            with open(path, "r", newline="", encoding="utf-8") as handle:
+                self.assertEqual(
+                    list(csv.reader(handle)),
+                    [["time", "close"], ["09:00", "24000"], ["09:01", "24001"]],
+                )
 
 
 if __name__ == "__main__":

@@ -211,12 +211,12 @@ class ReconciliationTests(unittest.TestCase):
         self.api.update_status.assert_called_once()  # Pre-order only.
         self.assertNotIn("pending", self.guard)
 
-    def test_logout_termination_preserves_monitor_submission_without_false_fill(self):
+    def test_process_long_session_preserves_submission_without_logout_or_false_fill(self):
         import tempfile
         from datetime import datetime
         import monitor_and_trade as monitor
         real_execute = auto_trade.execute_target_position
-        self.api.logout = Mock(side_effect=SystemExit("native termination"))
+        self.api.logout = Mock(side_effect=AssertionError("must not logout per order"))
         self.api.status = "Submitted"
         now = datetime(2026, 9, 18, 10)
         def execute(target, **kwargs):
@@ -228,14 +228,17 @@ class ReconciliationTests(unittest.TestCase):
             monitor, "now_local", return_value=now
         ), patch.object(monitor, "env_flag", return_value=True), patch.object(
             monitor, "execute_target_position", side_effect=execute
-        ), patch.object(auto_trade, "_login", return_value=self.api):
-            with self.assertRaises(SystemExit):
-                monitor.execute_live_target(state, 1, trigger="test-signal")
+        ), patch.object(auto_trade, "_broker_api", None), patch.object(
+            auto_trade, "_broker_sj", None
+        ), patch.object(auto_trade, "_login", return_value=self.api) as login:
+            monitor.execute_live_target(state, 1, trigger="test-signal")
             restored = json.loads((Path(folder) / "state.json").read_text())
             self.assertEqual(restored["attempt"]["status"], "submitted")
             self.assertNotIn("last_confirmed_broker_position", restored)
             self.assertIn("不重送", monitor.execute_live_target(restored, 1, trigger="test-signal"))
             self.assertEqual(len(self.api.orders), 1)
+            login.assert_called_once_with(self.sj)
+            self.api.logout.assert_not_called()
 
 
 if __name__ == "__main__":

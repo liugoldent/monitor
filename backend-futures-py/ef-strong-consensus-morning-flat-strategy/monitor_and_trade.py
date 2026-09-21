@@ -14,7 +14,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from filelock import FileLock, Timeout
 
-from auto_trade import execute_target_position, BrokerOrderError
+from auto_trade import (BrokerOrderError, broker_error_summary,
+                        execute_target_position, initialize_broker_session)
 from hysteresis_strategy import evaluate_hysteresis_event, hysteresis_target
 from strategy import (
     ALL_STRATEGIES,
@@ -23,7 +24,6 @@ from strategy import (
     PORTFOLIO_F,
     PriceBar,
     latest_morning_boundary,
-    load_price_bars,
     load_signal_rows,
     morning_boundaries,
     next_minute_open,
@@ -42,7 +42,6 @@ from ef_trade_runtime import (Notifications, ORDER_FIELDS, append_order, perform
                               save_state)
 ENV_PATH = BACKEND_DIR / ".env"
 SOURCE_PATH = BACKEND_DIR / "tv_doc" / "six_strategy_signal_events.csv"
-PRICE_PATH = BACKEND_DIR / "tv_doc" / "webhook_data_1min.csv"
 RECORDS_DIR = BASE_DIR / "records"
 POSITION_PATH = RECORDS_DIR / "ef_strong_morning_flat_position.json"
 DECISION_PATH = RECORDS_DIR / "ef_strong_morning_flat_decisions.csv"
@@ -95,6 +94,16 @@ ENABLE_ORDERS_ENV = "EF_HYSTERESIS_MORNING_FLAT_ENABLE_ORDERS"
 POSITION_UNIT_ENV = "EF_HYSTERESIS_MORNING_FLAT_POSITION_UNIT"
 LEGACY_POSITION_UNIT_ENV = "EF_STRONG_MORNING_FLAT_POSITION_UNIT"
 MAX_POSITION_UNIT = 20
+LEGACY_SHADOW_STATE_FIELDS = (
+    "source_row_count",
+    "raw_positions",
+    "position",
+    "entry_price",
+    "last_flat_time",
+    "threshold",
+    "hold_threshold",
+    "started_at",
+)
 
 
 def load_env_file(path: Path) -> None:
@@ -106,6 +115,47 @@ def load_env_file(path: Path) -> None:
             continue
         key, value = stripped.split("=", 1)
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def reload_env_file(path: Path) -> None:
+    """Reload the bind-mounted credential file after the operator changes it."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ[key.strip()] = value.strip().strip('"').strip("'")
+
+
+def env_stamp(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_size
+    except OSError:
+        return None
+
+
+def wait_for_broker_session(env_path: Path) -> None:
+    """Fail closed before reading signals; retry only after credentials change."""
+    stamp = env_stamp(env_path)
+    while True:
+        try:
+            initialize_broker_session()
+            return
+        except Exception as exc:
+            summary = broker_error_summary(exc)
+            message = (
+                f"🚨【強共識】Shioaji 啟動登入失敗：{summary}。"
+                "服務安全待命，不讀取或消耗新訊號；更新 .env 憑證後將重新登入。"
+            )
+            print(message, file=sys.stderr, flush=True)
+            send_discord(message)
+        while env_stamp(env_path) == stamp:
+            time.sleep(5)
+        stamp = env_stamp(env_path)
+        reload_env_file(env_path)
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -199,6 +249,16 @@ def append_order_event(
                  event=event, trigger=trigger, target_position=target,
                  previous_position=previous, actual_position=actual,
                  side=side, quantity=quantity, detail=detail)
+
+
+def discard_legacy_shadow_state(state: dict) -> bool:
+    """Remove obsolete next-minute-price simulation state from production."""
+    changed = False
+    for field in LEGACY_SHADOW_STATE_FIELDS:
+        if field in state:
+            state.pop(field)
+            changed = True
+    return changed
 
 
 def record_transition(
@@ -508,8 +568,12 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
 
 
 def initialize_live_cursor(state: dict, rows: list[dict[str, str]]) -> None:
-    if state.get("live_source_row_count") is not None:
-        return
+    saved_count = state.get("live_source_row_count")
+    try:
+        if saved_count is not None and 0 <= int(saved_count) <= len(rows):
+            return
+    except (TypeError, ValueError):
+        pass
     positions = {code: 0 for code in ALL_STRATEGIES}
     for row in rows:
         parsed = parse_position_row(row)
@@ -517,7 +581,9 @@ def initialize_live_cursor(state: dict, rows: list[dict[str, str]]) -> None:
             positions[parsed[0]] = parsed[1]
     state["live_raw_positions"] = positions
     state["live_source_row_count"] = len(rows)
-    state["live_target_position"] = int(state.get("position") or 0)
+    # A fresh production monitor starts flat and consumes only future events.
+    # Legacy shadow state must never become a live broker target.
+    state["live_target_position"] = int(state.get("live_target_position") or 0)
     state["live_cursor_initialized_at"] = text_time(now_local())
     save_json_atomic(STATE_PATH, state)
 
@@ -533,7 +599,7 @@ def process_live_rows(
     state_before = json.dumps(state, ensure_ascii=False, sort_keys=True)
     previous_count = int(state.get("live_source_row_count") or 0)
     positions = normalized_positions(state.get("live_raw_positions"))
-    current = int(state.get("live_target_position", state.get("position") or 0))
+    current = int(state.get("live_target_position") or 0)
     for row_number, row in enumerate(rows[previous_count:], start=previous_count + 1):
         event = parse_signal_row(row, row_number)
         if event is None:
@@ -588,7 +654,7 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
     triggered_at = current_time
     deadline = boundary + timedelta(seconds=30)
     trigger_delay = (triggered_at - boundary).total_seconds()
-    previous = int(state.get("live_target_position", state.get("position") or 0))
+    previous = int(state.get("live_target_position") or 0)
     state["live_target_position"] = 0
     state["last_live_flat_time"] = text_time(boundary)
     state["last_live_flat_triggered_at"] = text_time(triggered_at)
@@ -869,9 +935,14 @@ def main() -> None:
         raise RuntimeError("EF Hysteresis＋01:00清倉已有另一個實例執行中") from exc
 
     try:
+        # Establish the process-long native session before reading or consuming
+        # any signal.  Startup failure therefore cannot create an unsent but
+        # consumed trading event.
+        wait_for_broker_session(ENV_PATH)
         rows = load_signal_rows(SOURCE_PATH)
-        bars = load_price_bars(PRICE_PATH)
         state = load_json(STATE_PATH, {})
+        if discard_legacy_shadow_state(state):
+            save_json_atomic(STATE_PATH, state)
         if args.retry_failed:
             append_order_event(attempt_id=uuid.uuid4().hex, event="operator_retry",
                                trigger="operator_retry", target=0)
@@ -880,27 +951,10 @@ def main() -> None:
                 state.pop(field, None)
             if not save_json_atomic(STATE_PATH, state):
                 raise RuntimeError("無法儲存解除鎖定狀態")
-        previous_count = state.get("source_row_count")
-        if previous_count is None or int(previous_count) > len(rows):
-            state = initialize_state(
-                rows,
-                bars,
-                now_local(),
-                threshold,
-                hold_threshold,
-                previous_state=state,
-            )
-        else:
-            state["threshold"] = threshold
-            state["hold_threshold"] = hold_threshold
-            save_json_atomic(STATE_PATH, state)
-            write_position(state, "startup threshold sync")
-
         unit = position_unit()
         startup_result = ""
-        startup_base_target = int(state.get("position") or 0)
-        if env_flag(ENABLE_ORDERS_ENV):
-            initialize_live_cursor(state, rows)
+        initialize_live_cursor(state, rows)
+        startup_base_target = int(state.get("live_target_position") or 0)
         clock_flatten_applied = apply_live_clock_flatten(state, now_local())
         if clock_flatten_applied:
             startup_base_target = 0
@@ -931,28 +985,11 @@ def main() -> None:
             # Check the hard clock boundary before file I/O and signal processing.
             # With the default two-second poll this normally starts by 01:00:02.
             apply_live_clock_flatten(state, now_local())
-            cutoff = now_local()
             rows = load_signal_rows(SOURCE_PATH)
-            bars = load_price_bars(PRICE_PATH)
-            # Catch a boundary crossed while reading the shared files.
+            # Catch a boundary crossed while reading the shared signal file.
             apply_live_clock_flatten(state, now_local())
-            if env_flag(ENABLE_ORDERS_ENV):
-                initialize_live_cursor(state, rows)
-                process_live_rows(state, rows, threshold, hold_threshold)
-            previous_count = int(state.get("source_row_count") or 0)
-            if len(rows) < previous_count:
-                state = initialize_state(
-                    rows,
-                    bars,
-                    cutoff,
-                    threshold,
-                    hold_threshold,
-                    previous_state=state,
-                )
-            else:
-                process_new_rows(
-                    state, rows, bars, cutoff, threshold, hold_threshold
-                )
+            initialize_live_cursor(state, rows)
+            process_live_rows(state, rows, threshold, hold_threshold)
             time.sleep(poll_seconds)
     finally:
         lock.release()

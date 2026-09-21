@@ -87,6 +87,57 @@ class AutoTradeCredentialTests(unittest.TestCase):
         api.list_trades.assert_not_called()
         legacy_execute.assert_not_called()
 
+    def test_process_long_session_is_reused_without_logout(self):
+        api = Mock()
+        sj = Mock()
+        contract = SimpleNamespace(code="TMFR1")
+        api.place_order.return_value = SimpleNamespace(
+            status=SimpleNamespace(status="Submitted", msg=""),
+            order=SimpleNamespace(id="order-1"),
+        )
+        with patch.object(auto_trade, "_broker_api", None), patch.object(
+            auto_trade, "_broker_sj", None
+        ), patch.object(auto_trade, "_login", return_value=api) as login, patch.object(
+            auto_trade, "current_tmf_position", side_effect=[0, 1]
+        ), patch.object(
+            auto_trade._shared, "_contract", return_value=contract
+        ), patch.object(
+            auto_trade._shared, "_build_order", return_value="order"
+        ):
+            first = auto_trade.initialize_broker_session(sj=sj)
+            second = auto_trade.initialize_broker_session(sj=sj)
+            signal = auto_trade.execute_target_position(1)
+            morning_flat = auto_trade.execute_target_position(0)
+
+        self.assertIs(first, api)
+        self.assertIs(second, api)
+        login.assert_called_once_with(sj)
+        api.logout.assert_not_called()
+        self.assertEqual(api.place_order.call_count, 2)
+        self.assertEqual(signal.side, "buy")
+        self.assertEqual(morning_flat.side, "sell")
+
+    def test_partial_login_failure_is_retained_without_logout(self):
+        api = Mock()
+        api.login.side_effect = RuntimeError("native login failed")
+        sj = SimpleNamespace(Shioaji=Mock(return_value=api))
+        with tempfile.TemporaryDirectory() as directory:
+            ca_path = Path(directory) / "Sinopac.pfx"
+            ca_path.touch()
+            values = {
+                "API_KEY": "primary-api-key",
+                "SECRET_KEY": "primary-secret-key",
+                "PERSON_ID": "A123456789",
+                "CA_PATH": str(ca_path),
+            }
+            with patch.dict(os.environ, values, clear=True), patch.object(
+                auto_trade, "_failed_apis", []
+            ):
+                with self.assertRaisesRegex(RuntimeError, "native login failed"):
+                    auto_trade._login(sj)
+                self.assertIn(api, auto_trade._failed_apis)
+        api.logout.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,6 +44,44 @@ from strategy import ALL_STRATEGIES, PORTFOLIO_E, PORTFOLIO_F, PriceBar  # noqa:
 
 
 class PortfolioTradeTests(unittest.TestCase):
+    def test_production_monitor_has_no_price_csv_dependency(self):
+        self.assertFalse(hasattr(monitor, "PRICE_PATH"))
+        self.assertFalse(hasattr(monitor, "load_price_bars"))
+
+    def test_legacy_shadow_state_is_discarded(self):
+        state = {
+            "position": 1,
+            "entry_price": 45000,
+            "source_row_count": 10,
+            "raw_positions": {"legacy": 1},
+            "live_target_position": -1,
+            "attempt": {"status": "submitted"},
+        }
+
+        self.assertTrue(monitor.discard_legacy_shadow_state(state))
+        self.assertEqual(
+            state,
+            {
+                "live_target_position": -1,
+                "attempt": {"status": "submitted"},
+            },
+        )
+
+    def test_live_cursor_reinitializes_after_signal_file_truncation(self):
+        state = {
+            "live_source_row_count": 100,
+            "live_raw_positions": {code: 0 for code in ALL_STRATEGIES},
+            "live_target_position": 1,
+        }
+        rows = [{"strategy_code": PORTFOLIO_E[0], "new_position": "1"}]
+
+        with patch.object(monitor, "save_json_atomic"):
+            monitor.initialize_live_cursor(state, rows)
+
+        self.assertEqual(state["live_source_row_count"], 1)
+        self.assertEqual(state["live_raw_positions"][PORTFOLIO_E[0]], 1)
+        self.assertEqual(state["live_target_position"], 1)
+
     def test_main_forces_live_even_with_legacy_disabled_setting(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "false"}
@@ -51,10 +89,39 @@ class PortfolioTradeTests(unittest.TestCase):
             monitor, "load_env_file"
         ), patch.object(monitor, "RUNTIME_DIR", Path(directory)), patch.object(
             monitor, "LOCK_PATH", Path(directory) / "monitor.lock"
+        ), patch.object(
+            monitor, "wait_for_broker_session"
         ), patch.object(monitor, "load_signal_rows", side_effect=RuntimeError("test stop")):
             with self.assertRaisesRegex(RuntimeError, "test stop"):
                 monitor.main()
             self.assertTrue(monitor.env_flag(monitor.ENABLE_ORDERS_ENV))
+
+    def test_main_connects_before_reading_signals(self):
+        calls = []
+
+        def connected(_path):
+            calls.append("connected")
+
+        def read_signals(_path):
+            calls.append("signals")
+            raise RuntimeError("test stop")
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            sys, "argv", ["monitor_and_trade.py"]
+        ), patch.object(monitor, "load_env_file"), patch.object(
+            monitor, "RUNTIME_DIR", Path(directory)
+        ), patch.object(
+            monitor, "LOCK_PATH", Path(directory) / "monitor.lock"
+        ), patch.object(
+            monitor, "wait_for_broker_session", side_effect=connected
+        ) as connect, patch.object(
+            monitor, "load_signal_rows", side_effect=read_signals
+        ):
+            with self.assertRaisesRegex(RuntimeError, "test stop"):
+                monitor.main()
+
+        connect.assert_called_once_with(monitor.ENV_PATH)
+        self.assertEqual(calls, ["connected", "signals"])
 
     def test_live_bookkeeping_does_not_send_shadow_notifications(self):
         state = {"position": 0, "source_row_count": 0,

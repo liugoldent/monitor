@@ -1,4 +1,4 @@
-"""API_KEY2 one-shot TMFR1/IOC submission; no fill verification or retry."""
+"""API_KEY2 TMFR1/IOC submission through one process-long broker session."""
 from __future__ import annotations
 
 import importlib.util
@@ -6,6 +6,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -18,12 +19,30 @@ sys.modules[_name] = _shared
 _spec.loader.exec_module(_shared)
 BrokerOrderError = _shared.BrokerOrderError
 
+# pysolace owns native resources whose repeated construction/destruction can
+# segfault the interpreter.  Keep one Shioaji object for the entire monitor
+# process instead of logging in and out for every signal.
+_broker_api: Any = None
+_broker_sj: Any = None
+_broker_lock = Lock()
+_failed_apis: list[Any] = []
+
 
 def required(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
         raise ValueError(f"缺少 {name}")
     return value
+
+
+def broker_error_summary(exc: BaseException) -> str:
+    """Return an operator-safe error without echoing broker tokens/person IDs."""
+    message = str(exc).lower()
+    if "expired" in message:
+        return "API 憑證已過期"
+    if isinstance(exc, (ValueError, FileNotFoundError, BrokerOrderError)):
+        return str(exc)[:300]
+    return type(exc).__name__
 
 
 def login(sj: Any):
@@ -42,8 +61,24 @@ def login(sj: Any):
             raise BrokerOrderError("API_KEY2 期貨帳號與 EF_HEDGE_ACCOUNT_ID 不符")
         return api
     except Exception:
-        api.logout()
+        # Do not invoke pysolace cleanup on a partially connected object.  Keep
+        # it referenced until process exit so __del__ cannot run mid-monitor.
+        _failed_apis.append(api)
         raise
+
+
+def initialize_broker_session(*, sj: Any = None):
+    """Log in once and retain the native Shioaji session until process exit."""
+    global _broker_api, _broker_sj
+    with _broker_lock:
+        if _broker_api is not None:
+            return _broker_api
+        if sj is None:
+            import shioaji as sj
+        api = login(sj)
+        _broker_api, _broker_sj = api, sj
+        print("Shioaji 長效連線已建立；本程序後續訊號共用此連線", flush=True)
+        return api
 
 
 def _deal_quantity(trade: Any) -> int | None:
@@ -59,22 +94,15 @@ def _deal_quantity(trade: Any) -> int | None:
 
 def confirm_flat(*, api: Any = None, sj: Any = None) -> bool:
     """Read-only reset guard: unknown inventory must never count as flat."""
-    owned = api is None
-    if owned:
-        if sj is None:
-            import shioaji as sj
-        api = login(sj)
-    try:
-        _shared._refresh_status(api)
-        _shared.validate_tmf_account(api)
-        positions = api.list_positions(api.futopt_account)
-        if positions is None:
-            raise BrokerOrderError("庫存查詢未回傳資料")
-        return not any(_shared._position_code(p).startswith("TMF")
-                       and _shared._position_quantity(p) for p in positions)
-    finally:
-        if owned:
-            api.logout()
+    if api is None:
+        api = initialize_broker_session(sj=sj)
+    _shared._refresh_status(api)
+    _shared.validate_tmf_account(api)
+    positions = api.list_positions(api.futopt_account)
+    if positions is None:
+        raise BrokerOrderError("庫存查詢未回傳資料")
+    return not any(_shared._position_code(p).startswith("TMF")
+                   and _shared._position_quantity(p) for p in positions)
 
 
 def execute_target_position(target: int, *, deadline: datetime,
@@ -83,13 +111,14 @@ def execute_target_position(target: int, *, deadline: datetime,
     """Read current TMF inventory and submit the difference to one final target."""
     if isinstance(target, bool) or not isinstance(target, int):
         raise ValueError(f"最終目標口數必須是整數，目前為 {target!r}")
-    if sj is None:
-        import shioaji as sj
     owned = api is None
     if owned:
-        api = login(sj)
+        api = initialize_broker_session(sj=sj)
+        sj = _broker_sj
+    elif sj is None:
+        import shioaji as sj
+    from types import SimpleNamespace
     try:
-        from types import SimpleNamespace
         check_order_deadline(deadline, clock, BrokerOrderError)
         before_position = _shared.current_tmf_position(api)
         delta = target - before_position
@@ -138,11 +167,6 @@ def execute_target_position(target: int, *, deadline: datetime,
         if broker_status.lower() in {"failed", "inactive"}:
             raise BrokerOrderError("券商即時回覆拒絕委託")
         return result
-    finally:
-        if owned:
-            try:
-                print("登出開始", flush=True)
-                api.logout()
-                print("登出完成", flush=True)
-            except Exception:
-                pass
+    except Exception as exc:
+        print(f"券商操作失敗：{broker_error_summary(exc)}", file=sys.stderr, flush=True)
+        raise

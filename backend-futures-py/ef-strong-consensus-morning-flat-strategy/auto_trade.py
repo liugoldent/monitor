@@ -1,9 +1,9 @@
-"""One-shot Shioaji adapter for EF Hysteresis + 01:00 morning flat.
+"""Process-long Shioaji adapter for EF Hysteresis + 01:00 morning flat.
 
 Each call reads the current TMF inventory, calculates one target delta and
-submits that delta once.  Previous orders are deliberately not scanned or
-replayed here; the next EF event always starts from the broker inventory then
-visible at that time.
+submits that delta once through one broker session shared by the monitor.
+Previous orders are deliberately not scanned or replayed here; the next EF
+event always starts from the broker inventory then visible at that time.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from datetime import datetime
 
@@ -45,6 +46,15 @@ BrokerOrderError = _shared.BrokerOrderError
 OrderResult = _shared.OrderResult
 current_tmf_position = _shared.current_tmf_position
 
+# pysolace owns native resources whose repeated construction/destruction can
+# terminate the interpreter outside Python's exception handling.  Retain one
+# Shioaji object for the entire monitor process instead of logging in and out
+# for every signal and the 01:00 flat.
+_broker_api: Any = None
+_broker_sj: Any = None
+_broker_lock = Lock()
+_failed_apis: list[Any] = []
+
 
 def _required_env(name: str) -> str:
     value = os.getenv(name, "").strip()
@@ -63,20 +73,54 @@ def _position_unit() -> int:
     return unit
 
 
+def broker_error_summary(exc: BaseException) -> str:
+    """Return an operator-safe error without echoing broker credentials."""
+    message = str(exc).lower()
+    if "expired" in message:
+        return "API 憑證已過期"
+    if isinstance(exc, (ValueError, FileNotFoundError, BrokerOrderError)):
+        return str(exc)[:300]
+    return type(exc).__name__
+
+
 def _login(sj: Any) -> Any:
     ca_path = Path(os.getenv("CA_PATH") or BACKEND_DIR / "Sinopac.pfx")
     if not ca_path.is_file():
         raise FileNotFoundError(f"找不到永豐憑證檔: {ca_path}")
 
     api = sj.Shioaji(simulation=False)
-    api.login(_required_env("API_KEY"), _required_env("SECRET_KEY"))
-    person_id = _required_env("PERSON_ID")
-    api.activate_ca(
-        ca_path=str(ca_path),
-        ca_passwd=person_id,
-        person_id=person_id,
-    )
-    return api
+    try:
+        api.login(_required_env("API_KEY"), _required_env("SECRET_KEY"))
+        person_id = _required_env("PERSON_ID")
+        api.activate_ca(
+            ca_path=str(ca_path),
+            ca_passwd=person_id,
+            person_id=person_id,
+        )
+        return api
+    except Exception:
+        # Do not destroy or logout a partially connected pysolace object in the
+        # running monitor.  Its native destructor has previously exited the
+        # process with SIGSEGV; keep it referenced until process termination.
+        _failed_apis.append(api)
+        raise
+
+
+def initialize_broker_session(*, sj: Any = None) -> Any:
+    """Log in once and retain the native Shioaji session until process exit."""
+    global _broker_api, _broker_sj
+    with _broker_lock:
+        if _broker_api is not None:
+            return _broker_api
+        if sj is None:
+            try:
+                import shioaji as sj
+            except ImportError as exc:
+                raise RuntimeError("尚未安裝 shioaji，無法執行實單") from exc
+        api = _login(sj)
+        _broker_api, _broker_sj = api, sj
+        print("Shioaji 長效連線已建立；強共識訊號與01:00清倉共用此連線", flush=True)
+        return api
 
 
 def execute_target_position(
@@ -139,19 +183,5 @@ def execute_target_position(
         return result
     if api is not None:
         return submit(api)
-    if sj is None:
-        try:
-            import shioaji as sj  # type: ignore[no-redef]
-        except ImportError as exc:
-            raise RuntimeError("尚未安裝 shioaji，無法執行實單") from exc
-
-    api = _login(sj)
-    try:
-        return submit(api)
-    finally:
-        try:
-            print("登出開始", flush=True)
-            api.logout()
-            print("登出完成", flush=True)
-        except Exception:
-            pass
+    api = initialize_broker_session(sj=sj)
+    return submit(api)

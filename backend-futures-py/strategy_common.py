@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import os
+import tempfile
 from datetime import datetime
 from typing import Any
 
@@ -127,22 +128,42 @@ def ensure_csv_header(path: str, header: list[str]) -> None:
 
     try:
         with open(path, "r", newline="", encoding="utf-8") as handle:
-            rows = list(csv.reader(handle))
+            existing_header = next(csv.reader(handle), None)
     except Exception:
         with open(path, "w", newline="", encoding="utf-8") as handle:
             csv.writer(handle).writerow(header)
         return
 
-    if not rows:
+    if existing_header == header:
+        return
+
+    if existing_header is None:
         with open(path, "w", newline="", encoding="utf-8") as handle:
             csv.writer(handle).writerow(header)
         return
 
-    if rows[0] != header:
-        with open(path, "w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(header)
-            writer.writerows(rows[1:])
+    # Rewrite a stale header without materializing the entire CSV in memory.
+    # Use an atomic replace so a failed rewrite leaves the original intact.
+    temp_path = ""
+    try:
+        with open(path, "r", newline="", encoding="utf-8") as source_handle:
+            reader = csv.reader(source_handle)
+            next(reader, None)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                newline="",
+                encoding="utf-8",
+                dir=os.path.dirname(path),
+                delete=False,
+            ) as temp_handle:
+                temp_path = temp_handle.name
+                writer = csv.writer(temp_handle)
+                writer.writerow(header)
+                writer.writerows(reader)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def append_csv_row(path: str, row: list[object], header: list[str] | None = None) -> None:

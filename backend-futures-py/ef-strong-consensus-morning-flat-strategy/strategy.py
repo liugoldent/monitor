@@ -115,16 +115,40 @@ def parse_signal_row(row: Mapping[str, object], row_number: int) -> SignalEvent 
         return None
 
 
+_signal_rows_cache: dict[Path, tuple[tuple[int, int], list[dict[str, str]]]] = {}
+_price_bars_cache: dict[Path, tuple[tuple[int, int], list[PriceBar]]] = {}
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
 def load_signal_rows(path: Path) -> list[dict[str, str]]:
-    if not path.exists():
+    signature = _file_signature(path)
+    if signature is None:
+        _signal_rows_cache.pop(path, None)
         return []
+    cached = _signal_rows_cache.get(path)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
     with path.open(newline="", encoding="utf-8-sig") as handle:
-        return list(csv.DictReader(handle))
+        rows = list(csv.DictReader(handle))
+    _signal_rows_cache[path] = (signature, rows)
+    return rows
 
 
 def load_price_bars(path: Path) -> list[PriceBar]:
-    if not path.exists():
+    signature = _file_signature(path)
+    if signature is None:
+        _price_bars_cache.pop(path, None)
         return []
+    cached = _price_bars_cache.get(path)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
     values: dict[datetime, PriceBar] = {}
     with path.open(newline="", encoding="utf-8-sig") as handle:
         for row in csv.DictReader(handle):
@@ -140,7 +164,9 @@ def load_price_bars(path: Path) -> list[PriceBar]:
             current = values.get(bar.bar_time)
             if current is None or bar.record_time >= current.record_time:
                 values[bar.bar_time] = bar
-    return [values[key] for key in sorted(values)]
+    bars = [values[key] for key in sorted(values)]
+    _price_bars_cache[path] = (signature, bars)
+    return bars
 
 
 def next_minute_open(bars: list[PriceBar], timestamp: datetime) -> PriceBar | None:

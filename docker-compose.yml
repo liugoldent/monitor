@@ -2,13 +2,25 @@ x-app-build: &app-build
   context: .
   network: host
 x-app-image: &app-image monitor-app:local
+x-runtime-safety: &runtime-safety
+  restart: unless-stopped
+  pids_limit: 128
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
   telegram-signal-relay:
+    <<: *runtime-safety
     build: *app-build
     image: *app-image
     container_name: monitor-telegram-signal-relay
-    restart: unless-stopped
+    cpus: "0.25"
+    mem_limit: 256m
+    mem_reservation: 64m
+    memswap_limit: 256m
     command: ["python", "/app/backend-futures-py/telegram_signal_relay.py"]
     working_dir: /app/backend-futures-py
     environment:
@@ -23,10 +35,14 @@ services:
       - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
 
   monitor-mxf:
+    <<: *runtime-safety
     build: *app-build
     image: *app-image
     container_name: monitor-mxf
-    restart: unless-stopped
+    cpus: "0.25"
+    mem_limit: 256m
+    mem_reservation: 64m
+    memswap_limit: 256m
     command: ["python", "/app/backend-futures-py/monitor_mxf.py"]
     working_dir: /app/backend-futures-py
     environment:
@@ -37,10 +53,14 @@ services:
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
   webhook-server:
+    <<: *runtime-safety
     build: *app-build
     image: *app-image
     container_name: monitor-webhook-server
-    restart: unless-stopped
+    cpus: "0.15"
+    mem_limit: 128m
+    mem_reservation: 32m
+    memswap_limit: 128m
     command: ["python", "/app/backend-futures-py/webhook_server.py"]
     working_dir: /app/backend-futures-py
     environment:
@@ -53,11 +73,17 @@ services:
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
   ef-strong-consensus-morning-flat-strategy:
+    <<: *runtime-safety
     # Legacy service identifier retained so runtime/order state is reused.
     build: *app-build
     image: *app-image
     container_name: monitor-ef-strong-consensus-morning-flat-strategy
-    restart: unless-stopped
+    cpus: "0.40"
+    # A process-long Shioaji session initializes contracts and native Solace
+    # resources; allow the same measured headroom as the account-2 strategy.
+    mem_limit: 768m
+    mem_reservation: 256m
+    memswap_limit: 768m
     command: ["python", "/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/monitor_and_trade.py"]
     working_dir: /app/backend-futures-py/ef-strong-consensus-morning-flat-strategy
     environment:
@@ -71,15 +97,20 @@ services:
     volumes:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
-      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro
       - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/records:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/records
       - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime
 
   ef-morning-weekend-hedge-strategy:
+    <<: *runtime-safety
     build: *app-build
     image: *app-image
     container_name: monitor-ef-morning-weekend-hedge-strategy
-    restart: unless-stopped
+    cpus: "0.35"
+    # Shioaji contract initialization peaks above 320 MB and was OOM-killed.
+    mem_limit: 768m
+    mem_reservation: 256m
+    memswap_limit: 768m
     command: ["python", "/app/backend-futures-py/ef-morning-weekend-hedge-strategy/monitor_and_trade.py"]
     working_dir: /app/backend-futures-py/ef-morning-weekend-hedge-strategy
     environment:
@@ -99,10 +130,14 @@ services:
       - ./backend-futures-py/ef-morning-weekend-hedge-strategy/runtime:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/runtime
 
   cloudflared:
+    <<: *runtime-safety
     profiles: ["tunnel"]
     image: cloudflare/cloudflared:latest
     container_name: monitor-cloudflared
-    restart: unless-stopped
+    cpus: "0.15"
+    mem_limit: 128m
+    mem_reservation: 32m
+    memswap_limit: 128m
     command: ["tunnel", "run"]
     environment:
       TZ: Asia/Taipei
@@ -111,11 +146,15 @@ services:
       - webhook-server
 
   monitor:
+    <<: *runtime-safety
     profiles: ["legacy"]
     build: *app-build
     image: *app-image
     container_name: monitor-services
-    restart: unless-stopped
+    cpus: "1.00"
+    mem_limit: 1024m
+    mem_reservation: 256m
+    memswap_limit: 1024m
     environment:
       TZ: Asia/Taipei
       RUN_SERVICES_DOCKER: "1"
