@@ -2,7 +2,7 @@
 
 CFCTX15m（財神列車15號）屬於 E 投組，與其餘 12 組策略一同追蹤。舊有 12 組 JSON 升級時保留原部位，新增 CFCTX15m 的追蹤部位為 0，僅處理啟動後的新訊號。
 
-版本：`json-positions-v5`。
+版本：`json-positions-v5-clamp`。
 
 2026-09-18 送單修正：沿用 `shioaji-demo` 的 `place_order(..., timeout=0)`，
 TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
@@ -23,7 +23,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 - 05:05 查詢庫存及未結委託，確認 TMF 空手即將 13 個策略部位歸零。未確認則通知人工處理，開盤前最多每分鐘重查一次。到日曆規定的重新開盤時間（一般08:45），即使仍未確認空手，也將策略 JSON 歸零並處理新訊號；保留 `manual_flat_required`，不宣稱券商已空手，不因清倉失敗鎖定新單，也不再重設已開始的新時段部位。
 - 停機錯過 05:05，啟動後補做檢查。成功重設記錄 `last_reset_cycle`，同一周期不重設第二次。週末及休市依 config/calendar.json 處理。
 - 收到新訊號後，先更新該策略的 JSON 部位，計算全部策略的最終目標口數，再查永豐 2 當下 TMF 實際庫存。本次委託固定為 `最終目標口數 - 券商目前庫存`。
-- JSON 合計淨部位限制為 -2～+2 口 TMF（含邊界，計入口數倍率）。每筆訊號都先更新 JSON；只要更新後仍超過上限，就逐筆發 Discord、完全不查券商也不送單。JSON 回到範圍內後，才查券商庫存並送出與 JSON 目標的差額。01:00 清倉不受上限限制，仍查實際庫存、通知及送清倉單。
+- 13 策略 JSON 保留完整合計淨方向，券商目標採 Clamp：淨方向大於 0 時目標為 `+U`，小於 0 時目標為 `-U`，等於 0 時空手。每筆訊號都先更新 JSON，再查永豐 2 當下 TMF 實際庫存並送出與 Clamp 目標的差額；U 由 `EF_MORNING_WEEKEND_HEDGE_UNIT` 設定。即使原始淨方向超過 ±1，也不會因超限而跳過下單。01:00 清倉仍固定以 0 為目標。
 - 啟動前、停機期間與等待重設期間已收到的訊號不補單。
 
 | 券商目前庫存 | 策略最終口數 | 本次委託 |
@@ -36,7 +36,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 
 ## 重啟與送單狀態
 
-每筆新 EF 訊號都先更新並計算 JSON 最終口數。超過 ±2 時只通知；在 ±2 內才查券商 TMF 庫存、計算差額並送出一筆 IOC 委託。不掃描、不等待前一筆委託狀態，也不因中斷記錄鎖定新訊號。
+每筆新 EF 訊號都先更新並計算 JSON 淨方向，再將正數 Clamp 為 +1、負數 Clamp 為 -1、零維持 0，乘上 `EF_MORNING_WEEKEND_HEDGE_UNIT` 後查券商 TMF 庫存、計算差額並送出一筆 IOC 委託。不掃描、不等待前一筆委託狀態，也不因中斷記錄鎖定新訊號。
 
 送單前將 positions、新訊號進度、目前庫存、最終口數與預計委託一起保存。一般委託只送一次，不查成交、不重試。如果程式在送單途中中斷，該筆標記為 `interrupted_no_retry`，後續新訊號仍照常以當下券商庫存重新計算。
 
@@ -53,7 +53,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 
 ## 帳戶、部署及紀錄
 
-只使用 API_KEY2／SECRET_KEY2，通知使用 DISCORD_EF_hedge_WEBHOOK_URL。PERSON_ID2／CA_PATH2 可覆寫憑證，EF_HEDGE_ACCOUNT_ID 可核對帳號。合約 TMFR1、市價 MKT、IOC、Auto。EF_HEDGE_SIGNAL_CSV／EF_HEDGE_CALENDAR_PATH 可覆寫來源與日曆。
+只使用 API_KEY2／SECRET_KEY2，通知使用 DISCORD_EF_hedge_WEBHOOK_URL。PERSON_ID2／CA_PATH2 可覆寫憑證，EF_HEDGE_ACCOUNT_ID 可核對帳號。`EF_MORNING_WEEKEND_HEDGE_UNIT` 是下單倍數，允許 1～20，預設 1；策略方向永遠是 -1／0／+1，最終口數才乘上 UNIT。合約 TMFR1、市價 MKT、IOC、Auto。EF_HEDGE_SIGNAL_CSV／EF_HEDGE_CALENDAR_PATH 可覆寫來源與日曆。
 
 重新建置並只重啟此服務：
 
@@ -61,7 +61,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 docker compose up -d --build --no-deps --force-recreate ef-morning-weekend-hedge-strategy
 ```
 
-啟動通知須顯示 `json-positions-v5`。`python monitor_and_trade.py` 與 `--once` 都是實單入口，不可拿來當測試。
+啟動通知須顯示 `json-positions-v5-clamp`。目前 `auto_trade.py` 的 `api.place_order(...)` 已明確註解停用，因此不會送出實單；恢復該行前必須重新審核。`python monitor_and_trade.py` 與 `--once` 都不可拿來當測試。
 
 - runtime/live_state.json：positions、訊號進度、單次委託與重設狀態，原子保存。
 - records/live_order_attempts.csv：委託嘗試及回應。

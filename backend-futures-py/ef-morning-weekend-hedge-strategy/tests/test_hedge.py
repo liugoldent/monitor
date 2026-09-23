@@ -128,7 +128,7 @@ class MonitorTests(unittest.TestCase):
         self.signal(0, 1, "CFCTX15m")
         restarted.tick()
         restarted.tick()
-        self.assertEqual(self.orders, [2])
+        self.assertEqual(self.orders, [1])
         self.assertEqual(restarted.state["positions"]["CFCTX15m"], 1)
 
     def test_upgrade_does_not_hide_missing_existing_strategy(self):
@@ -150,7 +150,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(restarted.state["last_reset_cycle"], "2026-09-12T01:00:00")
         self.execute.assert_not_called()
 
-    def test_position_limit_both_directions_and_flat_bypasses_limit(self):
+    def test_position_clamps_both_directions_and_flat_bypasses_limit(self):
         m = self.monitor()
         notices = []
         m.notify = notices.append
@@ -164,36 +164,50 @@ class MonitorTests(unittest.TestCase):
             self.now += timedelta(seconds=1)
             self.signal(0, direction, codes[1])
             m.tick()
-            self.assertEqual(self.orders, [direction])
-            self.assertEqual(self.actual, 2 * direction)
+            self.assertEqual(self.orders, [])
+            self.assertEqual(self.actual, direction)
             self.now += timedelta(seconds=1)
             self.signal(0, direction, codes[2])
             m.tick()
             m.tick()
-            self.assertEqual(self.orders, [direction])
+            self.assertEqual(self.orders, [])
             self.assertEqual(m.state["positions"][codes[2]], direction)
-            self.assertIn("超過2口上限", notices[-1])
-            # A different strategy's no-change signal must not reconcile the
-            # broker while the authoritative JSON net position is still 3.
+            expected_position = "多1口" if direction > 0 else "空1口"
+            self.assertIn(f"Clamp目標：{expected_position}", notices[-1])
+            # A different strategy's no-change signal still reconciles to the
+            # same clamped broker target while the JSON net position is 3.
             self.now += timedelta(seconds=1)
             self.signal(-direction, 0, codes[3])
             m.tick()
-            self.assertEqual(self.orders, [direction])
-            self.assertIn("超過2口上限", notices[-1])
+            self.assertEqual(self.orders, [])
+            self.assertIn(f"Clamp目標：{expected_position}", notices[-1])
+            self.assertIn("本次預計下單：無需下單", notices[-1])
             self.now += timedelta(seconds=1)
             self.signal(direction, 0, codes[2])
             m.tick()
-            self.assertEqual(self.orders, [direction])
+            self.assertEqual(self.orders, [])
             self.now += timedelta(seconds=1)
             self.signal(direction, 0, codes[1])
             m.tick()
-            self.assertEqual(self.orders, [direction, -direction])
+            self.assertEqual(self.orders, [])
         self.actual = 8
         self.now = datetime(2026, 9, 15, 1, 0)
         m.tick()
         self.assertEqual(self.orders[-1], -8)
         self.assertEqual(self.actual, 0)
         self.assertIn("01:00清倉", notices[-1])
+
+    def test_positive_net_after_direct_reversal_clamps_to_one_long(self):
+        m = self.monitor()
+        m.state["positions"]["CFCTX20m"] = 1
+        m.state["positions"]["CFCTX17m"] = -1
+        self.actual = 0
+        self.now += timedelta(seconds=1)
+        self.signal(-1, 1, "CFCTX17m")
+        m.tick()
+        self.assertEqual(sum(m.state["positions"].values()), 2)
+        self.assertEqual(self.orders, [1])
+        self.assertEqual(self.actual, 1)
 
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
@@ -298,7 +312,21 @@ class MonitorTests(unittest.TestCase):
             self.assertIn("目前券商庫存", message)
             self.assertIn("本次預計下單", message)
             self.assertIn("收到策略後最終口數", message)
+            self.assertIn("目前U=1", message)
         self.assertEqual(self.orders, [1, -1])
+
+    def test_position_unit_scales_one_direction_once(self):
+        with patch.dict(os.environ, {"EF_MORNING_WEEKEND_HEDGE_UNIT": "2"}):
+            m = self.monitor()
+            m.notify = Mock()
+            self.now += timedelta(seconds=1)
+            self.signal(0, 1)
+            m.tick()
+        self.assertEqual(self.orders, [2])
+        message = m.notify.call_args.args[0]
+        self.assertIn("Clamp目標：多2口", message)
+        self.assertIn("目前U=2", message)
+        self.assertIn("收到策略後最終口數：多 2 口", message)
 
     def test_new_signal_in_startup_second_is_not_lost(self):
         self.now = self.now.replace(microsecond=100000)
@@ -549,7 +577,7 @@ class MonitorTests(unittest.TestCase):
         for code in ("CFC07m", "CFCTX16m", "CFCTX21m"):
             self.signal(0, 1, code)
         m.tick()
-        self.assertEqual(self.orders, [1, 1])  # Third entry exceeds the current two-lot limit.
+        self.assertEqual(self.orders, [1])  # Later entries exceed the one-direction limit.
 
     def test_restart_ignores_signals_received_while_stopped(self):
         self.monitor()
@@ -571,13 +599,13 @@ class MonitorTests(unittest.TestCase):
         self.fail_after_fill = True
         m.tick()
         self.now += timedelta(seconds=2)
-        self.signal(0, 1, "CFCTX16m")
+        self.signal(1, 0)
         m.tick()
-        self.assertEqual(self.orders, [1, 1])
+        self.assertEqual(self.orders, [1, -1])
         self.now += timedelta(seconds=8)
         m.tick()
-        self.assertEqual(self.orders, [1, 1])
-        self.assertEqual(self.actual, 2)
+        self.assertEqual(self.orders, [1, -1])
+        self.assertEqual(self.actual, 0)
         self.assertEqual(self.execute.call_count, 2)
 
     def test_flat_on_clock_then_reopen_only_new_signals(self):

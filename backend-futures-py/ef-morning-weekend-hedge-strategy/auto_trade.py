@@ -148,7 +148,8 @@ def execute_target_position(target: int, *, deadline: datetime,
         contract = _shared._contract(api)
         check_order_deadline(deadline, clock, BrokerOrderError)
         print(f"委託內容 TMFR1 {side} {quantity}口 MKT IOC Auto", flush=True)
-        trade = api.place_order(contract, order, timeout=0)
+        # trade = api.place_order(contract, order, timeout=0)  # 實單停用
+        trade = None
         print(f"委託回傳狀態：{_shared._status_text(trade)}（非成交確認）", flush=True)
         if trade is None:
             raise BrokerOrderError("送單未取得回傳")

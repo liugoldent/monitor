@@ -1,0 +1,99 @@
+{
+  "mode": "live",
+  "strategy": "pure_ef_morning_flat_v1",
+  "boot": "2026-09-22T16:50:34.898423",
+  "contract": "TMFR1",
+  "target": 0,
+  "position": 0,
+  "flat_cycle": "2026-09-22T01:00:00",
+  "ready_since": "2026-09-22T16:50:34.898423",
+  "startup_signal_rows": 1057,
+  "session_flat": true,
+  "attempt": {
+    "key": "signal/2026-09-22T17:00:23/1058",
+    "id": "61d11219f9f541e685fc9b5fca63d1c5",
+    "status": "failed_no_retry",
+    "target_position": -1,
+    "at": "2026-09-22T17:15:54.966545",
+    "broker_before_position": 0,
+    "broker_contract": "TMFR1",
+    "broker_side": "sell",
+    "broker_quantity": 1,
+    "broker_request_at": "2026-09-22T17:15:55.016199",
+    "broker_phase": "api_returned",
+    "submission_returned_at": "2026-09-22T17:15:55.029357",
+    "previous_position": 0,
+    "broker_trade_id": "",
+    "broker_status": "Inactive",
+    "broker_deal_quantity": 0
+  },
+  "last_flat_attempt": "2026-09-22T01:00:00/flat",
+  "trading_day": "2026-09-22",
+  "positions": {
+    "CFC07m": 0,
+    "CFCTX17m": -1,
+    "CFCTX18m": 0,
+    "CFCTX19m": 0,
+    "CFCTX20m": 1,
+    "CFCTX21m": 0,
+    "CFCWIN01m": 0,
+    "CFCPW3m": 0,
+    "CFCCPm": 0,
+    "CFCTX16m": -1,
+    "CFCTX22m": 0,
+    "CFCTX23m": 0,
+    "CFCTX15m": 0
+  },
+  "last_reset_cycle": "2026-09-22T01:00:00",
+  "migration": "v5_from_saved_snapshot",
+  "schema_version": 5,
+  "manual_positions_rebuild": {
+    "since": "2026-09-15T04:59:00",
+    "basis": "EF signal CSV after 04:59; zero initial positions; broker status not reconciled",
+    "signal_count": 6,
+    "at": "2026-09-15T14:23:52.8763244",
+    "previous_positions": {
+      "CFC07m": 1,
+      "CFCTX17m": 0,
+      "CFCTX18m": 0,
+      "CFCTX19m": 1,
+      "CFCTX20m": 0,
+      "CFCTX21m": 0,
+      "CFCWIN01m": 0,
+      "CFCPW3m": 0,
+      "CFCCPm": 0,
+      "CFCTX16m": 1,
+      "CFCTX22m": 1,
+      "CFCTX23m": 0
+    }
+  },
+  "manual_unblock": {
+    "at": "2026-09-15T15:03:34.8374722",
+    "previous_blocked_reason": "上次送單途中中斷，須核對券商委託及JSON部位",
+    "broker_reconciled": false,
+    "reason": "User explicitly requested resuming new signals; retain reconstructed positions; do not replay old orders",
+    "previous_attempt_status": "attempted"
+  },
+  "reset_status": "confirmed_flat",
+  "reset_at": "2026-09-22T05:05:00.659152",
+  "manual_positions_correction": {
+    "at": "2026-09-21T22:06:23.5458658+08:00",
+    "reason": "Restore two over-limit long-entry signals retained as zero by the pre-21:21 implementation",
+    "signals": [
+      "CFCWIN01m 0->1 at 2026-09-21T11:22:37/1032",
+      "CFCTX18m 0->1 at 2026-09-21T13:29:34/1033"
+    ],
+    "net_position_before": 5,
+    "net_position_after": 7
+  },
+  "source": {
+    "source": "pure_ef_new_signals",
+    "unit": 1,
+    "last_signal": "2026-09-22T17:00:23/1058",
+    "strategy_code": "CFCTX20m",
+    "strategy_name": "財神列車20號",
+    "signal_previous_position": 0,
+    "previous_position": 1,
+    "new_position": 1
+  }
+}

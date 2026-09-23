@@ -563,7 +563,8 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         f"F明細：{position_breakdown(getattr(decision, 'f_positions', ()), PORTFOLIO_F, decision.f_net)}\n"
         f"組合目標：{action}\n"
         f"原因：{decision.reason}\n"
-        f"{live_result}"
+        f"{live_result}\n"
+        f"備註：策略方向固定為一口，最終口數＝方向×UNIT；目前UNIT={position_unit()}。"
     )
 
 

@@ -182,6 +182,12 @@ def execute_target_position(
             raise BrokerOrderError(f"永豐委託失敗（{status}）：{message}")
         return result
     if api is not None:
+        if sj is None:
+            import shioaji as sj
         return submit(api)
     api = initialize_broker_session(sj=sj)
+    # initialize_broker_session imports and retains the Shioaji module together
+    # with the process-long API instance.  Reuse that exact module when the
+    # caller did not explicitly inject one; _build_order needs sj.constant.
+    sj = _broker_sj
     return submit(api)

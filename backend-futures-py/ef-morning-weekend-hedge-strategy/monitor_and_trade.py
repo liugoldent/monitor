@@ -21,7 +21,9 @@ from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_positio
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
-MAX_POSITION = 2
+POSITION_UNIT_ENV = "EF_MORNING_WEEKEND_HEDGE_UNIT"
+MAX_POSITION_UNIT = 20
+MAX_BASE_POSITION = 1
 sys.path.insert(0, str(BACKEND))
 from ef_trade_runtime import Notifications as SharedNotifications, append_order, save_state
 
@@ -82,6 +84,16 @@ def save(path: Path, data: dict) -> None:
 
 def webhook_url() -> str:
     return os.getenv("DISCORD_EF_hedge_WEBHOOK_URL", "").strip()
+
+
+def position_unit() -> int:
+    try:
+        unit = integer(os.getenv(POSITION_UNIT_ENV, "1"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數") from exc
+    if not 1 <= unit <= MAX_POSITION_UNIT:
+        raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數")
+    return unit
 
 
 class Notifications(SharedNotifications):
@@ -197,10 +209,12 @@ class Monitor:
         save(self.path, self.state)
 
     def target_heading(self, step: dict | None = None) -> str:
-        # Report accepted JSON intent, never an over-limit projection or broker inventory.
-        target = sum(self.state["positions"].values()) * step["unit"] if step is not None else 0
+        base_net = sum(self.state["positions"].values()) if step is not None else 0
+        base_target = 1 if base_net > 0 else -1 if base_net < 0 else 0
+        target = base_target * position_unit()
         position = f"{'多' if target > 0 else '空'}{abs(target)}口" if target else "空手（0口）"
-        return f"[策略目標部位：{position}]\n"
+        return (f"[13策略淨方向：{base_net:+d}｜Clamp目標：{position}"
+                f"｜目前U={position_unit()}]\n")
 
     def event(self, kind: str, **data):
         self.records.parent.mkdir(parents=True, exist_ok=True)
@@ -226,8 +240,10 @@ class Monitor:
         self.state["trading_day"] = day.isoformat()
         path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV") or BACKEND / "tv_doc/six_strategy_signal_events.csv")
         # CSV supplies new events only; JSON positions are authoritative.
-        return pure_position(path, now, since, calendar,
-                             integer(os.getenv("EF_HEDGE_SOURCE_UNIT", "1")),
+        # Source legs always remain unscaled -1/0/+1 directions.  The account
+        # target is scaled exactly once after the net direction is clamped to
+        # -1/0/+1.
+        return pure_position(path, now, since, calendar, 1,
                              start_index=self.state["startup_signal_rows"])
 
     def reset_if_due(self, now, closure):
@@ -411,25 +427,13 @@ class Monitor:
             if self.clock() >= deadline:
                 return
             step["previous_position"] = self.state["positions"][step["strategy_code"]]
-            delta = (step["new_position"] - step["previous_position"]) * step["unit"]
-            projected = sum(self.state["positions"].values()) * step["unit"] + delta
-            if abs(projected) > MAX_POSITION:
-                # JSON positions are authoritative even while over the trading
-                # limit.  Persist the signal so every later event remains
-                # fail-closed until the JSON net position returns within range.
-                self.state["positions"][step["strategy_code"]] = step["new_position"]
-                self.state["source"] = step
-                self.persist()
-                self.event("signal_position_limit", signal=step["last_signal"],
-                           strategy_code=step["strategy_code"], delta=delta,
-                           projected_position=projected, max_position=MAX_POSITION)
-                self.notify(self.target_heading(step) + f"【永豐2｜收到EF訊號・超過{MAX_POSITION}口上限】\n{signal_message(step)}\n"
-                            f"預計淨部位 {projected:+d} 口，允許 -{MAX_POSITION}～+{MAX_POSITION} 口。\n"
-                            f"JSON部位已更新為 {step['new_position']}；目前淨部位超限，本筆只通知、不送單。\n"
-                            f"訊號：{step['last_signal']}")
-                continue
+            delta = step["new_position"] - step["previous_position"]
+            projected_base = sum(self.state["positions"].values()) + delta
+            clamped_direction = (MAX_BASE_POSITION if projected_base > 0 else
+                                 -MAX_BASE_POSITION if projected_base < 0 else 0)
+            target = clamped_direction * position_unit()
             key = f"signal/{step['last_signal']}"
-            if not self.action(key, projected, contract, deadline, step=step):
+            if not self.action(key, target, contract, deadline, step=step):
                 return
             self.state["source"] = step
             self.persist()
@@ -450,7 +454,8 @@ def main():
     args = parser.parse_args()
     env_path = BACKEND / ".env"
     load_env(env_path)
-    # This entry point always runs account 2 in live trading mode.
+    # This entry point runs account 2 in live mode, but auto_trade.py currently
+    # has its api.place_order call explicitly disabled.
     live = True
     (BASE / "runtime").mkdir(parents=True, exist_ok=True)
     # Shared lock across shadow/live prevents mode changes while another monitor runs.
@@ -464,9 +469,10 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            f"版本：json-positions-v5；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
-            f"新訊號JSON淨部位上限{MAX_POSITION}口（多空皆適用）；超過只通知，01:00清倉不受上限限制。\n"
-            "每筆新訊號：計算策略最終口數、查券商TMF庫存，下單口數＝最終口數−目前庫存。\n"
+            f"版本：json-positions-v5-clamp；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
+            "13策略淨方向採Clamp：正數目標多單、負數目標空單、零則空手。\n"
+            f"目前U={position_unit()}；最終目標口數＝Clamp方向×U。\n"
+            "每筆新訊號：查券商TMF庫存，下單口數＝最終目標口數−目前庫存。\n"
             "05:05確認空手；未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "01:00清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"

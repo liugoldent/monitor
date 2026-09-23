@@ -103,7 +103,7 @@ class AutoTradeCredentialTests(unittest.TestCase):
             auto_trade._shared, "_contract", return_value=contract
         ), patch.object(
             auto_trade._shared, "_build_order", return_value="order"
-        ):
+        ) as build_order:
             first = auto_trade.initialize_broker_session(sj=sj)
             second = auto_trade.initialize_broker_session(sj=sj)
             signal = auto_trade.execute_target_position(1)
@@ -114,6 +114,8 @@ class AutoTradeCredentialTests(unittest.TestCase):
         login.assert_called_once_with(sj)
         api.logout.assert_not_called()
         self.assertEqual(api.place_order.call_count, 2)
+        self.assertEqual(build_order.call_count, 2)
+        self.assertTrue(all(call.args[1] is sj for call in build_order.call_args_list))
         self.assertEqual(signal.side, "buy")
         self.assertEqual(morning_flat.side, "sell")
 

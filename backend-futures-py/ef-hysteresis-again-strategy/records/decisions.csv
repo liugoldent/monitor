@@ -1,0 +1,3 @@
+processed_at,received_at,row,strategy_code,previous_target,target,e_net,f_net,long_locked,lock_initialized,reason
+2026-09-23T00:07:33.780598,2026-09-23T00:07:32,1063,CFCWIN01m,0,1,3,2,False,True,多方由未達門檻重新達到+2/+2
+2026-09-23T02:05:47.364964,2026-09-23T02:05:46,1064,CFCCPm,0,0,3,3,False,False,01:00～08:45只更新E/F狀態，不建立影子部位

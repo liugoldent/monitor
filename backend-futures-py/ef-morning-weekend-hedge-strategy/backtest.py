@@ -53,7 +53,10 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
         else:
             legs[code] = new
             fill = stamp.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        target = sum(legs.values()) * unit
+        base_target = sum(legs.values())
+        # Match live trading: clamp the aggregate source direction to
+        # -1/0/+1, then scale the account target exactly once by unit.
+        target = (1 if base_target > 0 else -1 if base_target < 0 else 0) * unit
         if target == position:
             continue
         if fill >= end:
@@ -73,6 +76,7 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
     return {"scope": "pure_ef_account2_morning_flat", "start_flat": True,
             "price_proxy": "MXF1! next-minute Open; flat exact 01:00 Open; not TMF fills",
             "single_side_cost_points": cost, "source_unit": unit,
+            "base_position_limit": 1, "position_limit_policy": "clamp_sign",
             "net_twd": (cash + position * mark) * 10,
             "ending_position": position, "ending_mark": mark, "ledger": ledger}
 

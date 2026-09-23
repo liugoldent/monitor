@@ -1,0 +1,93 @@
+{
+  "live_raw_positions": {
+    "CFC07m": 0,
+    "CFCTX17m": -1,
+    "CFCTX18m": 0,
+    "CFCTX19m": 0,
+    "CFCTX20m": 1,
+    "CFCTX21m": 0,
+    "CFCTX15m": 0,
+    "CFCWIN01m": 0,
+    "CFCPW3m": 0,
+    "CFCCPm": 0,
+    "CFCTX16m": 0,
+    "CFCTX22m": 0,
+    "CFCTX23m": 0
+  },
+  "live_source_row_count": 1059,
+  "live_target_position": 0,
+  "live_cursor_initialized_at": "2026-08-27 22:43:12",
+  "last_order_attempt_target": 0,
+  "last_order_attempt_at": "2026-09-22 17:02:41",
+  "last_order_trigger": "immediate_ef_signal_row_1059",
+  "last_executed_target": 0,
+  "last_executed_at": "2026-09-22 17:02:41",
+  "last_live_flat_time": "2026-09-22 01:00:00",
+  "last_live_flat_triggered_at": "2026-09-22 01:00:00",
+  "last_live_flat_trigger_delay_seconds": 0.756146,
+  "last_live_flat_completed_at": "2026-09-22 01:00:01",
+  "last_live_flat_started_before_deadline": true,
+  "last_live_flat_completed_before_deadline": true,
+  "attempt": {
+    "key": "immediate_ef_signal_row_1059",
+    "id": "350c7ceec73b4f20ad5af262375c2aea",
+    "status": "done",
+    "target": 0,
+    "at": "2026-09-22T17:02:41.091103",
+    "broker_before_position": 0,
+    "broker_contract": "TMFR1",
+    "broker_side": null,
+    "broker_quantity": 0,
+    "target_position": 0,
+    "broker_request_at": "2026-09-22T17:02:41.208163",
+    "broker_phase": "prepared",
+    "broker_status": "",
+    "broker_trade_id": ""
+  },
+  "last_unconfirmed_attempt": {
+    "key": "immediate_ef_signal_row_1051",
+    "id": "9e343a5db41f4bb1b23aeb64755382d4",
+    "status": "failed",
+    "target": 1,
+    "at": "2026-09-22T09:20:04.459626",
+    "broker_before_position": 0,
+    "broker_contract": "TMFR1",
+    "broker_side": "buy",
+    "broker_quantity": 1,
+    "target_position": 1,
+    "broker_request_at": "2026-09-22T09:20:04.514013",
+    "broker_phase": "prepared",
+    "broker_status": "Inactive",
+    "broker_trade_id": "",
+    "error_type": "BrokerOrderError"
+  },
+  "manual_flat_required": {
+    "key": "01:00_live_clock_flat/2026-09-21",
+    "id": "22d847d287cf4074aaf86c86a908bf9a",
+    "status": "failed",
+    "target": 0,
+    "at": "2026-09-21T01:00:00.229879",
+    "error_type": "Exception"
+  },
+  "broker_reconciliation": {
+    "last_resolved": {
+      "previous_position": 0,
+      "target_position": 1,
+      "side": "buy",
+      "quantity": 1,
+      "trade_id": "0c75c048",
+      "status": "failed",
+      "filled_quantity": 0,
+      "actual_position": 0
+    },
+    "pending": {
+      "previous_position": 0,
+      "target_position": 1,
+      "side": "buy",
+      "quantity": 1,
+      "trade_id": ""
+    }
+  },
+  "last_confirmed_broker_position": 0,
+  "last_confirmed_broker_at": "2026-09-22 17:02:41"
+}
