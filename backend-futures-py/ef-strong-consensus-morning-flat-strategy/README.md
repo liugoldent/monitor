@@ -1,4 +1,4 @@
-# EF Hysteresis 共識＋01:00 清倉策略
+# EF Hysteresis Again 共識＋01:00 清倉策略
 
 本目錄保留原 `ef-strong-consensus-morning-flat-strategy` 路徑與 Docker service 名稱，
 只為延續既有 runtime、委託防重紀錄與掛載。正式策略已改為 Hysteresis；原本「進場、
@@ -44,6 +44,11 @@
 持有多單時，E、F 皆仍 >= +1：續抱；任一組 < +1：平倉
 持有空單時，E、F 皆仍 <= -1：續抱；任一組 > -1：平倉
 持倉中若兩組同時達到反方向進場門檻：直接反轉
+
+08:45 後第一筆 EF 訊號到達前，若 E/F 已有同向進場共識，該方向先鎖住：
+多方必須先有任一組跌破 +2，之後重新達到 +2/+2 才進多；空方對稱，
+必須先有任一組升破 -2，之後重新達到 -2/-2 才進空。這可避免把早盤前既有
+共識，因第一筆其實是在減碼的訊號而誤判為新進場。
 
 每天 01:00 清空組合部位
 08:45 不自動恢復清倉前的部位
@@ -93,7 +98,7 @@ runtime/ef_strong_morning_flat.lock
 
 ```dotenv
 # 專用 Discord webhook（未設定才回退到既有 MXF webhook）。
-DISCORD_EF_HYSTERESIS_MORNING_FLAT_WEBHOOK_URL=
+DISCORD_EF_HYSTERESIS_AGAIN_WEBHOOK_URL=
 
 # 這套策略指定使用主憑證。
 API_KEY=

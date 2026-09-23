@@ -11,16 +11,16 @@
     "CFCTX15m": 0,
     "CFCWIN01m": 1,
     "CFCPW3m": 0,
-    "CFCCPm": 1,
+    "CFCCPm": 0,
     "CFCTX16m": 0,
     "CFCTX22m": 0,
     "CFCTX23m": 1
   },
-  "source_row_count": 1064,
+  "source_row_count": 1065,
   "target": 0,
-  "long_locked": false,
-  "lock_initialized_date": null,
+  "long_locked": true,
+  "lock_initialized_date": "2026-09-23",
   "last_flat_date": "2026-09-23",
   "started_at": "2026-09-22T23:17:47.702143",
-  "last_event": "2026-09-23T02:05:46"
+  "last_event": "2026-09-23T09:44:59"
 }

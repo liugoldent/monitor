@@ -151,6 +151,28 @@ services:
       - ./backend-futures-py/ef-hysteresis-again-strategy/records:/app/backend-futures-py/ef-hysteresis-again-strategy/records
       - ./backend-futures-py/ef-hysteresis-again-strategy/runtime:/app/backend-futures-py/ef-hysteresis-again-strategy/runtime
 
+  ef-hysteresis-total-breakout-strategy:
+    <<: *runtime-safety
+    build: *app-build
+    image: *app-image
+    container_name: monitor-ef-hysteresis-total-breakout-strategy
+    cpus: "0.20"
+    mem_limit: 256m
+    mem_reservation: 64m
+    memswap_limit: 256m
+    command: ["python", "/app/backend-futures-py/ef-hysteresis-total-breakout-strategy/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/ef-hysteresis-total-breakout-strategy
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      - telegram-signal-relay
+    volumes:
+      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro
+      - ./backend-futures-py/ef-hysteresis-total-breakout-strategy/records:/app/backend-futures-py/ef-hysteresis-total-breakout-strategy/records
+      - ./backend-futures-py/ef-hysteresis-total-breakout-strategy/runtime:/app/backend-futures-py/ef-hysteresis-total-breakout-strategy/runtime
+
   cloudflared:
     <<: *runtime-safety
     profiles: ["tunnel"]

@@ -8,6 +8,7 @@ import json
 import os
 import time
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -20,9 +21,12 @@ from hysteresis_strategy import evaluate_hysteresis_event, hysteresis_target
 from strategy import (
     ALL_STRATEGIES,
     ConsensusDecision,
+    DAY_REOPEN_TIME,
+    MORNING_FLAT_TIME,
     PORTFOLIO_E,
     PORTFOLIO_F,
     PriceBar,
+    SignalEvent,
     latest_morning_boundary,
     load_signal_rows,
     morning_boundaries,
@@ -214,13 +218,7 @@ def append_csv(path: Path, fields: list[str], row: dict[str, object]) -> None:
 
 
 def webhook_url() -> str:
-    return (
-        os.getenv("DISCORD_EF_HYSTERESIS_MORNING_FLAT_WEBHOOK_URL", "").strip()
-        or os.getenv("DISCORD_EFHYSTERESIS_MORNING_FLAT_WEBHOOK_URL", "").strip()
-        or os.getenv("DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL", "").strip()
-        or os.getenv("DISCORD_EF_STRONG_MORNING_FLAT_WEBHOOK_URL", "").strip()
-        or os.getenv("DISCORD_MXF_ALERT_WEBHOOK_URL", "").strip()
-    )
+    return os.getenv("DISCORD_EF_HYSTERESIS_AGAIN_WEBHOOK_URL", "").strip()
 
 
 _notifications = None
@@ -551,7 +549,7 @@ def immediate_live_message(decision: ConsensusDecision, live_result: str) -> str
         else f"{position_text(previous_final)} → {position_text(target_final)}"
     )
     return (
-        "🚨【強共識｜EF訊號與送單計算】\n"
+        "🚨【EF Hysteresis Again｜訊號與送單計算】\n"
         f"1. EF策略與進出場訊號：{decision.event.strategy_name or decision.event.strategy_code} "
         f"({decision.event.strategy_code}) {decision.event.previous_position} → {decision.event.new_position}\n"
         f"收到時間：{text_time(decision.event.timestamp)}\n"
@@ -589,6 +587,128 @@ def initialize_live_cursor(state: dict, rows: list[dict[str, str]]) -> None:
     save_json_atomic(STATE_PATH, state)
 
 
+def live_cycle_date(timestamp: datetime):
+    """Return the 01:00-to-01:00 risk cycle containing ``timestamp``."""
+    return (timestamp.date() if timestamp.time() >= MORNING_FLAT_TIME
+            else timestamp.date() - timedelta(days=1))
+
+
+def initialize_reentry_locks(
+    state: dict,
+    positions: dict[str, int],
+    event: SignalEvent,
+    threshold: int,
+) -> None:
+    """Lock consensus that already existed before the first post-open event.
+
+    The event that merely happens to arrive first after 08:45 must not turn a
+    pre-existing E/F consensus into a fresh entry.  Each direction is unlocked
+    only after that direction first leaves its 2/2 entry threshold.
+    """
+    if signal_is_in_morning_block(event.timestamp, event.timestamp):
+        return
+    cycle = live_cycle_date(event.timestamp).isoformat()
+    if state.get("live_reentry_lock_cycle") == cycle:
+        return
+    values = normalized_positions(positions)
+    e_net = sum(values[code] for code in PORTFOLIO_E)
+    f_net = sum(values[code] for code in PORTFOLIO_F)
+    state["live_long_reentry_locked"] = e_net >= threshold and f_net >= threshold
+    state["live_short_reentry_locked"] = e_net <= -threshold and f_net <= -threshold
+    state["live_reentry_lock_cycle"] = cycle
+
+
+def apply_reentry_locks(state: dict, decision: ConsensusDecision) -> ConsensusDecision:
+    """Block stale post-open entries until consensus leaves and re-enters."""
+    long_locked = bool(state.get("live_long_reentry_locked", False))
+    short_locked = bool(state.get("live_short_reentry_locked", False))
+    bull = decision.e_net >= decision.threshold and decision.f_net >= decision.threshold
+    bear = decision.e_net <= -decision.threshold and decision.f_net <= -decision.threshold
+
+    if long_locked and not bull:
+        long_locked = False
+    if short_locked and not bear:
+        short_locked = False
+    state["live_long_reentry_locked"] = long_locked
+    state["live_short_reentry_locked"] = short_locked
+
+    if long_locked and decision.target_position > 0 and decision.previous_position <= 0:
+        return replace(
+            decision,
+            target_position=0,
+            relation="bull_reentry_locked",
+            reason="08:45前多方共識已形成；等待先跌破+2/+2，再重新突破才進多",
+        )
+    if short_locked and decision.target_position < 0 and decision.previous_position >= 0:
+        return replace(
+            decision,
+            target_position=0,
+            relation="bear_reentry_locked",
+            reason="08:45前空方共識已形成；等待先升破-2/-2，再重新跌破才進空",
+        )
+    return decision
+
+
+def migrate_live_reentry_state(
+    state: dict,
+    rows: list[dict[str, str]],
+    current_time: datetime,
+    threshold: int,
+    hold_threshold: int,
+) -> bool:
+    """Rebuild today's target once when switching from the legacy live rule."""
+    if state.get("live_reentry_rule_version") == 1:
+        return False
+    cycle_date = live_cycle_date(current_time)
+    cycle_start = datetime.combine(cycle_date, MORNING_FLAT_TIME)
+    reopen = datetime.combine(cycle_date, DAY_REOPEN_TIME)
+    positions = {code: 0 for code in ALL_STRATEGIES}
+    rebuilt: dict = {}
+    target = 0
+    limit = min(int(state.get("live_source_row_count") or len(rows)), len(rows))
+
+    for row_number, row in enumerate(rows[:limit], start=1):
+        event = parse_signal_row(row, row_number)
+        if event is None:
+            parsed = parse_position_row(row)
+            if parsed is not None:
+                positions[parsed[0]] = parsed[1]
+            continue
+        if event.timestamp < cycle_start:
+            positions[event.strategy_code] = event.new_position
+            continue
+        if event.timestamp > current_time:
+            break
+        if event.timestamp < reopen:
+            positions[event.strategy_code] = event.new_position
+            target = 0
+            continue
+        intended_time = event.timestamp.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        intended_bar = PriceBar(intended_time, event.timestamp, 0, 0)
+        initialize_reentry_locks(rebuilt, positions, event, threshold)
+        decision = evaluate_hysteresis_event(
+            positions,
+            target,
+            event,
+            intended_bar,
+            entry_threshold=threshold,
+            hold_threshold=hold_threshold,
+        )
+        decision = apply_reentry_locks(rebuilt, decision)
+        target = decision.target_position
+
+    state["live_raw_positions"] = normalized_positions(positions)
+    state["live_target_position"] = target
+    state["live_long_reentry_locked"] = bool(rebuilt.get("live_long_reentry_locked", False))
+    state["live_short_reentry_locked"] = bool(rebuilt.get("live_short_reentry_locked", False))
+    if rebuilt.get("live_reentry_lock_cycle"):
+        state["live_reentry_lock_cycle"] = rebuilt["live_reentry_lock_cycle"]
+    state["live_reentry_rule_version"] = 1
+    state["live_reentry_migrated_at"] = text_time(current_time)
+    save_json_atomic(STATE_PATH, state)
+    return True
+
+
 def process_live_rows(
     state: dict,
     rows: list[dict[str, str]],
@@ -617,6 +737,7 @@ def process_live_rows(
             open=0,
             close=0,
         )
+        initialize_reentry_locks(state, positions, event, threshold)
         decision = evaluate_hysteresis_event(
             positions,
             current,
@@ -625,6 +746,7 @@ def process_live_rows(
             entry_threshold=threshold,
             hold_threshold=hold_threshold,
         )
+        decision = apply_reentry_locks(state, decision)
         state["live_raw_positions"] = positions
         state["live_source_row_count"] = row_number
         state["live_target_position"] = decision.target_position
@@ -657,6 +779,9 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
     trigger_delay = (triggered_at - boundary).total_seconds()
     previous = int(state.get("live_target_position") or 0)
     state["live_target_position"] = 0
+    state["live_long_reentry_locked"] = False
+    state["live_short_reentry_locked"] = False
+    state.pop("live_reentry_lock_cycle", None)
     state["last_live_flat_time"] = text_time(boundary)
     state["last_live_flat_triggered_at"] = text_time(triggered_at)
     state["last_live_flat_trigger_delay_seconds"] = trigger_delay
@@ -955,6 +1080,7 @@ def main() -> None:
         unit = position_unit()
         startup_result = ""
         initialize_live_cursor(state, rows)
+        migrate_live_reentry_state(state, rows, now_local(), threshold, hold_threshold)
         startup_base_target = int(state.get("live_target_position") or 0)
         clock_flatten_applied = apply_live_clock_flatten(state, now_local())
         if clock_flatten_applied:
@@ -968,11 +1094,11 @@ def main() -> None:
                 trigger="startup_reconcile",
             )
         startup_message = (
-            "✅【開始監控｜EF Hysteresis＋01:00清倉】\n"
+            "✅【開始監控｜EF Hysteresis Again＋01:00清倉】\n"
             f"時間：{text_time(now_local())}\n"
             f"策略目標部位：{position_text(scaled_target(startup_base_target))}\n"
             f"規則：E/F兩組皆達{threshold}票同向才進場；持倉後兩組皆保留至少{hold_threshold}票才續抱；U={unit}。\n"
-            "01:00清倉；08:45不自動恢復，等新EF訊號再判斷。\n"
+            "01:00清倉；08:45前若已形成共識，須先離開門檻再重新突破才進場。\n"
             "每筆新訊號查當下券商庫存，以最終口數減庫存計算本次下單；啟動不補單。\n"
             "執行：收到新訊號立即查實際庫存並送差額委託，結果以券商回報為準。\n"
             f"模式：{'API_KEY永豐實單' if env_flag(ENABLE_ORDERS_ENV) else '影子模式'}。"

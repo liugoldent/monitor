@@ -32,6 +32,7 @@ sys.modules[_spec.name] = _rule
 _spec.loader.exec_module(_rule)
 decide = _rule.decide
 should_lock_long = _rule.should_lock_long
+should_lock_short = _rule.should_lock_short
 
 ENV_PATH = BACKEND / ".env"
 SOURCE_PATH = BACKEND / "tv_doc" / "six_strategy_signal_events.csv"
@@ -64,15 +65,23 @@ def persist(state: dict) -> None:
 def append_decision(event, previous: int, decision, lock_initialized: bool) -> None:
     EVENT_PATH.parent.mkdir(parents=True, exist_ok=True)
     header = not EVENT_PATH.exists()
+    legacy_columns = False
+    if not header:
+        with EVENT_PATH.open("r", newline="", encoding="utf-8") as existing:
+            legacy_columns = "short_locked" not in next(csv.reader(existing), [])
     with EVENT_PATH.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         if header:
             writer.writerow(["processed_at", "received_at", "row", "strategy_code",
                              "previous_target", "target", "e_net", "f_net",
-                             "long_locked", "lock_initialized", "reason"])
-        writer.writerow([now_local().isoformat(), event.timestamp.isoformat(), event.row_number,
-                         event.strategy_code, previous, decision.target, decision.e_net,
-                         decision.f_net, decision.long_locked, lock_initialized, decision.reason])
+                             "long_locked", "short_locked", "lock_initialized", "reason"])
+        row = [now_local().isoformat(), event.timestamp.isoformat(), event.row_number,
+               event.strategy_code, previous, decision.target, decision.e_net,
+               decision.f_net, decision.long_locked]
+        if not legacy_columns:
+            row.append(decision.short_locked)
+        row.extend([lock_initialized, decision.reason])
+        writer.writerow(row)
 
 
 def position_text(value: int) -> str:
@@ -92,6 +101,7 @@ def initialize_state(rows: list[dict[str, str]]) -> dict:
         "source_row_count": len(rows),
         "target": 0,
         "long_locked": False,
+        "short_locked": False,
         "lock_initialized_date": None,
         "last_flat_date": None,
         "started_at": now_local().isoformat(),
@@ -109,6 +119,7 @@ def clock_flatten(state: dict, now: datetime, notify) -> None:
     previous = int(state.get("target", 0))
     state["target"] = 0
     state["long_locked"] = False
+    state["short_locked"] = False
     state["lock_initialized_date"] = None
     state["last_flat_date"] = date_text
     persist(state)
@@ -123,6 +134,7 @@ def process_rows(state: dict, rows: list[dict[str, str]], notify) -> None:
                  for code in ALL_STRATEGIES}
     current = int(state.get("target", 0))
     long_locked = bool(state.get("long_locked", False))
+    short_locked = bool(state.get("short_locked", False))
     initialized_date = state.get("lock_initialized_date")
 
     for row_number, row in enumerate(rows[count:], start=count + 1):
@@ -140,20 +152,24 @@ def process_rows(state: dict, rows: list[dict[str, str]], notify) -> None:
                       else event.timestamp.date() - timedelta(days=1))
         if not morning and initialized_date != cycle_date.isoformat():
             long_locked = should_lock_long(positions, PORTFOLIO_E, PORTFOLIO_F)
+            short_locked = should_lock_short(positions, PORTFOLIO_E, PORTFOLIO_F)
             initialized_date = cycle_date.isoformat()
             lock_initialized = True
 
         positions[event.strategy_code] = event.new_position
         previous = current
-        decision = decide(positions, PORTFOLIO_E, PORTFOLIO_F, current, long_locked)
+        decision = decide(positions, PORTFOLIO_E, PORTFOLIO_F, current,
+                          long_locked, short_locked)
         if morning:
-            decision = _rule.Decision(0, decision.e_net, decision.f_net, False,
+            decision = _rule.Decision(0, decision.e_net, decision.f_net, False, False,
                                       "01:00～08:45只更新E/F狀態，不建立影子部位")
         current = decision.target
         long_locked = decision.long_locked
+        short_locked = decision.short_locked
         state.update({
             "raw_positions": positions.copy(), "target": current,
-            "long_locked": long_locked, "lock_initialized_date": initialized_date,
+            "long_locked": long_locked, "short_locked": short_locked,
+            "lock_initialized_date": initialized_date,
             "last_event": event.timestamp.isoformat(), "source_row_count": row_number,
         })
         persist(state)
@@ -164,6 +180,7 @@ def process_rows(state: dict, rows: list[dict[str, str]], notify) -> None:
             f"{event.previous_position:+d} → {event.new_position:+d}\n"
             f"E淨部位：{decision.e_net:+d}；F淨部位：{decision.f_net:+d}\n"
             f"多方鎖定：{'是' if decision.long_locked else '否'}"
+            f"；空方鎖定：{'是' if decision.short_locked else '否'}"
             f"{'（本日首次判斷）' if lock_initialized else ''}\n"
             f"影子目標：{position_text(previous)} → {position_text(current)}\n"
             f"原因：{decision.reason}\n"
@@ -193,8 +210,8 @@ def main() -> None:
                  if STATE_PATH.exists() else initialize_state(rows))
         notifier("✅【開始監控｜第三策略 EF Hysteresis Again】\n"
                  "固定門檻：進場2、續抱1。\n"
-                 "01:00清倉；若08:45後首筆訊號前E/F已達+2/+2，"
-                 "須先跌破再重新達標才做多；空方維持原規則。\n"
+                 "01:00清倉；若08:45後首筆訊號前E/F已達同向2/2，"
+                 "多空皆須先脫離門檻，再重新達標才進場。\n"
                  "模式：影子監控，絕不送出券商委託。")
         while True:
             clock_flatten(state, now_local(), notifier)

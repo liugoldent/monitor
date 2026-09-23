@@ -18,6 +18,10 @@ from backtest import run
 
 
 class StrategyTests(unittest.TestCase):
+    def test_uses_requested_account_two_webhook_key(self):
+        with patch.dict(os.environ, {"DISCORD_EF_CLAMP_WEBHOOK_URL": "https://account2.example"}, clear=True):
+            self.assertEqual(webhook_url(), "https://account2.example")
+
     def test_signal_description_covers_entries_exits_and_reversals(self):
         for previous, new, action in ((0, 1, "多單進場"), (0, -1, "空單進場"),
                                       (1, 0, "多單出場"), (-1, 0, "空單出場"),

@@ -198,17 +198,24 @@ class PortfolioTradeTests(unittest.TestCase):
 
 
 class WebhookTests(unittest.TestCase):
-    def test_requested_webhook_name_has_priority(self):
+    def test_uses_hysteresis_morning_flat_webhook_only(self):
         with patch.dict(
             monitor.os.environ,
             {
-                "DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL": "https://requested.example",
-                "DISCORD_EF_STRONG_MORNING_FLAT_WEBHOOK_URL": "https://legacy.example",
+                "DISCORD_EF_HYSTERESIS_AGAIN_WEBHOOK_URL": "https://requested.example",
+                "DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL": "https://legacy.example",
                 "DISCORD_MXF_ALERT_WEBHOOK_URL": "https://fallback.example",
             },
             clear=True,
         ):
             self.assertEqual(monitor.webhook_url(), "https://requested.example")
+
+        with patch.dict(
+            monitor.os.environ,
+            {"DISCORD_EFSTRONG_MORNING_FLAT_WEBHOOK_URL": "https://legacy.example"},
+            clear=True,
+        ):
+            self.assertEqual(monitor.webhook_url(), "")
 
 
 class LiveOrderTests(unittest.TestCase):
@@ -538,6 +545,97 @@ class LiveOrderTests(unittest.TestCase):
         )
         self.assertEqual(state["live_target_position"], 1)
         self.assertEqual(state["live_source_row_count"], 1)
+
+    def test_preopen_consensus_must_leave_and_reenter_before_live_entry(self):
+        positions = {code: 0 for code in ALL_STRATEGIES}
+        for code in PORTFOLIO_E[:3] + PORTFOLIO_F[:3]:
+            positions[code] = 1
+        state = {
+            "live_source_row_count": 0,
+            "live_raw_positions": positions,
+            "live_target_position": 0,
+        }
+        rows = [
+            {"received_at": "2026-09-23 09:44:59", "strategy_code": PORTFOLIO_F[2],
+             "strategy_name": "財神列車6號", "previous_position": "1", "new_position": "0"},
+            {"received_at": "2026-09-23 10:00:00", "strategy_code": PORTFOLIO_E[0],
+             "previous_position": "1", "new_position": "0"},
+            {"received_at": "2026-09-23 10:01:00", "strategy_code": PORTFOLIO_E[1],
+             "previous_position": "1", "new_position": "0"},
+            {"received_at": "2026-09-23 10:02:00", "strategy_code": PORTFOLIO_E[1],
+             "previous_position": "0", "new_position": "1"},
+        ]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}, clear=False
+        ), patch.object(
+            monitor, "STATE_PATH", Path(directory) / "state.json"
+        ), patch.object(
+            monitor, "execute_live_target", return_value="ok"
+        ) as execute, patch.object(monitor, "send_discord"), patch("builtins.print"):
+            monitor.process_live_rows(state, rows, threshold=2)
+
+        self.assertEqual([call.args[1] for call in execute.call_args_list], [0, 0, 0, 1])
+        self.assertFalse(state["live_long_reentry_locked"])
+        self.assertEqual(state["live_target_position"], 1)
+
+    def test_preopen_short_consensus_is_locked_symmetrically(self):
+        positions = {code: 0 for code in ALL_STRATEGIES}
+        for code in PORTFOLIO_E[:3] + PORTFOLIO_F[:3]:
+            positions[code] = -1
+        state = {
+            "live_source_row_count": 0,
+            "live_raw_positions": positions,
+            "live_target_position": 0,
+        }
+        rows = [{
+            "received_at": "2026-09-23 09:44:59",
+            "strategy_code": PORTFOLIO_F[2],
+            "previous_position": "-1",
+            "new_position": "0",
+        }]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            monitor.os.environ, {monitor.ENABLE_ORDERS_ENV: "true"}, clear=False
+        ), patch.object(
+            monitor, "STATE_PATH", Path(directory) / "state.json"
+        ), patch.object(
+            monitor, "execute_live_target", return_value="ok"
+        ) as execute, patch.object(monitor, "send_discord"), patch("builtins.print"):
+            monitor.process_live_rows(state, rows, threshold=2)
+
+        execute.assert_called_once_with(state, 0, trigger="immediate_ef_signal_row_1")
+        self.assertTrue(state["live_short_reentry_locked"])
+
+    def test_rule_migration_rebuilds_failed_stale_entry_as_flat(self):
+        rows = []
+        for code in PORTFOLIO_E[:3] + PORTFOLIO_F[:3]:
+            rows.append({
+                "received_at": "2026-09-23 02:00:00",
+                "strategy_code": code,
+                "previous_position": "0",
+                "new_position": "1",
+            })
+        rows.append({
+            "received_at": "2026-09-23 09:44:59",
+            "strategy_code": PORTFOLIO_F[2],
+            "strategy_name": "財神列車6號",
+            "previous_position": "1",
+            "new_position": "0",
+        })
+        state = {
+            "live_source_row_count": len(rows),
+            "live_target_position": 1,
+        }
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            monitor, "STATE_PATH", Path(directory) / "state.json"
+        ):
+            changed = monitor.migrate_live_reentry_state(
+                state, rows, datetime(2026, 9, 23, 10, 25), 2, 1
+            )
+
+        self.assertTrue(changed)
+        self.assertEqual(state["live_target_position"], 0)
+        self.assertTrue(state["live_long_reentry_locked"])
+        self.assertEqual(state["live_reentry_rule_version"], 1)
 
     def test_0100_clock_flattens_without_waiting_for_bar_file(self):
         state = {"live_target_position": 1}

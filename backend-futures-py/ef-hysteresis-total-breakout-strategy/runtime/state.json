@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "strategy": "ef_hysteresis_total_breakout_shadow_v1",
+  "raw_positions": {
+    "CFC07m": 0,
+    "CFCTX17m": 1,
+    "CFCTX18m": 1,
+    "CFCTX19m": 0,
+    "CFCTX20m": 1,
+    "CFCTX21m": 0,
+    "CFCTX15m": 0,
+    "CFCWIN01m": 1,
+    "CFCPW3m": 0,
+    "CFCCPm": 0,
+    "CFCTX16m": 0,
+    "CFCTX22m": 0,
+    "CFCTX23m": 1
+  },
+  "source_row_count": 1065,
+  "target": 0,
+  "baseline_cycle": null,
+  "bull_baseline": 0,
+  "bear_baseline": 0,
+  "last_flat_date": null,
+  "started_at": "2026-09-23T11:11:34.652931"
+}

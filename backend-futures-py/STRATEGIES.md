@@ -7,6 +7,7 @@
 | 永豐 1 | EF Hysteresis 共識＋01:00 平倉 | `ef-strong-consensus-morning-flat-strategy/`（保留舊路徑以延續 runtime） | 現行實單 |
 | 永豐 2 | 純 EF＋01:00 清倉，08:45 後等新訊號 | `ef-morning-weekend-hedge-strategy/` | 預設 shadow，獨立實單開關 |
 | 不連券商 | EF Hysteresis Again（多方跌破後重新突破） | `ef-hysteresis-again-strategy/` | 影子監控＋獨立 Discord |
+| 不連券商 | EF Hysteresis TOTAL 突破（超越08:45前總部位） | `ef-hysteresis-total-breakout-strategy/` | 影子監控＋獨立 Discord |
 
 `telegram_signal_relay.py`、行情監控與 webhook 都是共用基礎設施。
 H 訊號可以繼續被記錄，但不納入永豐 2 的純 EF 部位。舊 `pure-ef-hedge-strategy/` 為歷史研究規格。

@@ -83,7 +83,7 @@ def save(path: Path, data: dict) -> None:
 
 
 def webhook_url() -> str:
-    return os.getenv("DISCORD_EF_hedge_WEBHOOK_URL", "").strip()
+    return os.getenv("DISCORD_EF_CLAMP_WEBHOOK_URL", "").strip()
 
 
 def position_unit() -> int:
@@ -481,7 +481,7 @@ def main():
         print(startup_message, flush=True)
         monitor.notify(startup_message)
         if not webhook_url():
-            print("未設定 DISCORD_EF_hedge_WEBHOOK_URL，無法發送 Discord 通知", flush=True)
+            print("未設定 DISCORD_EF_CLAMP_WEBHOOK_URL，無法發送 Discord 通知", flush=True)
         while True:
             try:
                 monitor.tick()
