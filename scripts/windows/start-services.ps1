@@ -13,7 +13,6 @@ $services = @(
     'cloudflared',
     'ef-strong-consensus-morning-flat-strategy',
     'ef-morning-weekend-hedge-strategy',
-    'ef-hysteresis-again-strategy',
     'ef-hysteresis-total-breakout-strategy'
 )
 function Get-RootEnvValue([string]$Name) {
@@ -114,6 +113,10 @@ try {
         & docker compose --progress plain build telegram-signal-relay
         if ($LASTEXITCODE -ne 0) { throw "Docker image build failed: $LASTEXITCODE" }
     }
+    # This older shadow strategy is no longer part of the Windows service set.
+    # Stop a container left running by an earlier version of this script.
+    & docker compose stop 'ef-hysteresis-again-strategy'
+    if ($LASTEXITCODE -ne 0) { throw "Could not stop the retired EF Hysteresis Again service: $LASTEXITCODE" }
     $composeArgs = @('compose', '--progress', 'plain', '--profile', 'tunnel', 'up', '--detach', '--no-build')
     $composeArgs += @($services | Where-Object { $_ -ne 'ef-morning-weekend-hedge-strategy' })
     & docker @composeArgs
@@ -142,7 +145,6 @@ $logWindows = @(
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'EF Hysteresis Consensus LIVE - API KEY'; Service = 'ef-strong-consensus-morning-flat-strategy' },
     @{ Title = 'EF Pure Morning Flat - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' },
-    @{ Title = 'EF Hysteresis Again SHADOW'; Service = 'ef-hysteresis-again-strategy' },
     @{ Title = 'EF Hysteresis TOTAL Breakout SHADOW'; Service = 'ef-hysteresis-total-breakout-strategy' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue

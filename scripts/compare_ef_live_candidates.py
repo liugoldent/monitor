@@ -100,6 +100,19 @@ def nets(positions):
     return sum(positions[c] for c in E), sum(positions[c] for c in F)
 
 
+def night_close_baseline(events, trading_date):
+    """Return E+F as known from receipts strictly before 05:00."""
+    cutoff = datetime.combine(trading_date, time(5))
+    positions = dict.fromkeys(ALL, 0)
+    for stamp, _, code, new in events:
+        if stamp >= cutoff:
+            break
+        positions[code] = new
+    e_net, f_net = nets(positions)
+    total = e_net + f_net
+    return max(total, 0), max(-total, 0)
+
+
 def run(name, bars, events, start, end, cost, calendar):
     times = sorted(t for t in bars if start <= t <= end)
     if not times:
@@ -163,8 +176,7 @@ def run(name, bars, events, start, end, cost, calendar):
                         long_locked = e0 >= 2 and f0 >= 2
                         short_locked = e0 <= -2 and f0 <= -2
                     else:
-                        total0 = e0 + f0
-                        baseline = (max(total0, 0), max(-total0, 0))
+                        baseline = night_close_baseline(events, cycle)
                     lock_cycle = cycle
                 positions[code] = new
                 e_net, f_net = nets(positions)
