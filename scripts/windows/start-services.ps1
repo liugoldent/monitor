@@ -70,6 +70,45 @@ function Enable-ProjectBuilder {
     return $builderName
 }
 
+function Get-ImageId {
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        $imageId = & docker image inspect monitor-app:local --format '{{.Id}}' 2>$null
+        if ($LASTEXITCODE -eq 0) { return ($imageId | Select-Object -First 1) }
+        return $null
+    } finally { $ErrorActionPreference = $previousPreference }
+}
+
+function Get-BuildState {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $gitDir = & git -C $projectDir rev-parse --absolute-git-dir 2>$null
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $revision = & git -C $projectDir rev-parse HEAD 2>$null
+        if ($LASTEXITCODE -ne 0) { return $null }
+        # Include tracked edits and untracked file contents, so local changes
+        # trigger a build once and unchanged local changes can reuse that build.
+        $diffHash = & git -C $projectDir diff --binary HEAD | git hash-object --stdin
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $untracked = & git -C $projectDir -c core.quotePath=false ls-files --others --exclude-standard
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $untrackedState = @(
+            foreach ($relativePath in $untracked) {
+                $filePath = Join-Path $projectDir $relativePath
+                "$relativePath=$((Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash)"
+            }
+        ) -join '|'
+        return @{
+            Path = Join-Path ($gitDir | Select-Object -First 1) 'monitor-app-image.txt'
+            Fingerprint = "$(($revision | Select-Object -First 1))|$(($diffHash | Select-Object -First 1))|$untrackedState"
+        }
+    } catch {
+        # If the working tree cannot be fingerprinted, keep the normal build.
+        return $null
+    }
+}
+
 foreach ($requiredFile in @(
     (Join-Path $backendDir '.env'),
     (Join-Path $backendDir 'Sinopac.pfx'),
@@ -98,20 +137,42 @@ if (-not (Test-DockerEngine)) {
 }
 $previousBuilder = $env:BUILDX_BUILDER
 $projectBuilder = $null
+$buildState = $null
+$needsBuild = -not $NoBuild
 if (-not $NoBuild) {
-    # Docker Desktop's default embedded BuildKit can be severely throttled while
-    # RUN steps download packages.  The container driver uses the normal Docker
-    # network path and is dramatically faster on affected Windows installations.
-    $projectBuilder = Enable-ProjectBuilder
-    $env:BUILDX_BUILDER = $projectBuilder
+    $buildState = Get-BuildState
+    $imageId = Get-ImageId
+    if ($buildState -and $imageId -and (Test-Path -LiteralPath $buildState.Path -PathType Leaf)) {
+        $previousBuild = @(Get-Content -LiteralPath $buildState.Path -ErrorAction SilentlyContinue)
+        if ($previousBuild.Count -eq 2 -and
+            $previousBuild[0] -eq $buildState.Fingerprint -and
+            $previousBuild[1] -eq $imageId) {
+            $needsBuild = $false
+            Write-Host 'Source and Docker image are unchanged; skipping image build.' -ForegroundColor Cyan
+        }
+    }
+    if ($needsBuild) {
+        # Invalidate the old stamp before building.
+        if ($buildState) { Remove-Item -LiteralPath $buildState.Path -ErrorAction SilentlyContinue }
+        # The container driver avoids slow package downloads on affected Windows installs.
+        $projectBuilder = Enable-ProjectBuilder
+        $env:BUILDX_BUILDER = $projectBuilder
+    }
 }
 Push-Location $projectDir
 try {
-    if (-not $NoBuild) {
+    if ($needsBuild) {
         # Every application service uses monitor-app:local. Build and import it
         # once; asking Compose to build every service repeats the large export.
         & docker compose --progress plain build telegram-signal-relay
         if ($LASTEXITCODE -ne 0) { throw "Docker image build failed: $LASTEXITCODE" }
+        if ($buildState) {
+            $builtImageId = Get-ImageId
+            if ($builtImageId) {
+                [IO.File]::WriteAllLines($buildState.Path,
+                    @($buildState.Fingerprint, $builtImageId), [Text.UTF8Encoding]::new($false))
+            }
+        }
     }
     # This older shadow strategy is no longer part of the Windows service set.
     # Stop a container left running by an earlier version of this script.

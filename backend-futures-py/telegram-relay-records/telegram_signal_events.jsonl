@@ -1290,3 +1290,5 @@
 {"received_at": "2026-09-25T03:20:04+08:00", "telegram_message_at": "2026-09-24T19:20:04+00:00", "route": "ef", "chat_id": 8855908410, "message_id": 388310, "sender_id": 8855908410, "sender_username": "Capital_monitor_bot", "text": "【09.25 03:20:03】\n【訊號通知】【群益】\n【6008770】\n《策略》CFCCPm《倉位》0.0 -> -1.0", "event": "discord_delivery", "delivered": true, "detail": "delivered (attempt 1)"}
 {"received_at": "2026-09-25T11:54:19+08:00", "event": "startup_notification", "route": "h", "delivered": true, "detail": "delivered (attempt 1)"}
 {"received_at": "2026-09-25T11:54:20+08:00", "event": "startup_notification", "route": "ef", "delivered": true, "detail": "delivered (attempt 1)"}
+{"received_at": "2026-09-26T11:54:46+08:00", "event": "startup_notification", "route": "h", "delivered": true, "detail": "delivered (attempt 1)"}
+{"received_at": "2026-09-26T11:54:46+08:00", "event": "startup_notification", "route": "ef", "delivered": true, "detail": "delivered (attempt 1)"}

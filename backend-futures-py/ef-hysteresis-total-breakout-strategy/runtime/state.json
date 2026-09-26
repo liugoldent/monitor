@@ -18,13 +18,13 @@
   },
   "source_row_count": 1089,
   "target": 0,
-  "baseline_cycle": "2026-09-25",
+  "baseline_cycle": "2026-09-26",
   "bull_baseline": 2,
   "bear_baseline": 0,
   "last_flat_date": "2026-09-25",
   "started_at": "2026-09-23T11:11:34.652931",
   "last_event": "2026-09-25T03:20:04",
   "baseline_rule_version": 2,
-  "baseline_asof": "2026-09-25T05:00:00",
+  "baseline_asof": "2026-09-26T05:00:00",
   "target_rule_version": 2
 }
