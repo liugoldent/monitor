@@ -14,7 +14,11 @@ os.environ.setdefault("DISCORD_H_TRADE_WEBHOOK_URL", "https://example.test/h")
 os.environ.setdefault("DISCORD_SIX_STRATEGY_WEBHOOK_URL", "https://example.test/ef")
 
 import telegram_signal_relay as relay
-from telegram_signal_relay import _discord_chunks, classify_signal
+from telegram_signal_relay import (
+    _discord_chunks,
+    classify_signal,
+    parse_consultant_signal_line,
+)
 
 
 class TelegramSignalRelayTests(unittest.TestCase):
@@ -112,6 +116,69 @@ class TelegramSignalRelayTests(unittest.TestCase):
             result = relay.send_to_discord("https://example.test/ef", "ef", "舊格式")
         self.assertEqual(result, (True, "ok"))
         send.assert_called_once_with("https://example.test/ef", "舊格式")
+
+    def test_parses_consultant_cp950_signal_line(self):
+        stamp = datetime(2026, 9, 25, 3, 20, 10, tzinfo=ZoneInfo("Asia/Taipei"))
+        parsed = parse_consultant_signal_line(
+            "[09/25 03:20:03] 《策略》CFCCPm《倉位》0.0 -> -1.0",
+            stamp,
+        )
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["strategy_code"], "CFCCPm")
+        self.assertEqual(parsed["previous"], 0)
+        self.assertEqual(parsed["new"], -1)
+        self.assertEqual(parsed["event_at"].strftime("%Y-%m-%d %H:%M:%S"), "2026-09-25 03:20:03")
+
+    def test_consultant_and_telegram_same_transition_are_deduplicated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original_signal = relay.EF_SIGNAL_LOG_PATH
+            original_events = relay.EF_POSITION_EVENT_PATH
+            relay.EF_SIGNAL_LOG_PATH = root / "signals.csv"
+            relay.EF_POSITION_EVENT_PATH = root / "positions.csv"
+            try:
+                stamp = datetime(2026, 9, 25, 3, 20, 10, tzinfo=ZoneInfo("Asia/Taipei"))
+                telegram = (
+                    "訊號通知【09.25 03:20:03】"
+                    "《策略》CFCCPm《倉位》0.0 -> -1.0"
+                )
+                local = (
+                    "訊號通知【09.25 03:20:08】"
+                    "《策略》CFCCPm《倉位》0.0 -> -1.0"
+                )
+                self.assertTrue(relay.record_ef_signal(telegram, stamp, "1:1"))
+                self.assertTrue(
+                    relay.record_ef_signal(
+                        local, stamp.replace(second=25), "file:CFCCPm|0|-1|2026-09-25 03:20:08",
+                        source="群益SignalLog",
+                    )
+                )
+                with relay.EF_POSITION_EVENT_PATH.open(newline="", encoding="utf-8") as handle:
+                    self.assertEqual(len(list(csv.DictReader(handle))), 1)
+                with relay.EF_SIGNAL_LOG_PATH.open(newline="", encoding="utf-8") as handle:
+                    self.assertEqual(len(list(csv.DictReader(handle))), 1)
+            finally:
+                relay.EF_SIGNAL_LOG_PATH = original_signal
+                relay.EF_POSITION_EVENT_PATH = original_events
+
+    def test_same_transition_is_new_after_strategy_leaves_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original_signal = relay.EF_SIGNAL_LOG_PATH
+            original_events = relay.EF_POSITION_EVENT_PATH
+            relay.EF_SIGNAL_LOG_PATH = root / "signals.csv"
+            relay.EF_POSITION_EVENT_PATH = root / "positions.csv"
+            try:
+                first = datetime(2026, 9, 25, 3, 20, 0, tzinfo=ZoneInfo("Asia/Taipei"))
+                message = "訊號通知《策略》CFCCPm《倉位》0.0 -> -1.0"
+                self.assertTrue(relay.record_ef_signal(message, first, "1:1"))
+                self.assertTrue(relay.record_ef_signal("訊號通知《策略》CFCCPm《倉位》-1.0 -> 0.0", first.replace(second=11), "file:2", source="群益SignalLog"))
+                self.assertTrue(relay.record_ef_signal(message, first.replace(second=12), "file:3", source="群益SignalLog"))
+                with relay.EF_SIGNAL_LOG_PATH.open(newline="", encoding="utf-8") as handle:
+                    self.assertEqual(len(list(csv.DictReader(handle))), 3)
+            finally:
+                relay.EF_SIGNAL_LOG_PATH = original_signal
+                relay.EF_POSITION_EVENT_PATH = original_events
 
     def test_records_ef_in_existing_csv_format(self):
         with tempfile.TemporaryDirectory() as directory:

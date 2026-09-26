@@ -27,11 +27,14 @@ services:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
       TELEGRAM_RELAY_SESSION_PATH: /app/backend-futures-py/telegram-relay-runtime/session_h_ef_relay
+      CONSULTANT_SIGNAL_LOG_PATH: ${CONSULTANT_SIGNAL_LOG_PATH:-/external/consultant-log/Bridge_Lite_Signal.log}
+      CONSULTANT_SIGNAL_LOG_ENCODING: ${CONSULTANT_SIGNAL_LOG_ENCODING:-cp950}
     volumes:
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/telegram-relay-runtime:/app/backend-futures-py/telegram-relay-runtime
       - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ${CONSULTANT_SIGNAL_LOG_DIR:-./backend-futures-py/consultant-signal-log}:/external/consultant-log:ro
       - ./scripts/shared/initialize_telegram_session.py:/app/scripts/initialize_telegram_session.py:ro
 
   monitor-mxf:

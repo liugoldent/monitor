@@ -24,6 +24,18 @@ BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
 RECORDS_DIR = BASE_DIR / "telegram-relay-records"
 EVENT_LOG_PATH = RECORDS_DIR / "telegram_signal_events.jsonl"
+_DEFAULT_CONSULTANT_SIGNAL_LOG_PATH = (
+    r"C:\Program Files (x86)\MR.AutoTrading\群益期貨顧問策略下單機\Log\Bridge_Lite_Signal.log"
+)
+CONSULTANT_SIGNAL_LOG_PATH = Path(
+    os.getenv("CONSULTANT_SIGNAL_LOG_PATH", "").strip()
+    or _DEFAULT_CONSULTANT_SIGNAL_LOG_PATH
+)
+CONSULTANT_SIGNAL_LOG_ENCODING = os.getenv("CONSULTANT_SIGNAL_LOG_ENCODING", "cp950")
+CONSULTANT_SIGNAL_POLL_SECONDS = float(
+    os.getenv("CONSULTANT_SIGNAL_POLL_SECONDS", "0.5")
+)
+CONSULTANT_SIGNAL_CHECKPOINT_PATH = RECORDS_DIR / "consultant_signal_log_checkpoint.json"
 TV_DOC_DIR = BASE_DIR / "tv_doc"
 EF_SIGNAL_LOG_PATH = TV_DOC_DIR / "six_strategy_signal_events.csv"
 H_TRADE_LOG_PATH = TV_DOC_DIR / "h_trade.csv"
@@ -94,6 +106,14 @@ EF_POSITION_EVENT_FIELDS = [
 DISCORD_CONTENT_LIMIT = 2000
 DISCORD_MAX_ATTEMPTS = 3
 RECONNECT_DELAY_SECONDS = 5
+LOCAL_SIGNAL_SOURCE = "群益SignalLog"
+LOCAL_SIGNAL_LINE_PATTERN = re.compile(
+    r"^\[(?P<month>\d{2})/(?P<day>\d{2})\s+"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\]\s*"
+    r"《策略》\s*(?P<strategy>[A-Za-z0-9]+)\s*"
+    r"《倉位》\s*(?P<old>[+-]?\d+(?:\.\d+)?)\s*->\s*"
+    r"(?P<new>[+-]?\d+(?:\.\d+)?)\s*$"
+)
 
 
 def load_env_file(path: Path = ENV_PATH) -> None:
@@ -154,6 +174,94 @@ def _position_event_action(previous: int | None, new: int) -> str:
     return "空單平倉並轉多" if new > 0 else "多單平倉並轉空"
 
 
+def _message_time(text: str, received_at: datetime) -> str:
+    time_match = MESSAGE_TIME_PATTERN.search(text)
+    if not time_match:
+        return ""
+    try:
+        return received_at.replace(
+            month=int(time_match.group("month")),
+            day=int(time_match.group("day")),
+            hour=int(time_match.group("hour")),
+            minute=int(time_match.group("minute")),
+            second=int(time_match.group("second")),
+            microsecond=0,
+        ).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+
+
+def _signal_fingerprint(
+    strategy_code: str,
+    previous: int,
+    new: int,
+    message_time: str,
+) -> str:
+    return f"{strategy_code}|{previous}|{new}|{message_time}"
+
+
+def _is_duplicate_transition(
+    strategy_code: str,
+    previous: int,
+    new: int,
+) -> bool:
+    current = _latest_ef_event_positions().get(strategy_code)
+    # A transition is a duplicate when the strategy is already at its target
+    # position. A later identical transition becomes valid again after the
+    # strategy has moved away from that target and returns to `previous`.
+    return current == new and current != previous
+
+
+def parse_consultant_signal_line(
+    line: str,
+    received_at: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Parse one CP950 Bridge_Lite_Signal.log line into a relay message."""
+    match = LOCAL_SIGNAL_LINE_PATTERN.match(line.strip())
+    if not match:
+        return None
+    received_at = received_at or datetime.now(TZ)
+    try:
+        event_at = received_at.replace(
+            month=int(match.group("month")),
+            day=int(match.group("day")),
+            hour=int(match.group("hour")),
+            minute=int(match.group("minute")),
+            second=int(match.group("second")),
+            microsecond=0,
+        )
+    except ValueError:
+        return None
+    previous = _parse_position(match.group("old"))
+    new = _parse_position(match.group("new"))
+    raw_code = match.group("strategy")
+    strategy_code = STRATEGY_ALIASES.get(raw_code, raw_code)
+    if (
+        strategy_code not in STRATEGY_NAMES
+        or previous is None
+        or new is None
+        or previous == new
+    ):
+        return None
+    message = (
+        f"訊號通知【{event_at.strftime('%m.%d %H:%M:%S')}】"
+        f"《策略》{raw_code}《倉位》{match.group('old')} -> {match.group('new')}"
+    )
+    return {
+        "message": message,
+        "event_at": event_at,
+        "strategy_code": strategy_code,
+        "previous": previous,
+        "new": new,
+        "fingerprint": _signal_fingerprint(
+            strategy_code,
+            previous,
+            new,
+            event_at.strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    }
+
+
 def _event_key_exists(path: Path, event_key: str) -> bool:
     if not event_key or not path.exists():
         return False
@@ -199,6 +307,7 @@ def record_ef_signal(
     text: str,
     received_at: datetime,
     event_key: str = "",
+    source: str = "群益Telegram",
 ) -> bool:
     match = EF_POSITION_PATTERN.search(text)
     if not match:
@@ -219,20 +328,10 @@ def record_ef_signal(
     else:
         action, side = "reverse", "bull" if new > 0 else "bear"
 
-    message_time = ""
-    time_match = MESSAGE_TIME_PATTERN.search(text)
-    if time_match:
-        try:
-            message_time = received_at.replace(
-                month=int(time_match.group("month")),
-                day=int(time_match.group("day")),
-                hour=int(time_match.group("hour")),
-                minute=int(time_match.group("minute")),
-                second=int(time_match.group("second")),
-                microsecond=0,
-            ).strftime("%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            pass
+    message_time = _message_time(text, received_at)
+    fingerprint = _signal_fingerprint(strategy_code, previous, new, message_time)
+    if _is_duplicate_transition(strategy_code, previous, new):
+        return True
 
     account_match = ACCOUNT_PATTERN.search(text)
     account = account_match.group("account") if account_match else ""
@@ -246,7 +345,7 @@ def record_ef_signal(
                 "event_key": event_key,
                 "account": account,
                 "strategy_code": strategy_code,
-                "source": "群益Telegram",
+                "source": source,
                 "action": _position_event_action(stored_previous, new),
                 "previous_position": previous,
                 "new_position": new,
@@ -468,6 +567,104 @@ def append_event(record: dict[str, Any]) -> None:
         handle.flush()
 
 
+async def _process_consultant_signal(line: str) -> None:
+    received_at = datetime.now(TZ)
+    parsed = parse_consultant_signal_line(line, received_at)
+    if parsed is None:
+        return
+    fingerprint = parsed["fingerprint"]
+    append_event(
+        {
+            "received_at": received_at.isoformat(timespec="seconds"),
+            "event": "signal_observation",
+            "source": LOCAL_SIGNAL_SOURCE,
+            "signal_fingerprint": fingerprint,
+            "text": line.strip(),
+        }
+    )
+    try:
+        recorded = record_ef_signal(
+            parsed["message"],
+            received_at,
+            f"file:{fingerprint}",
+            source=LOCAL_SIGNAL_SOURCE,
+        )
+    except (OSError, ValueError, csv.Error) as exc:
+        recorded = False
+        print(f"本機 Signal.log 記錄失敗：{type(exc).__name__}: {exc}")
+    print(
+        f"收到本機 Signal.log 訊號: {fingerprint}"
+        f" ({'已記錄' if recorded else '格式無效'})"
+    )
+
+
+async def monitor_consultant_signal_log() -> None:
+    """Tail the rotating CP950 consultant signal log without blocking Telegram."""
+    path = CONSULTANT_SIGNAL_LOG_PATH
+    offset = 0
+    pending = ""
+    file_identity: tuple[str, int] | None = None
+    checkpoint_loaded = False
+    if CONSULTANT_SIGNAL_CHECKPOINT_PATH.exists():
+        try:
+            checkpoint = json.loads(
+                CONSULTANT_SIGNAL_CHECKPOINT_PATH.read_text(encoding="utf-8")
+            )
+            if checkpoint.get("path") == str(path):
+                offset = int(checkpoint.get("offset", 0))
+                checkpoint_loaded = True
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    print(f"本機訊號監控: {path} ({CONSULTANT_SIGNAL_LOG_ENCODING})")
+    while True:
+        try:
+            if not path.exists():
+                await asyncio.sleep(CONSULTANT_SIGNAL_POLL_SECONDS)
+                continue
+            stat = path.stat()
+            identity = (str(path.resolve()), stat.st_ino)
+            if file_identity is None and not checkpoint_loaded:
+                # Do not replay the historical file on the first installation.
+                offset = stat.st_size
+            if file_identity is not None and file_identity != identity:
+                file_identity = identity
+                offset = 0
+                pending = ""
+            elif stat.st_size < offset:
+                offset = 0
+                pending = ""
+            file_identity = identity
+            checkpoint_loaded = True
+            with path.open(
+                "r",
+                encoding=CONSULTANT_SIGNAL_LOG_ENCODING,
+                errors="replace",
+            ) as handle:
+                handle.seek(offset)
+                chunk = handle.read()
+                offset = handle.tell()
+            if chunk:
+                pending += chunk
+                lines = pending.splitlines(keepends=True)
+                pending = ""
+                if lines and not lines[-1].endswith(("\n", "\r")):
+                    pending = lines.pop()
+                for line in lines:
+                    await _process_consultant_signal(line)
+            CONSULTANT_SIGNAL_CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            CONSULTANT_SIGNAL_CHECKPOINT_PATH.write_text(
+                json.dumps(
+                    {"path": str(path), "offset": offset},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        except (OSError, UnicodeError) as exc:
+            print(f"本機 Signal.log 監控暫時失敗：{type(exc).__name__}: {exc}")
+            await asyncio.sleep(max(CONSULTANT_SIGNAL_POLL_SECONDS, 1.0))
+        await asyncio.sleep(CONSULTANT_SIGNAL_POLL_SECONDS)
+
+
 def _discord_chunks(prefix: str, text: str) -> list[str]:
     available = DISCORD_CONTENT_LIMIT - len(prefix)
     if available <= 0:
@@ -610,30 +807,45 @@ async def telegram_message_handler(event) -> None:
     )
 
 
-def main() -> None:
+async def relay_main() -> None:
     print("=== Telegram H/EF 原始訊號接收與 Discord 轉送服務 ===")
     print(f"記錄檔: {EVENT_LOG_PATH}")
     print(f"EF CSV: {EF_SIGNAL_LOG_PATH}")
     print(f"H CSV: {H_TRADE_LOG_PATH}")
     print(f"H position events: {H_POSITION_EVENT_PATH}")
     print(f"EF position events: {EF_POSITION_EVENT_PATH}")
+    print(f"本機 Signal.log: {CONSULTANT_SIGNAL_LOG_PATH}")
     print(f"H -> {H_WEBHOOK_ENV}; EF -> {EF_WEBHOOK_ENV}")
     print("策略計算與券商下單：停用")
     startup_notifications_sent = False
-    while True:
-        try:
-            client.start()
-            print("Telethon 已連線，開始接收 H/EF 訊號...")
-            if not startup_notifications_sent:
-                send_startup_notifications()
-                startup_notifications_sent = True
-            client.run_until_disconnected()
-        except (ConnectionError, OSError, TimeoutError) as exc:
-            print(f"Telegram 連線中斷：{type(exc).__name__}，{RECONNECT_DELAY_SECONDS} 秒後重連")
-            time.sleep(RECONNECT_DELAY_SECONDS)
-        except KeyboardInterrupt:
-            print("收到停止指令，結束接收。")
-            return
+    watcher = asyncio.create_task(monitor_consultant_signal_log())
+    try:
+        while True:
+            try:
+                await client.start()
+                print("Telethon 已連線，開始接收 H/EF 訊號...")
+                if not startup_notifications_sent:
+                    await asyncio.to_thread(send_startup_notifications)
+                    startup_notifications_sent = True
+                await client.run_until_disconnected()
+            except (ConnectionError, OSError, TimeoutError) as exc:
+                print(
+                    f"Telegram 連線中斷：{type(exc).__name__}，"
+                    f"{RECONNECT_DELAY_SECONDS} 秒後重連"
+                )
+                await asyncio.sleep(RECONNECT_DELAY_SECONDS)
+    except KeyboardInterrupt:
+        print("收到停止指令，結束接收。")
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+
+
+def main() -> None:
+    try:
+        asyncio.run(relay_main())
+    except KeyboardInterrupt:
+        print("收到停止指令，結束接收。")
 
 
 if __name__ == "__main__":
