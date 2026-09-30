@@ -31,6 +31,7 @@ _rule = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = _rule
 _spec.loader.exec_module(_rule)
 decide = _rule.decide
+exit_on_new_short = _rule.exit_on_new_short
 should_lock_long = _rule.should_lock_long
 should_lock_short = _rule.should_lock_short
 
@@ -156,6 +157,7 @@ def process_rows(state: dict, rows: list[dict[str, str]], notify) -> None:
             initialized_date = cycle_date.isoformat()
             lock_initialized = True
 
+        tracked_previous = positions[event.strategy_code]
         positions[event.strategy_code] = event.new_position
         previous = current
         decision = decide(positions, PORTFOLIO_E, PORTFOLIO_F, current,
@@ -163,6 +165,9 @@ def process_rows(state: dict, rows: list[dict[str, str]], notify) -> None:
         if morning:
             decision = _rule.Decision(0, decision.e_net, decision.f_net, False, False,
                                       "01:00～08:45只更新E/F狀態，不建立影子部位")
+        else:
+            decision = exit_on_new_short(decision, previous, tracked_previous,
+                                         event.new_position)
         current = decision.target
         long_locked = decision.long_locked
         short_locked = decision.short_locked
@@ -174,10 +179,13 @@ def process_rows(state: dict, rows: list[dict[str, str]], notify) -> None:
         })
         persist(state)
         append_decision(event, previous, decision, lock_initialized)
+        tracked_hint = (f"追蹤前部位：{tracked_previous:+d}（訊號記載：{event.previous_position:+d}）\n"
+                        if tracked_previous != event.previous_position else "")
         message = (
             "📊【第三策略｜EF Hysteresis Again｜影子】\n"
             f"訊號：{event.strategy_name or event.strategy_code} "
             f"{event.previous_position:+d} → {event.new_position:+d}\n"
+            f"{tracked_hint}"
             f"E淨部位：{decision.e_net:+d}；F淨部位：{decision.f_net:+d}\n"
             f"多方鎖定：{'是' if decision.long_locked else '否'}"
             f"；空方鎖定：{'是' if decision.short_locked else '否'}"
@@ -210,6 +218,7 @@ def main() -> None:
                  if STATE_PATH.exists() else initialize_state(rows))
         notifier("✅【開始監控｜第三策略 EF Hysteresis Again】\n"
                  "固定門檻：進場2、續抱1。\n"
+                 "持多時追蹤到0→-1反向訊號，當筆影子目標出場；下筆仍依原進場規則判斷。\n"
                  "01:00清倉；若08:45後首筆訊號前E/F已達同向2/2，"
                  "多空皆須先脫離門檻，再重新達標才進場。\n"
                  "模式：影子監控，絕不送出券商委託。")
