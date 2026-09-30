@@ -1,7 +1,7 @@
 """Pure decision state for the EF Hysteresis Again shadow strategy."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping
 
 
@@ -56,6 +56,14 @@ def decide(
         return Decision(-1, e_net, f_net, long_locked, short_locked,
                         "空單續抱：E/F皆至多-1")
     return Decision(0, e_net, f_net, long_locked, short_locked, "共識退出")
+
+
+def exit_on_new_short(decision: Decision, current: int,
+                      previous_leg: int, new_leg: int) -> Decision:
+    """Exit a held long on a tracked 0 -> -1; leave future entries unchanged."""
+    if current > 0 and decision.target > 0 and previous_leg == 0 and new_leg == -1:
+        return replace(decision, target=0, reason="追蹤到0→-1反向訊號，多單出場")
+    return decision
 
 
 def should_lock_long(positions: Mapping[str, int], e_codes: tuple[str, ...],
