@@ -213,7 +213,20 @@ class Monitor:
             if integer(value) not in {-1, 0, 1}:
                 raise ValueError(f"JSON {code} 部位必須是 -1/0/1")
             self.state["positions"][code] = integer(value)
-        self.state["schema_version"] = 5
+        # Existing v5 snapshots cannot tell whether an active short arrived
+        # through 0 -> -1. Treat active shorts as vetoes on first upgrade so a
+        # mid-session restart cannot open a long against one of them.
+        if "long_veto_strategies" not in self.state:
+            self.state["long_veto_strategies"] = [code for code in STRATEGIES
+                                                   if self.state["positions"][code] == -1]
+        vetoes = self.state["long_veto_strategies"]
+        if (not isinstance(vetoes, list) or any(not isinstance(code, str) for code in vetoes)
+                or len(vetoes) != len(set(vetoes))
+                or any(code not in STRATEGIES or self.state["positions"][code] != -1
+                       for code in vetoes)):
+            raise ValueError("JSON long_veto_strategies 必須是目前空方策略的不重複清單")
+        self.state["long_veto_strategies"] = [code for code in STRATEGIES if code in vetoes]
+        self.state["schema_version"] = 6
         if self.state.get("attempt", {}).get("status") == "attempted":
             self.state["attempt"]["status"] = "interrupted_no_retry"
             self.state["attempt"]["interrupted_at"] = started.isoformat()
@@ -252,10 +265,13 @@ class Monitor:
 
     def target_heading(self, step: dict | None = None) -> str:
         base_net = sum(self.state["positions"].values()) if step is not None else 0
-        base_target = 1 if base_net > 0 else -1 if base_net < 0 else 0
+        vetoes = self.state["long_veto_strategies"] if step is not None else []
+        base_target = (0 if base_net > 0 and vetoes else
+                       1 if base_net > 0 else -1 if base_net < 0 else 0)
         target = base_target * position_unit()
         position = f"{'多' if target > 0 else '空'}{abs(target)}口" if target else "空手（0口）"
         return (f"[13策略淨方向：{base_net:+d}｜Clamp目標：{position}"
+                f"｜0→-1空方否決：{','.join(vetoes) if vetoes else '無'}"
                 f"｜目前U={position_unit()}]\n")
 
     def event(self, kind: str, **data):
@@ -317,6 +333,7 @@ class Monitor:
                 return False
         previous = self.state["positions"].copy()
         self.state["positions"] = dict.fromkeys(STRATEGIES, 0)
+        self.state["long_veto_strategies"] = []
         self.state["last_reset_cycle"] = cycle
         self.state["reset_status"] = "confirmed_flat" if confirmed else "manual_flat_required"
         self.state["reset_at"] = now.isoformat()
@@ -342,7 +359,7 @@ class Monitor:
         return True
 
     def action(self, key: str, target: int, contract: str, deadline: datetime,
-               step: dict | None = None) -> bool:
+               step: dict | None = None, long_veto_strategies: list[str] | None = None) -> bool:
         # Consume before external side effects: timeout/exception must never
         # cause this signal (or this flat cycle) to be submitted a second time.
         if self.state.get("attempt", {}).get("key") == key:
@@ -355,6 +372,7 @@ class Monitor:
         if step is not None:
             # Commit intent, position and cursor atomically BEFORE broker side effects.
             self.state["positions"][step["strategy_code"]] = step["new_position"]
+            self.state["long_veto_strategies"] = long_veto_strategies
             self.state["source"] = step
         if key.endswith("/flat"):
             self.state["last_flat_attempt"] = key
@@ -474,11 +492,19 @@ class Monitor:
             step["previous_position"] = self.state["positions"][step["strategy_code"]]
             delta = step["new_position"] - step["previous_position"]
             projected_base = sum(self.state["positions"].values()) + delta
-            clamped_direction = (MAX_BASE_POSITION if projected_base > 0 else
+            vetoes = set(self.state["long_veto_strategies"])
+            if step["previous_position"] == 0 and step["new_position"] == -1:
+                vetoes.add(step["strategy_code"])
+            elif step["new_position"] != -1:
+                vetoes.discard(step["strategy_code"])
+            clamped_direction = (0 if projected_base > 0 and vetoes else
+                                 MAX_BASE_POSITION if projected_base > 0 else
                                  -MAX_BASE_POSITION if projected_base < 0 else 0)
             target = clamped_direction * position_unit()
             key = f"signal/{step['last_signal']}"
-            if not self.action(key, target, contract, deadline, step=step):
+            projected_vetoes = [code for code in STRATEGIES if code in vetoes]
+            if not self.action(key, target, contract, deadline, step=step,
+                               long_veto_strategies=projected_vetoes):
                 return
             self.state["source"] = step
             self.persist()
@@ -518,9 +544,9 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            f"版本：json-positions-v5-clamp；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
-            "13策略淨方向採Clamp：正數目標多單、負數目標空單、零則空手。\n"
-            f"目前U={position_unit()}；最終目標口數＝Clamp方向×U。\n"
+            f"版本：json-positions-v6-short-veto；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
+            "13策略淨方向採Clamp；當日0→-1空方仍持倉時，正數也以空手為目標。\n"
+            f"目前U={position_unit()}；最終目標口數＝否決後方向×U。\n"
             f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"
             "每筆新訊號：查券商TMF庫存，下單口數＝最終目標口數−目前庫存。\n"
             "每日08:35查券商庫存；05:05確認空手，未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"

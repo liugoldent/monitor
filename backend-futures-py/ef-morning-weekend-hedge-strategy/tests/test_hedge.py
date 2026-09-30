@@ -251,6 +251,73 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [1])
         self.assertEqual(self.actual, 1)
 
+    def test_zero_to_short_veto_flattens_positive_net_and_survives_restart(self):
+        m = self.monitor()
+        for code in ("CFC07m", "CFCTX16m"):
+            self.now += timedelta(seconds=1)
+            self.signal(0, 1, code)
+            m.tick()
+        self.assertEqual(self.orders, [1])
+        self.now += timedelta(seconds=1)
+        self.signal(0, -1, "CFCTX17m")
+        m.tick()
+        self.assertEqual(sum(m.state["positions"].values()), 1)
+        self.assertEqual(self.orders, [1, -1])
+        self.assertEqual(m.state["long_veto_strategies"], ["CFCTX17m"])
+        self.assertEqual(json.loads(m.path.read_text())["long_veto_strategies"], ["CFCTX17m"])
+
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1, "CFCTX18m")
+        m.tick()
+        self.assertEqual(self.orders, [1, -1])
+        self.assertEqual(sum(m.state["positions"].values()), 2)
+        self.now += timedelta(seconds=1)
+        self.signal(-1, 0, "CFCTX17m")
+        m.tick()
+        self.assertEqual(self.orders, [1, -1, 1])
+        self.assertEqual(m.state["long_veto_strategies"], [])
+
+    def test_direct_long_to_short_does_not_create_zero_to_short_veto(self):
+        m = self.monitor()
+        for code in ("CFC07m", "CFCTX16m", "CFCTX17m"):
+            self.now += timedelta(seconds=1)
+            self.signal(0, 1, code)
+            m.tick()
+        self.now += timedelta(seconds=1)
+        self.signal(1, -1, "CFCTX17m")
+        m.tick()
+        self.assertEqual(sum(m.state["positions"].values()), 1)
+        self.assertEqual(m.state["long_veto_strategies"], [])
+        self.assertEqual(self.orders, [1])
+
+    def test_short_veto_is_cleared_by_daily_reset(self):
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, -1, "CFCTX17m")
+        m.tick()
+        self.assertEqual(m.state["long_veto_strategies"], ["CFCTX17m"])
+        self.now = datetime(2026, 9, 15, 1, 0)
+        m.tick()
+        self.now = datetime(2026, 9, 15, 5, 5)
+        m.tick()
+        self.assertEqual(m.state["long_veto_strategies"], [])
+        self.assertTrue(all(value == 0 for value in m.state["positions"].values()))
+        self.now = datetime(2026, 9, 15, 8, 45)
+        self.signal(0, 1)
+        m.tick()
+        self.assertEqual(self.actual, 1)
+
+    def test_upgrade_v5_short_is_conservatively_vetoed(self):
+        m = self.monitor()
+        m.state["positions"]["CFCTX17m"] = -1
+        m.state.pop("long_veto_strategies")
+        m.state["schema_version"] = 5
+        m.persist()
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["long_veto_strategies"], ["CFCTX17m"])
+        self.assertEqual(restarted.state["schema_version"], 6)
+
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
         m.state["positions"]["CFCTX21m"] = 1
@@ -447,8 +514,10 @@ class MonitorTests(unittest.TestCase):
         self.signal(1, 0)
         m.tick()
         m.tick()
-        m.notify.assert_called_once()
-        self.assertIn("無需下單", m.notify.call_args.args[0])
+        signal_notices = [call.args[0] for call in m.notify.call_args_list
+                          if "永豐2｜EF訊號計算" in call.args[0]]
+        self.assertEqual(len(signal_notices), 1)
+        self.assertIn("無需下單", signal_notices[0])
         self.execute.assert_called_once()
 
     def test_failed_reset_at_reopen_allows_new_signal(self):
