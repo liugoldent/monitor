@@ -61,7 +61,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 docker compose up -d --build --no-deps --force-recreate ef-morning-weekend-hedge-strategy
 ```
 
-啟動通知須顯示 `json-positions-v5-clamp`。目前 `auto_trade.py` 的 `api.place_order(...)` 已明確註解停用，因此不會送出實單；恢復該行前必須重新審核。`python monitor_and_trade.py` 與 `--once` 都不可拿來當測試。
+啟動通知須顯示 `json-positions-v5-clamp`。正式服務使用 Shioaji 實單帳戶；啟動及每日 08:35 查詢 TMF 庫存並通知，08:35 查詢只讀不送單。同一天 08:35 後啟動時，啟動查詢視為當日查詢。`python monitor_and_trade.py` 與 `--once` 都不可拿來當測試。
 
 - runtime/live_state.json：positions、訊號進度、單次委託與重設狀態，原子保存。
 - records/live_order_attempts.csv：委託嘗試及回應。

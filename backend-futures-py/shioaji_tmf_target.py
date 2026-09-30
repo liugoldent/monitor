@@ -8,7 +8,9 @@ position.
 from __future__ import annotations
 
 import os
+import sys
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +24,25 @@ POSITION_VERIFY_DELAY_SECONDS = 0.5
 
 class BrokerOrderError(RuntimeError):
     """The broker rejected an order or did not confirm the requested position."""
+
+
+def log_attribute_error(exc: BaseException) -> None:
+    """Log the missing attribute and traceback location without object values."""
+    if not isinstance(exc, AttributeError):
+        return
+    obj = getattr(exc, "obj", None)
+    frames = traceback.extract_tb(exc.__traceback__)
+    locations = " <- ".join(
+        f"{Path(frame.filename).name}:{frame.lineno}:{frame.name}"
+        for frame in frames[-8:]
+    )
+    print(
+        f"AttributeError diagnostic: attribute={getattr(exc, 'name', None)!r}, "
+        f"object_type={type(obj).__name__ if obj is not None else 'unknown'}, "
+        f"frames={locations}",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -86,6 +107,13 @@ def current_tmf_position(api: Any) -> int:
     """Return signed TMF net quantity, ignoring unrelated futures positions."""
     positions = _read_positions(api)
     return _net_position(positions)
+
+
+def check_startup_broker(api: Any) -> int:
+    """Read inventory and resolve the order contract without submitting an order."""
+    position = current_tmf_position(api)
+    _contract(api)
+    return position
 
 
 def _read_positions(api: Any) -> list:

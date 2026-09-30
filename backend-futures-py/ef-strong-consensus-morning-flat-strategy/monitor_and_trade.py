@@ -9,14 +9,15 @@ import os
 import time
 import uuid
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from filelock import FileLock, Timeout
 
-from auto_trade import (BrokerOrderError, broker_error_summary,
-                        execute_target_position, initialize_broker_session)
+from auto_trade import (BROKER_SIMULATION, BrokerOrderError, broker_error_summary, check_startup_broker,
+                        execute_target_position, initialize_broker_session,
+                        log_attribute_error)
 from hysteresis_strategy import evaluate_hysteresis_event, hysteresis_target
 from strategy import (
     ALL_STRATEGIES,
@@ -141,14 +142,15 @@ def env_stamp(path: Path) -> tuple[int, int] | None:
         return None
 
 
-def wait_for_broker_session(env_path: Path) -> None:
-    """Fail closed before reading signals; retry only after credentials change."""
+def wait_for_broker_session(env_path: Path) -> int:
+    """Keep signals unread until login, inventory, and contract are available."""
     stamp = env_stamp(env_path)
     while True:
         try:
-            initialize_broker_session()
-            return
+            api = initialize_broker_session()
+            break
         except Exception as exc:
+            log_attribute_error(exc)
             summary = broker_error_summary(exc)
             message = (
                 f"🚨【強共識】Shioaji 啟動登入失敗：{summary}。"
@@ -160,6 +162,48 @@ def wait_for_broker_session(env_path: Path) -> None:
             time.sleep(5)
         stamp = env_stamp(env_path)
         reload_env_file(env_path)
+
+    notified_failure = False
+    while True:
+        try:
+            position = check_startup_broker(api)
+            message = f"✅【強共識】啟動券商庫存與合約查詢成功；TMF 淨部位：{position} 口。"
+            print(message, flush=True)
+            send_discord(message)
+            return position
+        except Exception as exc:
+            log_attribute_error(exc)
+            summary = broker_error_summary(exc)
+            message = (
+                f"🚨【強共識】啟動券商庫存或合約查詢失敗：{summary}。"
+                "服務安全待命，不讀取新訊號；30 秒後重試。"
+            )
+            print(message, file=sys.stderr, flush=True)
+            if not notified_failure:
+                send_discord(message)
+                notified_failure = True
+            time.sleep(30)
+
+
+def check_daily_inventory(state: dict, now: datetime) -> None:
+    """Make one read-only inventory attempt per calendar day at or after 08:35."""
+    day = now.date().isoformat()
+    if now.time() < dt_time(8, 35) or state.get("daily_inventory_attempt_date") == day:
+        return
+    state["daily_inventory_attempt_date"] = day
+    save_json_atomic(STATE_PATH, state)
+    try:
+        position = check_startup_broker(initialize_broker_session())
+        state["daily_inventory_position"] = position
+        state["daily_inventory_checked_at"] = text_time(now)
+        save_json_atomic(STATE_PATH, state)
+        message = f"✅【強共識｜08:35查倉】TMF 淨部位：{position} 口（僅查詢，未送單）。"
+        print(message, flush=True)
+    except Exception as exc:
+        log_attribute_error(exc)
+        message = f"🚨【強共識｜08:35查倉失敗】{broker_error_summary(exc)}；請人工核對庫存。"
+        print(message, file=sys.stderr, flush=True)
+    send_discord(message)
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -409,6 +453,8 @@ def execute_live_target(
             clock=now_local,
         )
     except Exception as exc:
+        from auto_trade import _shared
+        _shared.log_attribute_error(exc)
         state["last_order_error_target"] = target
         state["last_order_error_at"] = attempted_at
         error = str(exc) if isinstance(exc, BrokerOrderError) else type(exc).__name__
@@ -1064,10 +1110,16 @@ def main() -> None:
         # Establish the process-long native session before reading or consuming
         # any signal.  Startup failure therefore cannot create an unsent but
         # consumed trading event.
-        wait_for_broker_session(ENV_PATH)
+        startup_position = wait_for_broker_session(ENV_PATH)
         rows = load_signal_rows(SOURCE_PATH)
         state = load_json(STATE_PATH, {})
         if discard_legacy_shadow_state(state):
+            save_json_atomic(STATE_PATH, state)
+        startup_checked_at = now_local()
+        if startup_checked_at.time() >= dt_time(8, 35):
+            state["daily_inventory_attempt_date"] = startup_checked_at.date().isoformat()
+            state["daily_inventory_position"] = startup_position
+            state["daily_inventory_checked_at"] = text_time(startup_checked_at)
             save_json_atomic(STATE_PATH, state)
         if args.retry_failed:
             append_order_event(attempt_id=uuid.uuid4().hex, event="operator_retry",
@@ -1078,39 +1130,30 @@ def main() -> None:
             if not save_json_atomic(STATE_PATH, state):
                 raise RuntimeError("無法儲存解除鎖定狀態")
         unit = position_unit()
-        startup_result = ""
         initialize_live_cursor(state, rows)
         migrate_live_reentry_state(state, rows, now_local(), threshold, hold_threshold)
         startup_base_target = int(state.get("live_target_position") or 0)
         clock_flatten_applied = apply_live_clock_flatten(state, now_local())
         if clock_flatten_applied:
             startup_base_target = 0
-        elif env_flag(ENABLE_ORDERS_ENV):
-            startup_base_target = int(state.get("live_target_position") or 0)
-        if env_flag(ENABLE_ORDERS_ENV) and not clock_flatten_applied:
-            startup_result = execute_live_target(
-                state,
-                startup_base_target,
-                trigger="startup_reconcile",
-            )
         startup_message = (
             "✅【開始監控｜EF Hysteresis Again＋01:00清倉】\n"
             f"時間：{text_time(now_local())}\n"
             f"策略目標部位：{position_text(scaled_target(startup_base_target))}\n"
+            f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"
             f"規則：E/F兩組皆達{threshold}票同向才進場；持倉後兩組皆保留至少{hold_threshold}票才續抱；U={unit}。\n"
             "01:00清倉；08:45前若已形成共識，須先離開門檻再重新突破才進場。\n"
-            "每筆新訊號查當下券商庫存，以最終口數減庫存計算本次下單；啟動不補單。\n"
+            "每日08:35查券商庫存；每筆新訊號查當下券商庫存，以最終口數減庫存計算本次下單；啟動不補單。\n"
             "執行：收到新訊號立即查實際庫存並送差額委託，結果以券商回報為準。\n"
-            f"模式：{'API_KEY永豐實單' if env_flag(ENABLE_ORDERS_ENV) else '影子模式'}。"
+            f"模式：{'API_KEY Shioaji 模擬帳戶' if BROKER_SIMULATION else 'API_KEY 永豐實單'}。"
         )
-        if startup_result:
-            startup_message += f"\n啟動對帳：{startup_result}"
         print(startup_message)
         send_discord(startup_message)
 
         while True:
             # Check the hard clock boundary before file I/O and signal processing.
             # With the default two-second poll this normally starts by 01:00:02.
+            check_daily_inventory(state, now_local())
             apply_live_clock_flatten(state, now_local())
             rows = load_signal_rows(SOURCE_PATH)
             # Catch a boundary crossed while reading the shared signal file.

@@ -18,6 +18,9 @@ _shared = importlib.util.module_from_spec(_spec)
 sys.modules[_name] = _shared
 _spec.loader.exec_module(_shared)
 BrokerOrderError = _shared.BrokerOrderError
+check_startup_broker = _shared.check_startup_broker
+log_attribute_error = _shared.log_attribute_error
+BROKER_SIMULATION = False
 
 # pysolace owns native resources whose repeated construction/destruction can
 # segfault the interpreter.  Keep one Shioaji object for the entire monitor
@@ -52,7 +55,7 @@ def login(sj: Any):
     ca = Path(os.getenv("CA_PATH2") or os.getenv("CA_PATH") or BACKEND_DIR / "Sinopac.pfx")
     if not ca.is_file():
         raise FileNotFoundError(f"找不到憑證 {ca}")
-    api = sj.Shioaji(simulation=False)
+    api = sj.Shioaji(simulation=BROKER_SIMULATION)
     try:
         api.login(key, secret)
         api.activate_ca(ca_path=str(ca), ca_passwd=person, person_id=person)
@@ -169,5 +172,6 @@ def execute_target_position(target: int, *, deadline: datetime,
             raise BrokerOrderError("券商即時回覆拒絕委託")
         return result
     except Exception as exc:
+        _shared.log_attribute_error(exc)
         print(f"券商操作失敗：{broker_error_summary(exc)}", file=sys.stderr, flush=True)
         raise

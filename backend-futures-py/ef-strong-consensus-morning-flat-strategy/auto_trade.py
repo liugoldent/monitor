@@ -45,6 +45,9 @@ _shared = _load_shared_adapter()
 BrokerOrderError = _shared.BrokerOrderError
 OrderResult = _shared.OrderResult
 current_tmf_position = _shared.current_tmf_position
+check_startup_broker = _shared.check_startup_broker
+log_attribute_error = _shared.log_attribute_error
+BROKER_SIMULATION = False
 
 # pysolace owns native resources whose repeated construction/destruction can
 # terminate the interpreter outside Python's exception handling.  Retain one
@@ -88,7 +91,7 @@ def _login(sj: Any) -> Any:
     if not ca_path.is_file():
         raise FileNotFoundError(f"找不到永豐憑證檔: {ca_path}")
 
-    api = sj.Shioaji(simulation=False)
+    api = sj.Shioaji(simulation=BROKER_SIMULATION)
     try:
         api.login(_required_env("API_KEY"), _required_env("SECRET_KEY"))
         person_id = _required_env("PERSON_ID")

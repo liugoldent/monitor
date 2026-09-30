@@ -15,8 +15,9 @@ from zoneinfo import ZoneInfo
 
 from filelock import FileLock
 
-from auto_trade import (broker_error_summary, confirm_flat, execute_target_position,
-                        initialize_broker_session)
+from auto_trade import (BROKER_SIMULATION, broker_error_summary, check_startup_broker, confirm_flat,
+                        execute_target_position, initialize_broker_session,
+                        log_attribute_error)
 from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_position
 
 BASE = Path(__file__).resolve().parent
@@ -52,14 +53,15 @@ def env_stamp(path: Path) -> tuple[int, int] | None:
         return None
 
 
-def wait_for_broker_session(env_path: Path, notify) -> None:
-    """Fail closed without consuming signals until broker credentials change."""
+def wait_for_broker_session(env_path: Path, notify) -> int:
+    """Keep signals unread until login, inventory, and contract are available."""
     stamp = env_stamp(env_path)
     while True:
         try:
-            initialize_broker_session()
-            return
+            api = initialize_broker_session()
+            break
         except Exception as exc:
+            log_attribute_error(exc)
             summary = broker_error_summary(exc)
             message = (f"🚨【永豐2】Shioaji 啟動登入失敗：{summary}。"
                        "服務安全待命，不讀取或消耗新訊號；更新 .env 憑證後將重新登入。")
@@ -71,6 +73,25 @@ def wait_for_broker_session(env_path: Path, notify) -> None:
             time.sleep(5)
         stamp = env_stamp(env_path)
         reload_env(env_path)
+
+    notified_failure = False
+    while True:
+        try:
+            position = check_startup_broker(api)
+            message = f"✅【永豐2】啟動券商庫存與合約查詢成功；TMF 淨部位：{position} 口。"
+            print(message, flush=True)
+            notify(message)
+            return position
+        except Exception as exc:
+            log_attribute_error(exc)
+            summary = broker_error_summary(exc)
+            message = (f"🚨【永豐2】啟動券商庫存或合約查詢失敗：{summary}。"
+                       "服務安全待命，不讀取新訊號；30 秒後重試。")
+            print(message, file=sys.stderr, flush=True)
+            if not notified_failure:
+                notify(message)
+                notified_failure = True
+            time.sleep(30)
 
 
 def flag(name: str) -> bool:
@@ -94,6 +115,27 @@ def position_unit() -> int:
     if not 1 <= unit <= MAX_POSITION_UNIT:
         raise ValueError(f"{POSITION_UNIT_ENV}必須是1到{MAX_POSITION_UNIT}的整數")
     return unit
+
+
+def check_daily_inventory(state: dict, now: datetime, notify, persist) -> None:
+    """Make one read-only inventory attempt per calendar day at or after 08:35."""
+    day = now.date().isoformat()
+    if now.time() < day_time(8, 35) or state.get("daily_inventory_attempt_date") == day:
+        return
+    state["daily_inventory_attempt_date"] = day
+    persist()
+    try:
+        position = check_startup_broker(initialize_broker_session())
+        state["daily_inventory_position"] = position
+        state["daily_inventory_checked_at"] = now.isoformat()
+        persist()
+        message = f"✅【永豐2｜08:35查倉】TMF 淨部位：{position} 口（僅查詢，未送單）。"
+        print(message, flush=True)
+    except Exception as exc:
+        log_attribute_error(exc)
+        message = f"🚨【永豐2｜08:35查倉失敗】{broker_error_summary(exc)}；請人工核對庫存。"
+        print(message, file=sys.stderr, flush=True)
+    notify(message)
 
 
 class Notifications(SharedNotifications):
@@ -263,6 +305,8 @@ class Monitor:
             if not self.flat_checker():
                 raise ValueError("永豐2仍有TMF庫存")
         except Exception as exc:
+            from auto_trade import _shared
+            _shared.log_attribute_error(exc)
             confirmed = False
             self.state["reset_status"] = "blocked"
             self.state["manual_flat_required"] = {"cycle": cycle, "reason": type(exc).__name__}
@@ -382,6 +426,7 @@ class Monitor:
 
     def tick(self, now: datetime | None = None):
         now = now or self.clock()
+        check_daily_inventory(self.state, now, self.notify, self.persist)
         calendar = Calendar.load(self.calendar_path)
         closure = latest_closure(calendar, now)
         cycle = closure.start.isoformat() if closure else "initial"
@@ -454,8 +499,7 @@ def main():
     args = parser.parse_args()
     env_path = BACKEND / ".env"
     load_env(env_path)
-    # This entry point runs account 2 in live mode, but auto_trade.py currently
-    # has its api.place_order call explicitly disabled.
+    # This entry point runs account 2 in live mode.
     live = True
     (BASE / "runtime").mkdir(parents=True, exist_ok=True)
     # Shared lock across shadow/live prevents mode changes while another monitor runs.
@@ -464,18 +508,24 @@ def main():
         # any signal.  A startup failure can therefore never turn a signal
         # into a consumed-but-unsent order attempt.
         notifications = Notifications()
-        wait_for_broker_session(env_path, notifications)
+        startup_position = wait_for_broker_session(env_path, notifications)
         monitor = Monitor(live=live, notify=notifications)
+        if monitor.clock().time() >= day_time(8, 35):
+            monitor.state["daily_inventory_attempt_date"] = monitor.clock().date().isoformat()
+            monitor.state["daily_inventory_position"] = startup_position
+            monitor.state["daily_inventory_checked_at"] = monitor.clock().isoformat()
+            monitor.persist()
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
             f"版本：json-positions-v5-clamp；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
             "13策略淨方向採Clamp：正數目標多單、負數目標空單、零則空手。\n"
             f"目前U={position_unit()}；最終目標口數＝Clamp方向×U。\n"
+            f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"
             "每筆新訊號：查券商TMF庫存，下單口數＝最終目標口數−目前庫存。\n"
-            "05:05確認空手；未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
+            "每日08:35查券商庫存；05:05確認空手，未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "01:00清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
-            f"模式：{'API_KEY2 永豐實單' if live else 'shadow（僅記錄目標，不實際下單）'}。\n"
+            f"模式：{'API_KEY2 Shioaji 模擬帳戶' if BROKER_SIMULATION else 'API_KEY2 永豐實單'}。\n"
             "新訊號只送一次，不回查成交、不重試；啟動不補單，01:00送一次清倉委託。"
         )
         print(startup_message, flush=True)

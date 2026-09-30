@@ -8,7 +8,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch, ANY
+from unittest.mock import patch, ANY, Mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -44,6 +44,45 @@ from strategy import ALL_STRATEGIES, PORTFOLIO_E, PORTFOLIO_F, PriceBar  # noqa:
 
 
 class PortfolioTradeTests(unittest.TestCase):
+    def test_startup_inventory_success_sends_notification(self):
+        api = Mock()
+        with patch.object(monitor, "initialize_broker_session", return_value=api), \
+             patch.object(monitor, "check_startup_broker", return_value=-1), \
+             patch.object(monitor, "send_discord") as notify:
+            self.assertEqual(monitor.wait_for_broker_session(monitor.ENV_PATH), -1)
+        notify.assert_called_once()
+        self.assertIn("-1 口", notify.call_args.args[0])
+
+    def test_startup_inventory_retries_before_monitoring(self):
+        api = Mock()
+        with patch.object(monitor, "initialize_broker_session", return_value=api), \
+             patch.object(monitor, "check_startup_broker",
+                          side_effect=[AttributeError("missing"), -1]) as check, \
+             patch.object(monitor, "log_attribute_error"), \
+             patch.object(monitor, "send_discord") as notify, \
+             patch.object(monitor.time, "sleep") as sleep:
+            self.assertEqual(monitor.wait_for_broker_session(monitor.ENV_PATH), -1)
+        self.assertEqual(check.call_count, 2)
+        sleep.assert_called_once_with(30)
+        self.assertEqual(notify.call_count, 2)
+        api.place_order.assert_not_called()
+
+    def test_daily_inventory_runs_once_after_0835_without_order(self):
+        state = {}
+        api = Mock()
+        with patch.object(monitor, "initialize_broker_session", return_value=api), \
+             patch.object(monitor, "check_startup_broker", return_value=-2) as check, \
+             patch.object(monitor, "save_json_atomic"), \
+             patch.object(monitor, "send_discord") as notify:
+            monitor.check_daily_inventory(state, datetime(2026, 9, 30, 8, 34))
+            monitor.check_daily_inventory(state, datetime(2026, 9, 30, 8, 35))
+            monitor.check_daily_inventory(state, datetime(2026, 9, 30, 8, 36))
+            monitor.check_daily_inventory(state, datetime(2026, 10, 1, 8, 35))
+        self.assertEqual(check.call_count, 2)
+        self.assertEqual(notify.call_count, 2)
+        self.assertEqual(state["daily_inventory_position"], -2)
+        api.place_order.assert_not_called()
+
     def test_production_monitor_has_no_price_csv_dependency(self):
         self.assertFalse(hasattr(monitor, "PRICE_PATH"))
         self.assertFalse(hasattr(monitor, "load_price_bars"))
@@ -119,9 +158,31 @@ class PortfolioTradeTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "test stop"):
                 monitor.main()
-
         connect.assert_called_once_with(monitor.ENV_PATH)
         self.assertEqual(calls, ["connected", "signals"])
+
+    def test_main_does_not_submit_saved_target_on_startup(self):
+        state = {"live_target_position": 1}
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            sys, "argv", ["monitor_and_trade.py"]
+        ), patch.object(monitor, "load_env_file"), patch.object(
+            monitor, "RUNTIME_DIR", Path(directory)
+        ), patch.object(monitor, "LOCK_PATH", Path(directory) / "monitor.lock"), patch.object(
+            monitor, "wait_for_broker_session", return_value=1
+        ), patch.object(monitor, "load_signal_rows", return_value=[]), patch.object(
+            monitor, "load_json", return_value=state
+        ), patch.object(monitor, "initialize_live_cursor"), patch.object(
+            monitor, "migrate_live_reentry_state"
+        ), patch.object(monitor, "apply_live_clock_flatten", return_value=False), patch.object(
+            monitor, "check_daily_inventory"
+        ), patch.object(monitor, "process_live_rows"), patch.object(
+            monitor, "execute_live_target"
+        ) as execute, patch.object(monitor, "send_discord"), patch.object(
+            monitor.time, "sleep", side_effect=RuntimeError("test stop")
+        ), patch("builtins.print"):
+            with self.assertRaisesRegex(RuntimeError, "test stop"):
+                monitor.main()
+        execute.assert_not_called()
 
     def test_live_bookkeeping_does_not_send_shadow_notifications(self):
         state = {"position": 0, "source_row_count": 0,

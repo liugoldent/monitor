@@ -13,11 +13,49 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
 from strategy import Calendar, STRATEGIES, hedge_target, signal_position, snapshot_position, pure_position
 from monitor_and_trade import Monitor, webhook_url, signal_message
+import monitor_and_trade as monitor
 import auto_trade
 from backtest import run
 
 
 class StrategyTests(unittest.TestCase):
+    def test_startup_inventory_success_sends_notification(self):
+        api = Mock()
+        notify = Mock()
+        with patch.object(monitor, "initialize_broker_session", return_value=api), \
+             patch.object(monitor, "check_startup_broker", return_value=1):
+            self.assertEqual(monitor.wait_for_broker_session(BASE.parent / ".env", notify), 1)
+        notify.assert_called_once()
+        self.assertIn("1 口", notify.call_args.args[0])
+
+    def test_startup_inventory_retries_before_monitoring(self):
+        api = Mock()
+        notify = Mock()
+        with patch.object(monitor, "initialize_broker_session", return_value=api), \
+             patch.object(monitor, "check_startup_broker",
+                          side_effect=[AttributeError("missing"), 2]) as check, \
+             patch.object(monitor, "log_attribute_error"), \
+             patch.object(monitor.time, "sleep") as sleep:
+            self.assertEqual(monitor.wait_for_broker_session(BASE.parent / ".env", notify), 2)
+        self.assertEqual(check.call_count, 2)
+        sleep.assert_called_once_with(30)
+        self.assertEqual(notify.call_count, 2)
+        api.place_order.assert_not_called()
+
+    def test_daily_inventory_runs_once_after_0835_without_order(self):
+        state = {}
+        api, notify, persist = Mock(), Mock(), Mock()
+        with patch.object(monitor, "initialize_broker_session", return_value=api), \
+             patch.object(monitor, "check_startup_broker", return_value=2) as check:
+            monitor.check_daily_inventory(state, datetime(2026, 9, 30, 8, 34), notify, persist)
+            monitor.check_daily_inventory(state, datetime(2026, 9, 30, 8, 35), notify, persist)
+            monitor.check_daily_inventory(state, datetime(2026, 9, 30, 8, 36), notify, persist)
+            monitor.check_daily_inventory(state, datetime(2026, 10, 1, 8, 35), notify, persist)
+        self.assertEqual(check.call_count, 2)
+        self.assertEqual(notify.call_count, 2)
+        self.assertEqual(state["daily_inventory_position"], 2)
+        api.place_order.assert_not_called()
+
     def test_uses_requested_account_two_webhook_key(self):
         with patch.dict(os.environ, {"DISCORD_EF_CLAMP_WEBHOOK_URL": "https://account2.example"}, clear=True):
             self.assertEqual(webhook_url(), "https://account2.example")
