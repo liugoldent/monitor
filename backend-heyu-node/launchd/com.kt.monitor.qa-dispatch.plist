@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/kt/.nvm/versions/node/v22.19.0/bin/node</string>
-    <string>/Users/kt/Desktop/self/monitor/backend-heyu-node/qa_dispatch.js</string>
+    <string>/Users/kt/Desktop/self/monitor/backend-heyu-node/start-all.js</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/kt/Desktop/self/monitor/backend-heyu-node</string>

@@ -16,8 +16,17 @@ Codex 分析任務固定在 `/Users/kt/Desktop/work/heyu/xingba_pcweb_vue3` 執�
 
 ## 啟動
 
+一個終端同時啟動值班監聽器與前端 QA 派單監聽器：
+
 ```sh
-node index.js
+cd /Users/kt/Desktop/self/monitor/backend-heyu-node
+/Users/kt/.nvm/versions/node/v22.19.0/bin/node start-all.js
+```
+
+按 `Ctrl+C` 會一起停止。也可以使用 Node.js 22 執行 `npm start`；只啟動其中一個時使用 `npm run duty` 或 `npm run qa`。若 QA 的 launchd 背景服務已在執行，先停止它，避免同一則派單被處理兩次：
+
+```sh
+launchctl bootout gui/$(id -u)/com.kt.monitor.qa-dispatch
 ```
 
 不知道群組 ID 時，執行 `node list-groups.js` 列出所有群組，或執行 `node list-groups.js QA` 依名稱搜尋。把想監看的 ID 設為 `.env` 內的 `DUTY_CHAT_IDS=-1001234567890`；多個群組以逗號分隔。修改 `.env` 後需重新啟動監聽器才會生效。
@@ -44,4 +53,4 @@ QA_PROJECT_DIR=/Users/kt/Desktop/work/heyu/xingba_pcweb_vue3
 
 用 `npm run groups -- QA` 查群組 ID。執行 `npm run qa` 前，確認 VPN、Codex CLI 登入及 Xingba 專案可用。Codex 收到指令後會從 `dev` 建立 `fix/五碼工單號` 的 Worktree，實作、驗證、建立 MR，成功後清理 Worktree。收到的群組訊息不會直接成為 Codex 指令。程式只會在任務結束時送 Telegram 通知；若網站無法讀取，僅在本機日誌記錄並停止該次派單。
 
-macOS 背景常駐可使用 `launchd/com.kt.monitor.qa-dispatch.plist`。先建立 `runtime/qa-dispatch/`，再執行 `launchctl bootstrap gui/$(id -u) launchd/com.kt.monitor.qa-dispatch.plist`；停止用 `launchctl bootout gui/$(id -u)/com.kt.monitor.qa-dispatch`。若本機路徑不同，先修改 plist 的 Node、專案和日誌路徑。
+macOS 背景常駐可使用 `launchd/com.kt.monitor.qa-dispatch.plist`，它也會同時啟動兩個監聽器。先建立 `runtime/qa-dispatch/`，再執行 `launchctl bootstrap gui/$(id -u) launchd/com.kt.monitor.qa-dispatch.plist`；停止用 `launchctl bootout gui/$(id -u)/com.kt.monitor.qa-dispatch`。若本機路徑不同，先修改 plist 的 Node、專案和日誌路徑。
