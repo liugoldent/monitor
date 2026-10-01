@@ -12,6 +12,7 @@
 **/coverage/
 *.log
 **/*.local
+backend-heyu-node/runtime/
 
 # Python
 **/__pycache__/
