@@ -27,3 +27,21 @@ node index.js
 啟動機器必須能直接讀取上述專案路徑；路徑不存在或變成符號連結時，監聽器會拒絕啟動。目前 `docker-compose.yml` 沒有掛載該專案與 Codex CLI，因此要使用這個受限分析流程，請在本機啟動 `backend-heyu-node`。
 
 如果 `.env` 的 Telegram session 已失效，在本機終端機執行 `node reauthorize.js`，依提示輸入手機號碼、驗證碼和可能的兩步驗證密碼。驗證完成後會更新本機 `.env`，不會傳送聊天訊息。
+
+## 前端 QA 派單監聽
+
+另一個獨立程序 `npm run qa` 會監聽且只監聽 `前端QA提測裙` 的新訊息。訊息同時有 `【派單】`、`工單：#` 後接五碼數字，以及 `@Anforderungsfluss` 才進入處理。它先登入並確認該工單頁可讀；VPN、DNS、登入或權限有問題時不啟動 Codex。工單號去重狀態與執行紀錄放在忽略追蹤的 `runtime/qa-dispatch/`。
+
+在本機 `backend-heyu-node/.env` 增加：
+
+```dotenv
+QA_CHAT_ID=前端QA提測裙的數字群組ID
+QA_ISSUE_USER=工單網站帳號
+QA_ISSUE_PASSWORD=工單網站密碼
+QA_PROJECT_DIR=/Users/kt/Desktop/work/heyu/xingba_pcweb_vue3
+# QA_NOTIFY_CHAT_ID=要接收完成通知的 Telegram 聊天 ID；預設發到自己的 Saved Messages
+```
+
+用 `npm run groups -- QA` 查群組 ID。執行 `npm run qa` 前，確認 VPN、Codex CLI 登入及 Xingba 專案可用。Codex 收到指令後會從 `dev` 建立 `fix/五碼工單號` 的 Worktree，實作、驗證、建立 MR，成功後清理 Worktree。收到的群組訊息不會直接成為 Codex 指令。程式只會在任務結束時送 Telegram 通知；若網站無法讀取，僅在本機日誌記錄並停止該次派單。
+
+macOS 背景常駐可使用 `launchd/com.kt.monitor.qa-dispatch.plist`。先建立 `runtime/qa-dispatch/`，再執行 `launchctl bootstrap gui/$(id -u) launchd/com.kt.monitor.qa-dispatch.plist`；停止用 `launchctl bootout gui/$(id -u)/com.kt.monitor.qa-dispatch`。若本機路徑不同，先修改 plist 的 Node、專案和日誌路徑。

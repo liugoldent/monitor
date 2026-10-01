@@ -6,9 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "qa": "node qa_dispatch.js",
     "login": "node reauthorize.js",
     "groups": "node list-groups.js",
-    "test": "node watcher_core.test.js"
+    "test": "node watcher_core.test.js && node qa_dispatch.test.js"
   },
   "keywords": [],
   "author": "",
