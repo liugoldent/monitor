@@ -501,7 +501,8 @@ def write_position(state: dict, reason: str) -> None:
         {
             "strategy": "EF Hysteresis Consensus + Morning Flat",
             "mode": (
-                "live_api_key" if env_flag(ENABLE_ORDERS_ENV) else "shadow_only"
+                ("simulated_api_key" if BROKER_SIMULATION else "live_api_key")
+                if env_flag(ENABLE_ORDERS_ENV) else "shadow_only"
             ),
             "position_unit": position_unit(),
             "broker_target_position": scaled_target(target),
@@ -839,7 +840,7 @@ def apply_live_clock_flatten(state: dict, current_time: datetime) -> bool:
             trigger="01:00_live_clock_flat",
             force_reconcile=True,
         )
-        mode = "live_api_key"
+        mode = "simulated_api_key" if BROKER_SIMULATION else "live_api_key"
     else:
         result = "Discord／影子模式：已記錄01:00目標空手，未連線永豐、未送委託"
         mode = "shadow_only"
@@ -1084,7 +1085,7 @@ def main() -> None:
     parser.add_argument("--retry-failed", action="store_true", help="相容舊版：清理委託狀態；目前失敗不鎖單，不需此參數")
     args = parser.parse_args()
     load_env_file(ENV_PATH)
-    # Production entry point is always live, including with a legacy false .env.
+    # Continue broker-style event handling in the Shioaji simulation account.
     os.environ[ENABLE_ORDERS_ENV] = "true"
     poll_seconds = max(0.5, float(
         os.getenv("EF_HYSTERESIS_MORNING_FLAT_POLL_SECONDS")

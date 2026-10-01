@@ -11,9 +11,8 @@ $services = @(
     'monitor-mxf',
     'webhook-server',
     'cloudflared',
-    'ef-strong-consensus-morning-flat-strategy',
-    'ef-morning-weekend-hedge-strategy',
-    'ef-hysteresis-total-breakout-strategy'
+    'ef-hysteresis-again-strategy',
+    'ef-morning-weekend-hedge-strategy'
 )
 function Get-RootEnvValue([string]$Name) {
     if (-not (Test-Path -LiteralPath $rootEnvPath -PathType Leaf)) { return $null }
@@ -174,10 +173,9 @@ try {
             }
         }
     }
-    # This older shadow strategy is no longer part of the Windows service set.
-    # Stop a container left running by an earlier version of this script.
-    & docker compose stop 'ef-hysteresis-again-strategy'
-    if ($LASTEXITCODE -ne 0) { throw "Could not stop the retired EF Hysteresis Again service: $LASTEXITCODE" }
+    # Keep retired strategy containers from earlier launches stopped.
+    & docker compose --profile shadow stop 'ef-strong-consensus-morning-flat-strategy' 'ef-hysteresis-total-breakout-strategy'
+    if ($LASTEXITCODE -ne 0) { throw "Could not stop retired EF strategy services: $LASTEXITCODE" }
     $composeArgs = @('compose', '--progress', 'plain', '--profile', 'tunnel', 'up', '--detach', '--no-build')
     $composeArgs += @($services | Where-Object { $_ -ne 'ef-morning-weekend-hedge-strategy' })
     & docker @composeArgs
@@ -204,9 +202,8 @@ $logWindows = @(
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
-    @{ Title = 'EF Hysteresis Consensus LIVE - API KEY'; Service = 'ef-strong-consensus-morning-flat-strategy' },
-    @{ Title = 'EF Pure Morning Flat - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' },
-    @{ Title = 'EF Hysteresis TOTAL Breakout SHADOW'; Service = 'ef-hysteresis-total-breakout-strategy' }
+    @{ Title = 'EF Hysteresis Again SIM - API KEY'; Service = 'ef-hysteresis-again-strategy' },
+    @{ Title = 'EF Pure EF Net Direction SIM - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {

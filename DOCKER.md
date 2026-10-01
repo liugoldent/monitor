@@ -35,7 +35,7 @@ run-windows-services.cmd
 ```
 
 它會開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、`Webhook Server`、
-`Cloudflare Tunnel`、`EF Strong Consensus LIVE - API KEY` 與另一個 EF 策略頁籤。
+`Cloudflare Tunnel`、`EF Hysteresis Again SIM - API KEY` 與 `EF Pure EF Net Direction SIM - API KEY2` 頁籤。
 
 看 log：
 
@@ -49,7 +49,7 @@ docker compose logs -f telegram-signal-relay
 docker compose down
 ```
 
-預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`，以及已授權的 EF 強共識實單策略（API KEY）。
+預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`，以及 EF Hysteresis Again（API_KEY）與純 EF 合計方向＋多空對稱否決（API_KEY2）兩套 Shioaji 模擬策略。舊 Hysteresis 模擬策略與 TOTAL Breakout 影子策略放在 `shadow` profile，預設不啟動。
 前三個服務維持核心資料：
 
 ```text
@@ -64,7 +64,7 @@ MXF 籌碼 -> backend-futures-py/tv_doc/mxf_value.csv
 Telegram 稽核紀錄 -> backend-futures-py/telegram-relay-records/telegram_signal_events.jsonl
 ```
 
-每次服務程序啟動時，H relay、EF relay 與 EF 強共識各自會向專用
+每次服務程序啟動時，H relay、EF relay 與交易策略各自會向專用
 Discord webhook 發送一次啟動通知；relay 的通知結果也會寫入稽核 JSONL。
 
 `cloudflared` 仍是手動啟動，避免 Docker 啟動時未經確認就對外開放服務。

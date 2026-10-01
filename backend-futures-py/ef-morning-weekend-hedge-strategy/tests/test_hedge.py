@@ -19,6 +19,19 @@ from backtest import run
 
 
 class StrategyTests(unittest.TestCase):
+    def test_recovery_checkpoints_unread_signals_without_orders(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "signals.csv"
+            source.write_text("received_at,strategy_code,new_position\n"
+                              "2026-10-01 09:00,CFC07m,1\n"
+                              "2026-10-01 09:01,CFC07m,0\n", encoding="utf-8")
+            instance = Mock()
+            instance.state = {"startup_signal_rows": 1}
+            self.assertEqual(monitor.skip_disconnected_signals(instance, source), 1)
+            self.assertEqual(instance.state["startup_signal_rows"], 2)
+            instance.persist.assert_called_once()
+            instance.execute.assert_not_called()
+
     def test_startup_inventory_success_sends_notification(self):
         api = Mock()
         notify = Mock()
@@ -69,6 +82,7 @@ class StrategyTests(unittest.TestCase):
                                       "signal_previous_position": previous,
                                       "previous_position": 0, "new_position": new})
             self.assertIn("測試策略 (CFC07m)", message)
+            self.assertIn("子策略訊號：", message)
             self.assertIn(action, message)
 
     def setUp(self):
@@ -278,6 +292,46 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [1, -1, 1])
         self.assertEqual(m.state["long_veto_strategies"], [])
 
+    def test_zero_to_long_veto_flattens_negative_net_and_survives_restart(self):
+        m = self.monitor()
+        for code in ("CFC07m", "CFCTX16m"):
+            self.now += timedelta(seconds=1)
+            self.signal(0, -1, code)
+            m.tick()
+        self.assertEqual(self.orders, [-1])
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1, "CFCTX17m")
+        m.tick()
+        self.assertEqual(sum(m.state["positions"].values()), -1)
+        self.assertEqual(self.orders, [-1, 1])
+        self.assertEqual(m.state["short_veto_strategies"], ["CFCTX17m"])
+        self.assertEqual(json.loads(m.path.read_text())["short_veto_strategies"], ["CFCTX17m"])
+
+        m = self.monitor()
+        self.now += timedelta(seconds=1)
+        self.signal(0, -1, "CFCTX18m")
+        m.tick()
+        self.assertEqual(self.orders, [-1, 1])
+        self.assertEqual(sum(m.state["positions"].values()), -2)
+        self.now += timedelta(seconds=1)
+        self.signal(1, 0, "CFCTX17m")
+        m.tick()
+        self.assertEqual(self.orders, [-1, 1, -1])
+        self.assertEqual(m.state["short_veto_strategies"], [])
+
+    def test_direct_short_to_long_does_not_create_zero_to_long_veto(self):
+        m = self.monitor()
+        for code in ("CFC07m", "CFCTX16m", "CFCTX17m"):
+            self.now += timedelta(seconds=1)
+            self.signal(0, -1, code)
+            m.tick()
+        self.now += timedelta(seconds=1)
+        self.signal(-1, 1, "CFCTX17m")
+        m.tick()
+        self.assertEqual(sum(m.state["positions"].values()), -1)
+        self.assertEqual(m.state["short_veto_strategies"], [])
+        self.assertEqual(self.orders, [-1])
+
     def test_direct_long_to_short_does_not_create_zero_to_short_veto(self):
         m = self.monitor()
         for code in ("CFC07m", "CFCTX16m", "CFCTX17m"):
@@ -302,6 +356,7 @@ class MonitorTests(unittest.TestCase):
         self.now = datetime(2026, 9, 15, 5, 5)
         m.tick()
         self.assertEqual(m.state["long_veto_strategies"], [])
+        self.assertEqual(m.state["short_veto_strategies"], [])
         self.assertTrue(all(value == 0 for value in m.state["positions"].values()))
         self.now = datetime(2026, 9, 15, 8, 45)
         self.signal(0, 1)
@@ -316,7 +371,17 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 6)
+        self.assertEqual(restarted.state["schema_version"], 7)
+
+    def test_upgrade_v6_long_is_conservatively_short_vetoed(self):
+        m = self.monitor()
+        m.state["positions"]["CFCTX17m"] = 1
+        m.state.pop("short_veto_strategies")
+        m.state["schema_version"] = 6
+        m.persist()
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
+        self.assertEqual(restarted.state["schema_version"], 7)
 
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
@@ -420,7 +485,7 @@ class MonitorTests(unittest.TestCase):
             self.assertIn(action, message)
             self.assertIn("目前券商庫存", message)
             self.assertIn("本次預計下單", message)
-            self.assertIn("收到策略後最終口數", message)
+            self.assertIn("帳戶目標口數", message)
             self.assertIn("目前U=1", message)
         self.assertEqual(self.orders, [1, -1])
 
@@ -435,7 +500,21 @@ class MonitorTests(unittest.TestCase):
         message = m.notify.call_args.args[0]
         self.assertIn("Clamp目標：多2口", message)
         self.assertIn("目前U=2", message)
-        self.assertIn("收到策略後最終口數：多 2 口", message)
+        self.assertIn("帳戶目標口數：多 2 口", message)
+
+    def test_failed_signal_notification_does_not_claim_no_order(self):
+        m = self.monitor()
+        m.notify = Mock()
+        self.execute.side_effect = auto_trade.BrokerOrderError("inventory unavailable")
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1)
+        m.tick()
+        message = m.notify.call_args.args[0]
+        self.assertIn("子策略訊號：多單進場", message)
+        self.assertIn("帳戶目標口數：多 1 口", message)
+        self.assertIn("本次預計下單：尚未確認", message)
+        self.assertIn("請核對券商委託及庫存", message)
+        self.assertNotIn("本次預計下單：無需下單", message)
 
     def test_new_signal_in_startup_second_is_not_lost(self):
         self.now = self.now.replace(microsecond=100000)
@@ -502,7 +581,7 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         m.tick()
         messages = [call.args[0] for call in m.notify.call_args_list]
-        self.assertEqual(sum("永豐2｜EF訊號計算" in msg for msg in messages), 2)
+        self.assertEqual(sum("永豐2｜EF訊號與帳戶調整" in msg for msg in messages), 2)
         self.assertEqual(m.state["positions"]["CFC07m"], 0)
         self.assertEqual(m.state["positions"]["CFCTX16m"], 0)
         self.assertEqual(self.orders, [1, -1])
@@ -515,7 +594,7 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         m.tick()
         signal_notices = [call.args[0] for call in m.notify.call_args_list
-                          if "永豐2｜EF訊號計算" in call.args[0]]
+                          if "永豐2｜EF訊號與帳戶調整" in call.args[0]]
         self.assertEqual(len(signal_notices), 1)
         self.assertIn("無需下單", signal_notices[0])
         self.execute.assert_called_once()
@@ -959,6 +1038,7 @@ class BrokerTests(unittest.TestCase):
             api.futopt_account.account_id = "account2"
             with patch.dict(os.environ, env, clear=True):
                 auto_trade.login(sj)
+                sj.Shioaji.assert_called_with(simulation=True)
                 api.login.assert_called_once_with("key2", "secret2")
                 api.futopt_account.account_id = "account1"
                 with self.assertRaises(auto_trade.BrokerOrderError):
@@ -992,6 +1072,24 @@ class BrokerTests(unittest.TestCase):
 
 
 class BacktestTests(unittest.TestCase):
+    def test_zero_to_long_veto_flattens_short_and_reenters_after_exit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            signals, prices = root / "signals.csv", root / "prices.csv"
+            signals.write_text("received_at,strategy_code,new_position\n"
+                "2026-09-14 09:00:00,CFC07m,-1\n"
+                "2026-09-14 09:01:00,CFCTX16m,-1\n"
+                "2026-09-14 09:02:00,CFCTX17m,1\n"
+                "2026-09-14 09:03:00,CFCTX17m,0\n")
+            prices.write_text("Symbol,TradingView Time,Record Time,Open\n"
+                "MXF1!,2026-09-14 09:01:00,2026-09-14 09:02:00,100\n"
+                "MXF1!,2026-09-14 09:03:00,2026-09-14 09:04:00,98\n"
+                "MXF1!,2026-09-14 09:04:00,2026-09-14 09:05:00,97\n"
+                "MXF1!,2026-09-15 01:00:00,2026-09-15 01:01:00,96\n")
+            result = run(signals, prices, Calendar.load(BASE / "config/calendar.json"),
+                         datetime(2026, 9, 14, 8, 45), datetime(2026, 9, 15, 2))
+            self.assertEqual([row["target"] for row in result["ledger"]], [-1, 0, -1, 0])
+
     def test_morning_flat_and_only_new_leg_reentry(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

@@ -1,12 +1,12 @@
 # 永豐策略清單
 
-專案保留兩條永豐執行策略，另有一條獨立前瞻影子策略：
+目前 Again 與純 EF 兩套運行策略都使用 Shioaji 模擬帳戶；舊 Hysteresis 與 TOTAL Breakout 預設不啟動：
 
 | 帳戶 | 策略 | 目錄 | 目前狀態 |
 | --- | --- | --- | --- |
-| 永豐 1 | EF Hysteresis 共識＋01:00 平倉 | `ef-strong-consensus-morning-flat-strategy/`（保留舊路徑以延續 runtime） | 現行實單 |
-| 永豐 2 | 純 EF＋01:00 清倉，08:45 後等新訊號 | `ef-morning-weekend-hedge-strategy/` | 預設 shadow，獨立實單開關 |
-| 不連券商 | EF Hysteresis Again（多方跌破後重新突破） | `ef-hysteresis-again-strategy/` | 影子監控＋獨立 Discord |
+| 永豐 1 | EF Hysteresis Again（含持多時 0→-1 平多） | `ef-hysteresis-again-strategy/` | API_KEY，Shioaji `simulation=True` |
+| 模擬帳戶 | 舊 EF Hysteresis 共識＋01:00 平倉 | `ef-strong-consensus-morning-flat-strategy/` | 同組 API_KEY 憑證，Shioaji `simulation=True` |
+| 永豐 2 | 純 EF 合計方向＋多空對稱否決、01:00 清倉 | `ef-morning-weekend-hedge-strategy/` | API_KEY2，Shioaji `simulation=True` |
 | 不連券商 | EF Hysteresis TOTAL 突破（超越08:45前總部位） | `ef-hysteresis-total-breakout-strategy/` | 影子監控＋獨立 Discord |
 
 `telegram_signal_relay.py`、行情監控與 webhook 都是共用基礎設施。

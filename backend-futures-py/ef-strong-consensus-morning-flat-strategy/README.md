@@ -1,4 +1,7 @@
-# EF Hysteresis Again 共識＋01:00 清倉策略
+# EF Hysteresis Again 共識＋01:00 清倉策略（Shioaji 模擬）
+
+此舊服務目前固定使用 `Shioaji(simulation=True)`。`API_KEY` 實單已切至
+`ef-hysteresis-again-strategy/`；此服務仍以相同憑證登入模擬帳戶並記錄策略結果。
 
 本目錄保留原 `ef-strong-consensus-morning-flat-strategy` 路徑與 Docker service 名稱，
 只為延續既有 runtime、委託防重紀錄與掛載。正式策略已改為 Hysteresis；原本「進場、
@@ -32,9 +35,10 @@
 這是一套獨立的 EF 衍生策略。它讀取十三套 E/F 策略訊號，但只維護一個
 組合部位；不會把十三套訊號口數直接相加。E 組七套、F 組六套。
 
-正式入口 `monitor_and_trade.py` 固定以實單模式啟動，舊的
-`EF_HYSTERESIS_MORNING_FLAT_ENABLE_ORDERS=false` 設定不再停用實單。使用獨立的
-`API_KEY` / `SECRET_KEY` 查詢永豐 TMF 實際淨部位、送差額 IOC 市價單；送單後不回查成交。
+正式入口 `monitor_and_trade.py` 固定以 Shioaji 模擬模式啟動，
+`EF_HYSTERESIS_MORNING_FLAT_ENABLE_ORDERS` 只保留模擬帳戶的事件處理流程。
+`API_KEY` / `SECRET_KEY` 登入模擬環境查詢 TMF 部位、送差額 IOC 市價單；
+送單後不回查成交。真實帳戶的 API_KEY 委託改由 Again 服務負責。
 
 ## 規則
 
@@ -151,7 +155,7 @@ python backtest.py `
 python monitor_and_trade.py
 ```
 
-正式入口固定為實單模式。啟動先建立程序級 Shioaji 長連線並查 TMF 庫存，再讀取訊號；每日 08:35 也查一次並通知。同一天 08:35 後啟動時，啟動查詢視為當日查詢。一般訊號與 01:00 時鐘清倉共用該連線。每筆新訊號依券商實際庫存調整到策略目標，已符合目標則不送單。同一筆訊號不重送；下一筆新訊號即使目標相同，也照常查庫存並處理。失敗或中斷只留下紀錄與通知，不鎖住新訊號或清倉。
+正式入口固定為 Shioaji 模擬模式。啟動先建立程序級模擬連線並查 TMF 庫存，再讀取訊號；每日 08:35 也查一次並通知。同一天 08:35 後啟動時，啟動查詢視為當日查詢。一般訊號與 01:00 時鐘清倉共用該連線。每筆新訊號依模擬庫存調整到策略目標，已符合目標則不送單。同一筆訊號不重送；下一筆新訊號即使目標相同，也照常查庫存並處理。失敗或中斷只留下紀錄與通知，不鎖住新訊號或清倉。
 
 ## 上線門檻
 

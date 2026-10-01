@@ -47,7 +47,7 @@ OrderResult = _shared.OrderResult
 current_tmf_position = _shared.current_tmf_position
 check_startup_broker = _shared.check_startup_broker
 log_attribute_error = _shared.log_attribute_error
-BROKER_SIMULATION = False
+BROKER_SIMULATION = True
 
 # pysolace owns native resources whose repeated construction/destruction can
 # terminate the interpreter outside Python's exception handling.  Retain one

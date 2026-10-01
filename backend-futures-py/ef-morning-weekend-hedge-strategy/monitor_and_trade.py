@@ -27,6 +27,9 @@ MAX_POSITION_UNIT = 20
 MAX_BASE_POSITION = 1
 sys.path.insert(0, str(BACKEND))
 from ef_trade_runtime import Notifications as SharedNotifications, append_order, save_state
+from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
+
+RECONNECT_TIMEOUT_ENV = "EF_HEDGE_RECONNECT_TIMEOUT_SECONDS"
 
 
 def now_local() -> datetime:
@@ -138,6 +141,16 @@ def check_daily_inventory(state: dict, now: datetime, notify, persist) -> None:
     notify(message)
 
 
+def skip_disconnected_signals(monitor, signal_path: Path) -> int:
+    """Checkpoint unread rows after reconnect without invoking any order path."""
+    with signal_path.open(encoding="utf-8-sig", newline="") as handle:
+        row_count = sum(1 for _ in csv.DictReader(handle))
+    skipped = max(0, row_count - int(monitor.state["startup_signal_rows"]))
+    monitor.state["startup_signal_rows"] = row_count
+    monitor.persist()
+    return skipped
+
+
 class Notifications(SharedNotifications):
     def __init__(self):
         super().__init__(webhook_url, BASE / "records/notifications.jsonl")
@@ -154,8 +167,8 @@ def signal_message(step: dict) -> str:
         (1, -1): "多單出場 → 空單進場", (-1, 1): "空單出場 → 多單進場",
     }
     action = actions.get((previous, new), "部位不變")
-    return (f"來源策略：{name} ({code})\n"
-            f"訊號動作：{action}（{previous} → {new}）")
+    return (f"來源子策略：{name} ({code})\n"
+            f"子策略訊號：{action}（{previous} → {new}）")
 
 
 def position_text(position: int) -> str:
@@ -226,7 +239,20 @@ class Monitor:
                        for code in vetoes)):
             raise ValueError("JSON long_veto_strategies 必須是目前空方策略的不重複清單")
         self.state["long_veto_strategies"] = [code for code in STRATEGIES if code in vetoes]
-        self.state["schema_version"] = 6
+        # Old snapshots do not retain whether a +1 came from 0 -> +1.
+        # Conservatively veto shorts until those existing long legs leave +1.
+        if "short_veto_strategies" not in self.state:
+            self.state["short_veto_strategies"] = [code for code in STRATEGIES
+                                                    if self.state["positions"][code] == 1]
+        short_vetoes = self.state["short_veto_strategies"]
+        if (not isinstance(short_vetoes, list)
+                or any(not isinstance(code, str) for code in short_vetoes)
+                or len(short_vetoes) != len(set(short_vetoes))
+                or any(code not in STRATEGIES or self.state["positions"][code] != 1
+                       for code in short_vetoes)):
+            raise ValueError("JSON short_veto_strategies 必須是目前多方策略的不重複清單")
+        self.state["short_veto_strategies"] = [code for code in STRATEGIES if code in short_vetoes]
+        self.state["schema_version"] = 7
         if self.state.get("attempt", {}).get("status") == "attempted":
             self.state["attempt"]["status"] = "interrupted_no_retry"
             self.state["attempt"]["interrupted_at"] = started.isoformat()
@@ -265,13 +291,16 @@ class Monitor:
 
     def target_heading(self, step: dict | None = None) -> str:
         base_net = sum(self.state["positions"].values()) if step is not None else 0
-        vetoes = self.state["long_veto_strategies"] if step is not None else []
-        base_target = (0 if base_net > 0 and vetoes else
+        long_vetoes = self.state["long_veto_strategies"] if step is not None else []
+        short_vetoes = self.state["short_veto_strategies"] if step is not None else []
+        base_target = (0 if base_net > 0 and long_vetoes else
+                       0 if base_net < 0 and short_vetoes else
                        1 if base_net > 0 else -1 if base_net < 0 else 0)
         target = base_target * position_unit()
         position = f"{'多' if target > 0 else '空'}{abs(target)}口" if target else "空手（0口）"
         return (f"[13策略淨方向：{base_net:+d}｜Clamp目標：{position}"
-                f"｜0→-1空方否決：{','.join(vetoes) if vetoes else '無'}"
+                f"｜0→-1空方否決：{','.join(long_vetoes) if long_vetoes else '無'}"
+                f"｜0→+1多方否決：{','.join(short_vetoes) if short_vetoes else '無'}"
                 f"｜目前U={position_unit()}]\n")
 
     def event(self, kind: str, **data):
@@ -334,6 +363,7 @@ class Monitor:
         previous = self.state["positions"].copy()
         self.state["positions"] = dict.fromkeys(STRATEGIES, 0)
         self.state["long_veto_strategies"] = []
+        self.state["short_veto_strategies"] = []
         self.state["last_reset_cycle"] = cycle
         self.state["reset_status"] = "confirmed_flat" if confirmed else "manual_flat_required"
         self.state["reset_at"] = now.isoformat()
@@ -359,7 +389,8 @@ class Monitor:
         return True
 
     def action(self, key: str, target: int, contract: str, deadline: datetime,
-               step: dict | None = None, long_veto_strategies: list[str] | None = None) -> bool:
+               step: dict | None = None, long_veto_strategies: list[str] | None = None,
+               short_veto_strategies: list[str] | None = None) -> bool:
         # Consume before external side effects: timeout/exception must never
         # cause this signal (or this flat cycle) to be submitted a second time.
         if self.state.get("attempt", {}).get("key") == key:
@@ -373,6 +404,7 @@ class Monitor:
             # Commit intent, position and cursor atomically BEFORE broker side effects.
             self.state["positions"][step["strategy_code"]] = step["new_position"]
             self.state["long_veto_strategies"] = long_veto_strategies
+            self.state["short_veto_strategies"] = short_veto_strategies
             self.state["source"] = step
         if key.endswith("/flat"):
             self.state["last_flat_attempt"] = key
@@ -423,7 +455,8 @@ class Monitor:
                 record("shadow", detail=label)
         except Exception as exc:
             attempt["status"] = "failed_no_retry"
-            detail = f"本次送單失敗或送出結果不明（{type(exc).__name__}）；不重送，繼續等新訊號"
+            detail = (f"送單失敗或結果不明（{type(exc).__name__}）；請核對券商委託及庫存。"
+                      "本訊號不重送，下一筆新訊號會重新查倉。")
             if step is None:
                 detail = f"🚨 清倉失敗或結果未確認（{type(exc).__name__}）；請早上核對永豐2庫存並手動清倉。" \
                          "不自動重送，08:45後新訊號不因本次清倉失敗暫停。"
@@ -433,13 +466,15 @@ class Monitor:
         source_text = signal_message(step) + "\n" if step is not None else ""
         current = attempt.get("broker_before_position")
         current_text = position_text(current) if isinstance(current, int) else "查詢失敗"
-        planned = order_text(attempt.get("broker_side"), integer(attempt.get("broker_quantity", 0)))
-        heading = "【永豐2｜EF訊號計算】" if step is not None else "【永豐2｜01:00清倉計算】"
+        quantity = attempt.get("broker_quantity")
+        planned = (order_text(attempt.get("broker_side"), integer(quantity))
+                   if quantity is not None else "尚未確認（未取得券商庫存或委託計畫）")
+        heading = "【永豐2｜EF訊號與帳戶調整】" if step is not None else "【永豐2｜01:00清倉計算】"
         self.notify(self.target_heading(step) + f"{heading}\n{source_text}"
                     f"目前券商庫存：{current_text}\n"
                     f"本次預計下單：{planned}\n"
-                    f"收到策略後最終口數：{position_text(target or 0)}\n"
-                    f"結果：{detail}\n觸發：{key}")
+                    f"帳戶目標口數：{position_text(target or 0)}\n"
+                    f"送單結果：{detail}\n觸發：{key}")
         return True
 
     def tick(self, now: datetime | None = None):
@@ -493,18 +528,26 @@ class Monitor:
             delta = step["new_position"] - step["previous_position"]
             projected_base = sum(self.state["positions"].values()) + delta
             vetoes = set(self.state["long_veto_strategies"])
+            short_vetoes = set(self.state["short_veto_strategies"])
             if step["previous_position"] == 0 and step["new_position"] == -1:
                 vetoes.add(step["strategy_code"])
             elif step["new_position"] != -1:
                 vetoes.discard(step["strategy_code"])
+            if step["previous_position"] == 0 and step["new_position"] == 1:
+                short_vetoes.add(step["strategy_code"])
+            elif step["new_position"] != 1:
+                short_vetoes.discard(step["strategy_code"])
             clamped_direction = (0 if projected_base > 0 and vetoes else
+                                 0 if projected_base < 0 and short_vetoes else
                                  MAX_BASE_POSITION if projected_base > 0 else
                                  -MAX_BASE_POSITION if projected_base < 0 else 0)
             target = clamped_direction * position_unit()
             key = f"signal/{step['last_signal']}"
             projected_vetoes = [code for code in STRATEGIES if code in vetoes]
+            projected_short_vetoes = [code for code in STRATEGIES if code in short_vetoes]
             if not self.action(key, target, contract, deadline, step=step,
-                               long_veto_strategies=projected_vetoes):
+                               long_veto_strategies=projected_vetoes,
+                               short_veto_strategies=projected_short_vetoes):
                 return
             self.state["source"] = step
             self.persist()
@@ -535,6 +578,10 @@ def main():
         # into a consumed-but-unsent order attempt.
         notifications = Notifications()
         startup_position = wait_for_broker_session(env_path, notifications)
+        api = initialize_broker_session()
+        reconnect_timeout = float(os.getenv(RECONNECT_TIMEOUT_ENV, "120"))
+        watchdog = BrokerReconnectWatchdog(reconnect_timeout)
+        api.set_event_callback(watchdog.on_event)
         monitor = Monitor(live=live, notify=notifications)
         if monitor.clock().time() >= day_time(8, 35):
             monitor.state["daily_inventory_attempt_date"] = monitor.clock().date().isoformat()
@@ -544,7 +591,7 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            f"版本：json-positions-v6-short-veto；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
+            f"版本：json-positions-v7-symmetric-veto；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
             "13策略淨方向採Clamp；當日0→-1空方仍持倉時，正數也以空手為目標。\n"
             f"目前U={position_unit()}；最終目標口數＝否決後方向×U。\n"
             f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"
@@ -559,6 +606,21 @@ def main():
         if not webhook_url():
             print("未設定 DISCORD_EF_CLAMP_WEBHOOK_URL，無法發送 Discord 通知", flush=True)
         while True:
+            disconnected, expired = watchdog.status()
+            if expired:
+                raise RuntimeError(
+                    f"永豐2連線超過 {reconnect_timeout:g} 秒未恢復；退出並交由 Docker 重啟"
+                )
+            if disconnected:
+                time.sleep(1)
+                continue
+            if watchdog.consume_recovery():
+                signal_path = Path(os.getenv("EF_HEDGE_SIGNAL_CSV")
+                                   or BACKEND / "tv_doc/six_strategy_signal_events.csv")
+                skipped = skip_disconnected_signals(monitor, signal_path)
+                notifications("✅【永豐2｜連線恢復】"
+                              f"\n斷線期間尚未處理訊號 {skipped} 筆已略過，未補送舊單。"
+                              "下一筆新訊號會重新查券商庫存。")
             try:
                 monitor.tick()
             except Exception as exc:

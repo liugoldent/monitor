@@ -1,4 +1,4 @@
-"""Offline comparison of long exit vetoes. Never connects to a broker."""
+"""Offline comparison of directional entry vetoes. Never connects to a broker."""
 import csv
 import json
 from collections import defaultdict
@@ -98,6 +98,7 @@ def replay(events, bars, mode):
         paused_long = False
         prior_long_pause = False
         bearish_veto_legs = set()
+        bullish_veto_legs = set()
         day_cash_start = cash
         day_orders_start = orders
         for stamp, _, code, new in rows:
@@ -106,6 +107,7 @@ def replay(events, bars, mode):
                 legs = dict.fromkeys(STRATEGIES, 0)
                 paused_long = False
                 bearish_veto_legs.clear()
+                bullish_veto_legs.clear()
                 target = 0
             else:
                 legs[code] = new
@@ -116,12 +118,18 @@ def replay(events, bars, mode):
                     bearish_veto_legs.add(code)
                 elif new != -1:
                     bearish_veto_legs.discard(code)
+                if previous == 0 and new == 1:
+                    bullish_veto_legs.add(code)
+                elif new != 1:
+                    bullish_veto_legs.discard(code)
                 if mode in ("exit_1_to_0", "both") and held > 0 and long_exit:
                     paused_long = True
                 elif new_long:
                     paused_long = False
-                short_veto = mode in ("entry_0_to_minus_1", "both") and bool(bearish_veto_legs)
-                target = 1 if net > 0 and not paused_long and not short_veto else -1 if net < 0 else 0
+                long_veto = mode in ("entry_0_to_minus_1", "both", "symmetric_veto") and bool(bearish_veto_legs)
+                short_veto = mode == "symmetric_veto" and bool(bullish_veto_legs)
+                target = (1 if net > 0 and not paused_long and not long_veto else
+                          -1 if net < 0 and not short_veto else 0)
                 if held > 0 and target == 0 and net > 0:
                     exits_by_rule += 1
                     prior_long_pause = True
@@ -168,14 +176,15 @@ def replay(events, bars, mode):
 
 def main():
     events, bars, audit = load()
-    modes = ("original", "exit_1_to_0", "entry_0_to_minus_1", "both")
+    modes = ("original", "exit_1_to_0", "entry_0_to_minus_1", "both", "symmetric_veto")
     results = {mode: replay(events, bars, mode) for mode in modes}
     output = {"period": [START.isoformat(), END.isoformat()], "audit": audit,
               "assumptions": {"start_and_end_flat_each_cycle": True,
                               "signals": "dated CSV rows received after 08:45; tracked JSON legs reset at cycle start",
-                              "exits": "long side only; short side uses original net-sign rule",
+                              "exits": "legacy modes affect longs only; symmetric_veto applies to both sides",
                               "1_to_0": "tracked +1 to 0 while long; pause long until a fresh tracked long entry",
                               "0_to_minus_1": "tracked 0 to -1 creates a long veto until that leg leaves -1",
+                              "0_to_plus_1": "tracked 0 to +1 creates a short veto until that leg leaves +1",
                               "fill": "MXF1! exact next-minute Open; flat exact 01:00 Open; not TMF fills",
                               "price_rows": "earliest recorded copy at each TradingView Time",
                               "cost": "2 points per contract per side; NT$10 per point",
