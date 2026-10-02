@@ -18,13 +18,13 @@ from filelock import FileLock
 from auto_trade import (BROKER_SIMULATION, broker_error_summary, check_startup_broker, confirm_flat,
                         execute_target_position, initialize_broker_session,
                         log_attribute_error)
-from strategy import Calendar, STRATEGIES, integer, latest_closure, pure_position
+from strategy import (Calendar, STRATEGIES, active_veto_strategies,
+                      clamped_target_direction, integer, latest_closure, pure_position)
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
 POSITION_UNIT_ENV = "EF_MORNING_WEEKEND_HEDGE_UNIT"
 MAX_POSITION_UNIT = 20
-MAX_BASE_POSITION = 1
 sys.path.insert(0, str(BACKEND))
 from ef_trade_runtime import Notifications as SharedNotifications, append_order, save_state
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
@@ -226,33 +226,11 @@ class Monitor:
             if integer(value) not in {-1, 0, 1}:
                 raise ValueError(f"JSON {code} 部位必須是 -1/0/1")
             self.state["positions"][code] = integer(value)
-        # Existing v5 snapshots cannot tell whether an active short arrived
-        # through 0 -> -1. Treat active shorts as vetoes on first upgrade so a
-        # mid-session restart cannot open a long against one of them.
-        if "long_veto_strategies" not in self.state:
-            self.state["long_veto_strategies"] = [code for code in STRATEGIES
-                                                   if self.state["positions"][code] == -1]
-        vetoes = self.state["long_veto_strategies"]
-        if (not isinstance(vetoes, list) or any(not isinstance(code, str) for code in vetoes)
-                or len(vetoes) != len(set(vetoes))
-                or any(code not in STRATEGIES or self.state["positions"][code] != -1
-                       for code in vetoes)):
-            raise ValueError("JSON long_veto_strategies 必須是目前空方策略的不重複清單")
-        self.state["long_veto_strategies"] = [code for code in STRATEGIES if code in vetoes]
-        # Old snapshots do not retain whether a +1 came from 0 -> +1.
-        # Conservatively veto shorts until those existing long legs leave +1.
-        if "short_veto_strategies" not in self.state:
-            self.state["short_veto_strategies"] = [code for code in STRATEGIES
-                                                    if self.state["positions"][code] == 1]
-        short_vetoes = self.state["short_veto_strategies"]
-        if (not isinstance(short_vetoes, list)
-                or any(not isinstance(code, str) for code in short_vetoes)
-                or len(short_vetoes) != len(set(short_vetoes))
-                or any(code not in STRATEGIES or self.state["positions"][code] != 1
-                       for code in short_vetoes)):
-            raise ValueError("JSON short_veto_strategies 必須是目前多方策略的不重複清單")
-        self.state["short_veto_strategies"] = [code for code in STRATEGIES if code in short_vetoes]
-        self.state["schema_version"] = 7
+        # Rebuild older transition-based veto lists from authoritative positions.
+        # A direct 1 -> -1 or -1 -> 1 reversal now vetoes the opposing side.
+        (self.state["long_veto_strategies"],
+         self.state["short_veto_strategies"]) = active_veto_strategies(self.state["positions"])
+        self.state["schema_version"] = 8
         if self.state.get("attempt", {}).get("status") == "attempted":
             self.state["attempt"]["status"] = "interrupted_no_retry"
             self.state["attempt"]["interrupted_at"] = started.isoformat()
@@ -291,16 +269,14 @@ class Monitor:
 
     def target_heading(self, step: dict | None = None) -> str:
         base_net = sum(self.state["positions"].values()) if step is not None else 0
-        long_vetoes = self.state["long_veto_strategies"] if step is not None else []
-        short_vetoes = self.state["short_veto_strategies"] if step is not None else []
-        base_target = (0 if base_net > 0 and long_vetoes else
-                       0 if base_net < 0 and short_vetoes else
-                       1 if base_net > 0 else -1 if base_net < 0 else 0)
+        long_vetoes, short_vetoes = (active_veto_strategies(self.state["positions"])
+                                      if step is not None else ([], []))
+        base_target = clamped_target_direction(self.state["positions"]) if step is not None else 0
         target = base_target * position_unit()
         position = f"{'多' if target > 0 else '空'}{abs(target)}口" if target else "空手（0口）"
         return (f"[13策略淨方向：{base_net:+d}｜Clamp目標：{position}"
-                f"｜0→-1空方否決：{','.join(long_vetoes) if long_vetoes else '無'}"
-                f"｜0→+1多方否決：{','.join(short_vetoes) if short_vetoes else '無'}"
+                f"｜目前-1空方否決：{','.join(long_vetoes) if long_vetoes else '無'}"
+                f"｜目前+1多方否決：{','.join(short_vetoes) if short_vetoes else '無'}"
                 f"｜目前U={position_unit()}]\n")
 
     def event(self, kind: str, **data):
@@ -525,26 +501,12 @@ class Monitor:
             if self.clock() >= deadline:
                 return
             step["previous_position"] = self.state["positions"][step["strategy_code"]]
-            delta = step["new_position"] - step["previous_position"]
-            projected_base = sum(self.state["positions"].values()) + delta
-            vetoes = set(self.state["long_veto_strategies"])
-            short_vetoes = set(self.state["short_veto_strategies"])
-            if step["previous_position"] == 0 and step["new_position"] == -1:
-                vetoes.add(step["strategy_code"])
-            elif step["new_position"] != -1:
-                vetoes.discard(step["strategy_code"])
-            if step["previous_position"] == 0 and step["new_position"] == 1:
-                short_vetoes.add(step["strategy_code"])
-            elif step["new_position"] != 1:
-                short_vetoes.discard(step["strategy_code"])
-            clamped_direction = (0 if projected_base > 0 and vetoes else
-                                 0 if projected_base < 0 and short_vetoes else
-                                 MAX_BASE_POSITION if projected_base > 0 else
-                                 -MAX_BASE_POSITION if projected_base < 0 else 0)
+            projected_positions = self.state["positions"].copy()
+            projected_positions[step["strategy_code"]] = step["new_position"]
+            clamped_direction = clamped_target_direction(projected_positions)
             target = clamped_direction * position_unit()
             key = f"signal/{step['last_signal']}"
-            projected_vetoes = [code for code in STRATEGIES if code in vetoes]
-            projected_short_vetoes = [code for code in STRATEGIES if code in short_vetoes]
+            projected_vetoes, projected_short_vetoes = active_veto_strategies(projected_positions)
             if not self.action(key, target, contract, deadline, step=step,
                                long_veto_strategies=projected_vetoes,
                                short_veto_strategies=projected_short_vetoes):
@@ -591,8 +553,8 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            f"版本：json-positions-v7-symmetric-veto；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
-            "13策略淨方向採Clamp；當日0→-1空方仍持倉時，正數也以空手為目標。\n"
+            f"版本：json-positions-v8-active-veto；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
+            "13策略淨方向採Clamp；任何目前-1否決多單，任何目前+1否決空單。\n"
             f"目前U={position_unit()}；最終目標口數＝否決後方向×U。\n"
             f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"
             "每筆新訊號：查券商TMF庫存，下單口數＝最終目標口數−目前庫存。\n"

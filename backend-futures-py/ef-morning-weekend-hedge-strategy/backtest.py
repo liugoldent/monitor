@@ -5,7 +5,7 @@ import json
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
-from strategy import Calendar, STRATEGIES, integer
+from strategy import Calendar, STRATEGIES, clamped_target_direction, integer
 
 BASE = Path(__file__).resolve().parent
 
@@ -45,31 +45,15 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             events.append((closure.start, -1, "flat", 0))
         day += timedelta(days=1)
     legs = dict.fromkeys(STRATEGIES, 0)
-    long_vetoes, short_vetoes = set(), set()
     position, cash, ledger = 0, 0.0, []
     for stamp, _, code, new in sorted(events):
         if code == "flat":
             legs = dict.fromkeys(STRATEGIES, 0)
-            long_vetoes.clear()
-            short_vetoes.clear()
             fill = stamp
         else:
-            previous = legs[code]
             legs[code] = new
-            if previous == 0 and new == -1:
-                long_vetoes.add(code)
-            elif new != -1:
-                long_vetoes.discard(code)
-            if previous == 0 and new == 1:
-                short_vetoes.add(code)
-            elif new != 1:
-                short_vetoes.discard(code)
             fill = stamp.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        base_target = sum(legs.values())
-        # Match live trading: a fresh opposing entry vetoes its side while held.
-        target = (0 if base_target > 0 and long_vetoes else
-                  0 if base_target < 0 and short_vetoes else
-                  1 if base_target > 0 else -1 if base_target < 0 else 0) * unit
+        target = clamped_target_direction(legs) * unit
         if target == position:
             continue
         if fill >= end:
@@ -89,7 +73,7 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
     return {"scope": "pure_ef_account2_morning_flat", "start_flat": True,
             "price_proxy": "MXF1! next-minute Open; flat exact 01:00 Open; not TMF fills",
             "single_side_cost_points": cost, "source_unit": unit,
-            "base_position_limit": 1, "position_limit_policy": "clamp_sign_symmetric_veto",
+            "base_position_limit": 1, "position_limit_policy": "clamp_sign_active_opposition_veto",
             "net_twd": (cash + position * mark) * 10,
             "ending_position": position, "ending_mark": mark, "ledger": ledger}
 

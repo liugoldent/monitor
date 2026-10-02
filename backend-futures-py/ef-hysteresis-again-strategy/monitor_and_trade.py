@@ -40,6 +40,7 @@ sys.modules[_spec.name] = _rule
 _spec.loader.exec_module(_rule)
 decide = _rule.decide
 exit_on_new_short = _rule.exit_on_new_short
+veto_active_opposition = _rule.veto_active_opposition
 should_lock_long = _rule.should_lock_long
 should_lock_short = _rule.should_lock_short
 
@@ -264,6 +265,8 @@ def process_rows(state: dict, rows: list[dict[str, str]], notify,
         else:
             decision = exit_on_new_short(decision, previous, tracked_previous,
                                          event.new_position)
+            decision = veto_active_opposition(decision, positions,
+                                              PORTFOLIO_E, PORTFOLIO_F)
         current = decision.target
         long_locked = decision.long_locked
         short_locked = decision.short_locked
@@ -365,7 +368,8 @@ def main() -> None:
             persist(state)
         notifier("✅【開始監控｜第三策略 EF Hysteresis Again】\n"
                  "固定門檻：進場2、續抱1。\n"
-                 "持多時追蹤到0→-1反向訊號，當筆目標出場；下筆仍依原進場規則判斷。\n"
+                 "持多時追蹤到0→-1反向訊號，當筆目標出場。\n"
+                 "任一追蹤策略仍為-1時不建立或持有多單；仍為+1時不建立或持有空單。\n"
                  "01:00清倉；若08:45後首筆訊號前E/F已達同向2/2，"
                  "多空皆須先脫離門檻，再重新達標才進場。\n"
                  f"模式：API_KEY Shioaji {'模擬帳戶' if auto_trade.BROKER_SIMULATION else '實單'}，U={auto_trade.position_unit()}；"

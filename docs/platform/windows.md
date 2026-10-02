@@ -26,9 +26,9 @@ run-windows-services.cmd
 4. 必要時重新 build，啟動共用訊號服務，以及 `ef-hysteresis-again-strategy`（API_KEY）與 `ef-morning-weekend-hedge-strategy`（API_KEY2）。舊模擬策略與 TOTAL 影子策略會停止。
 5. 在 Windows Terminal 開各服務的 log 分頁；沒有 Windows Terminal 時改開 PowerShell。
 
-`ef-hysteresis-again-strategy` 使用 `API_KEY` / `SECRET_KEY` 的 Shioaji 模擬帳戶；
+`ef-hysteresis-again-strategy` 使用 `API_KEY` / `SECRET_KEY` 的 Shioaji 正式帳戶；
 `ef-morning-weekend-hedge-strategy` 使用第二組 `API_KEY2` / `SECRET_KEY2`，
-也使用 Shioaji 模擬帳戶，不以 `EF_PURE_FLAT_ENABLE_ORDERS` 切換。
+也使用 Shioaji 正式帳戶，不以 `EF_PURE_FLAT_ENABLE_ORDERS` 切換。
 兩套策略會一併啟動，也會由停止腳本一併停止。
 
 第一次取得新版啟動器，請先在 Windows 專案目錄執行一次 `git pull --ff-only`，再雙擊啟動器。之後可直接執行啟動器完成拉取與建置。拉取失敗時保留現有服務，不會自動 reset、stash 或覆蓋本機修改。

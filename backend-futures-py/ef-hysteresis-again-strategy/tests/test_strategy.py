@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from strategy import decide, exit_on_new_short, should_lock_long, should_lock_short
+from strategy import (decide, exit_on_new_short, should_lock_long,
+                      should_lock_short, veto_active_opposition)
 
 E = ("e1", "e2")
 F = ("f1", "f2")
@@ -64,7 +65,7 @@ class AgainStrategyTests(unittest.TestCase):
         positions["f1"] = 0
         self.assertEqual(decide(positions, E, F, 1, False).target, 0)
 
-    def test_tracked_zero_to_short_exits_long_then_original_entry_can_reenter(self):
+    def test_tracked_zero_to_short_exits_long_and_blocks_reentry_while_active(self):
         e = ("e1", "e2", "e3", "e4")
         positions = {"e1": 1, "e2": 1, "e3": 1, "e4": -1,
                      "f1": 1, "f2": 1}
@@ -73,7 +74,9 @@ class AgainStrategyTests(unittest.TestCase):
         exited = exit_on_new_short(original, 1, 0, -1)
         self.assertEqual(exited.target, 0)
         self.assertIn("0→-1", exited.reason)
-        self.assertEqual(decide(positions, e, F, exited.target, False).target, 1)
+        next_candidate = decide(positions, e, F, exited.target, False)
+        self.assertEqual(next_candidate.target, 1)
+        self.assertEqual(veto_active_opposition(next_candidate, positions, e, F).target, 0)
 
     def test_only_tracked_zero_to_short_adds_an_exit(self):
         positions = {"e1": 1, "f1": 1}
@@ -85,6 +88,26 @@ class AgainStrategyTests(unittest.TestCase):
         flat = decide({"e1": 0, "f1": 0}, E, F, 1, False)
         self.assertEqual(flat.target, 0)
         self.assertEqual(exit_on_new_short(flat, 1, 0, -1), flat)
+
+    def test_active_short_blocks_long_until_it_clears(self):
+        e = ("e1", "e2", "e3", "e4")
+        positions = {"e1": 1, "e2": 1, "e3": 1, "e4": -1,
+                     "f1": 1, "f2": 1}
+        candidate = decide(positions, e, F, 1, False)
+        self.assertEqual(candidate.target, 1)
+        self.assertEqual(veto_active_opposition(candidate, positions, e, F).target, 0)
+        positions["e4"] = 0
+        self.assertEqual(veto_active_opposition(candidate, positions, e, F).target, 1)
+
+    def test_active_long_blocks_short_until_it_clears(self):
+        e = ("e1", "e2", "e3", "e4")
+        positions = {"e1": -1, "e2": -1, "e3": -1, "e4": 1,
+                     "f1": -1, "f2": -1}
+        candidate = decide(positions, e, F, -1, False)
+        self.assertEqual(candidate.target, -1)
+        self.assertEqual(veto_active_opposition(candidate, positions, e, F).target, 0)
+        positions["e4"] = 0
+        self.assertEqual(veto_active_opposition(candidate, positions, e, F).target, -1)
 
 
 if __name__ == "__main__":

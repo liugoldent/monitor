@@ -20,7 +20,7 @@ _spec.loader.exec_module(_shared)
 BrokerOrderError = _shared.BrokerOrderError
 check_startup_broker = _shared.check_startup_broker
 log_attribute_error = _shared.log_attribute_error
-BROKER_SIMULATION = True
+BROKER_SIMULATION = False
 
 # pysolace owns native resources whose repeated construction/destruction can
 # segfault the interpreter.  Keep one Shioaji object for the entire monitor

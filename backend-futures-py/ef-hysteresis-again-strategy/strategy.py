@@ -60,9 +60,23 @@ def decide(
 
 def exit_on_new_short(decision: Decision, current: int,
                       previous_leg: int, new_leg: int) -> Decision:
-    """Exit a held long on a tracked 0 -> -1; leave future entries unchanged."""
+    """Keep the specific exit reason for a tracked 0 -> -1 signal."""
     if current > 0 and decision.target > 0 and previous_leg == 0 and new_leg == -1:
         return replace(decision, target=0, reason="追蹤到0→-1反向訊號，多單出場")
+    return decision
+
+
+def veto_active_opposition(decision: Decision, positions: Mapping[str, int],
+                           e_codes: tuple[str, ...],
+                           f_codes: tuple[str, ...]) -> Decision:
+    """Block either side while any tracked strategy holds the opposite side."""
+    tracked = e_codes + f_codes
+    if decision.target > 0 and any(int(positions.get(code, 0)) < 0 for code in tracked):
+        return replace(decision, target=0,
+                       reason="追蹤策略仍有-1，禁止建立或持有多單")
+    if decision.target < 0 and any(int(positions.get(code, 0)) > 0 for code in tracked):
+        return replace(decision, target=0,
+                       reason="追蹤策略仍有+1，禁止建立或持有空單")
     return decision
 
 

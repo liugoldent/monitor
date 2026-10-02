@@ -319,7 +319,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [-1, 1, -1])
         self.assertEqual(m.state["short_veto_strategies"], [])
 
-    def test_direct_short_to_long_does_not_create_zero_to_long_veto(self):
+    def test_direct_short_to_long_vetoes_short_and_flattens(self):
         m = self.monitor()
         for code in ("CFC07m", "CFCTX16m", "CFCTX17m"):
             self.now += timedelta(seconds=1)
@@ -329,10 +329,12 @@ class MonitorTests(unittest.TestCase):
         self.signal(-1, 1, "CFCTX17m")
         m.tick()
         self.assertEqual(sum(m.state["positions"].values()), -1)
-        self.assertEqual(m.state["short_veto_strategies"], [])
-        self.assertEqual(self.orders, [-1])
+        self.assertEqual(m.state["short_veto_strategies"], ["CFCTX17m"])
+        self.assertEqual(self.orders, [-1, 1])
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
 
-    def test_direct_long_to_short_does_not_create_zero_to_short_veto(self):
+    def test_direct_long_to_short_vetoes_long_and_flattens(self):
         m = self.monitor()
         for code in ("CFC07m", "CFCTX16m", "CFCTX17m"):
             self.now += timedelta(seconds=1)
@@ -342,8 +344,10 @@ class MonitorTests(unittest.TestCase):
         self.signal(1, -1, "CFCTX17m")
         m.tick()
         self.assertEqual(sum(m.state["positions"].values()), 1)
-        self.assertEqual(m.state["long_veto_strategies"], [])
-        self.assertEqual(self.orders, [1])
+        self.assertEqual(m.state["long_veto_strategies"], ["CFCTX17m"])
+        self.assertEqual(self.orders, [1, -1])
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["long_veto_strategies"], ["CFCTX17m"])
 
     def test_short_veto_is_cleared_by_daily_reset(self):
         m = self.monitor()
@@ -371,7 +375,7 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 7)
+        self.assertEqual(restarted.state["schema_version"], 8)
 
     def test_upgrade_v6_long_is_conservatively_short_vetoed(self):
         m = self.monitor()
@@ -381,7 +385,20 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 7)
+        self.assertEqual(restarted.state["schema_version"], 8)
+
+    def test_upgrade_v7_rebuilds_transition_veto_lists_from_positions(self):
+        m = self.monitor()
+        m.state["positions"]["CFC07m"] = -1
+        m.state["positions"]["CFCTX17m"] = 1
+        m.state["long_veto_strategies"] = []
+        m.state["short_veto_strategies"] = []
+        m.state["schema_version"] = 7
+        m.persist()
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["long_veto_strategies"], ["CFC07m"])
+        self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
+        self.assertEqual(restarted.state["schema_version"], 8)
 
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
@@ -1038,7 +1055,7 @@ class BrokerTests(unittest.TestCase):
             api.futopt_account.account_id = "account2"
             with patch.dict(os.environ, env, clear=True):
                 auto_trade.login(sj)
-                sj.Shioaji.assert_called_with(simulation=True)
+                sj.Shioaji.assert_called_with(simulation=False)
                 api.login.assert_called_once_with("key2", "secret2")
                 api.futopt_account.account_id = "account1"
                 with self.assertRaises(auto_trade.BrokerOrderError):

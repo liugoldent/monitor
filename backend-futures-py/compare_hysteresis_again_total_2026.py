@@ -138,7 +138,7 @@ def covered_cycles(events, bars):
     return included, excluded, dict(audit)
 
 
-def replay_one(mode, bootstrap, events, cycles, bars):
+def replay_one(mode, bootstrap, events, cycles, bars, *, post_decision=None):
     months = defaultdict(lambda: {"gross_profit": 0.0, "gross_loss": 0.0,
                                   "closed_legs": 0, "realized": 0.0, "unrealized": 0.0,
                                   "turnover": 0, "cycles": 0, "ending_position": 0})
@@ -164,6 +164,9 @@ def replay_one(mode, bootstrap, events, cycles, bars):
                 decision = again.decide(positions, source.PORTFOLIO_E, source.PORTFOLIO_F,
                                         held, long_locked, short_locked)
                 decision = again.exit_on_new_short(decision, held, old_leg, event.new_position)
+                if post_decision is not None:
+                    decision = post_decision(decision, positions,
+                                             source.PORTFOLIO_E, source.PORTFOLIO_F)
                 long_locked, short_locked = decision.long_locked, decision.short_locked
             else:
                 decision = total.decide(positions, source.PORTFOLIO_E, source.PORTFOLIO_F,

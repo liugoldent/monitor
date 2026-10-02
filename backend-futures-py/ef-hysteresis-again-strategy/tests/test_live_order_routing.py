@@ -86,10 +86,10 @@ class LiveRoutingTests(unittest.TestCase):
         now[0] = 120.0
         self.assertEqual(watchdog.status(), (True, True))
 
-    def test_old_and_again_adapters_are_simulated(self):
+    def test_again_uses_production_and_old_adapter_stays_simulated(self):
         self.assertTrue(monitor.auto_trade._adapter is not None)
-        self.assertTrue(monitor.auto_trade.BROKER_SIMULATION)
-        self.assertTrue(monitor.auto_trade._adapter.BROKER_SIMULATION)
+        self.assertFalse(monitor.auto_trade.BROKER_SIMULATION)
+        self.assertFalse(monitor.auto_trade._adapter.BROKER_SIMULATION)
         old_path = BASE.parent / "ef-strong-consensus-morning-flat-strategy/auto_trade.py"
         self.assertIn("BROKER_SIMULATION = True", old_path.read_text(encoding="utf-8"))
         old_spec = importlib.util.spec_from_file_location("old_sim_adapter_under_test", old_path)
@@ -106,7 +106,7 @@ class LiveRoutingTests(unittest.TestCase):
                 live_sj, sim_sj = Mock(), Mock()
                 monitor.auto_trade._adapter._login(live_sj)
                 old_adapter._login(sim_sj)
-        live_sj.Shioaji.assert_called_once_with(simulation=True)
+        live_sj.Shioaji.assert_called_once_with(simulation=False)
         sim_sj.Shioaji.assert_called_once_with(simulation=True)
 
     def test_new_short_exits_long_and_orders_flat(self):
@@ -126,6 +126,25 @@ class LiveRoutingTests(unittest.TestCase):
             monitor.process_rows(state, [row], lambda _: None)
         self.assertEqual(state["target"], 0)
         self.assertEqual(order.call_args.args[:2], (state, 0))
+
+    def test_existing_short_blocks_long_on_next_signal(self):
+        positions = {code: 0 for code in monitor.ALL_STRATEGIES}
+        for code in monitor.PORTFOLIO_E[:5] + monitor.PORTFOLIO_F[:4]:
+            positions[code] = 1
+        positions[monitor.PORTFOLIO_F[0]] = -1
+        state = {"raw_positions": positions, "source_row_count": 0, "target": 0,
+                 "long_locked": False, "short_locked": False,
+                 "lock_initialized_date": "2026-10-01"}
+        row = {"received_at": "2026-10-01 20:53:05",
+               "strategy_code": monitor.PORTFOLIO_E[1],
+               "previous_position": "1", "new_position": "-1"}
+        messages = []
+        with patch.object(monitor, "persist"), patch.object(monitor, "append_decision"), \
+             patch.object(monitor, "execute_target", return_value="no order") as order:
+            monitor.process_rows(state, [row], messages.append)
+        self.assertEqual(state["target"], 0)
+        self.assertEqual(order.call_args.args[:2], (state, 0))
+        self.assertIn("追蹤策略仍有-1", messages[0])
 
     def test_startup_rebuild_does_not_send_historical_orders(self):
         code = monitor.PORTFOLIO_E[0]

@@ -1,4 +1,4 @@
-"""API_KEY simulated TMF execution, reusing the account-one adapter."""
+"""API_KEY live TMF execution, reusing the account-one adapter."""
 from __future__ import annotations
 
 import importlib.util
@@ -13,10 +13,10 @@ _adapter = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = _adapter
 SPEC.loader.exec_module(_adapter)
 
-# Keep the strategy event and order flow while routing this process to Shioaji
-# simulation. The imported adapter owns the actual Shioaji constructor.
-_adapter.BROKER_SIMULATION = True
-BROKER_SIMULATION = True
+# The imported adapter owns the actual Shioaji constructor. This strategy uses
+# the production account; the legacy adapter remains in simulation mode.
+_adapter.BROKER_SIMULATION = False
+BROKER_SIMULATION = False
 BrokerOrderError = _adapter.BrokerOrderError
 broker_error_summary = _adapter.broker_error_summary
 check_startup_broker = _adapter.check_startup_broker

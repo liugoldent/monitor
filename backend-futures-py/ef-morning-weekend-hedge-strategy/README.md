@@ -1,13 +1,15 @@
 # 永豐 2：JSON 部位、多空對稱否決、01:00 清倉、05:05 重設
 
+未來回撤達門檻後固定 `U+1` 的進出場規格見 [Again 與 Clamp 回撤後加一口的進出場 SOP](../EF_DRAWDOWN_UNIT_SOP.md)；目前尚未啟用。
+
 CFCTX15m（財神列車15號）屬於 E 投組，與其餘 12 組策略一同追蹤。舊有 12 組 JSON 升級時保留原部位，新增 CFCTX15m 的追蹤部位為 0，僅處理啟動後的新訊號。
 
-版本：`json-positions-v7-symmetric-veto`。
+版本：`json-positions-v8-active-veto`。
 
-多空對稱出場規則：當日已追蹤部位從 `0→-1` 的策略會否決多單；
-從 `0→+1` 的策略會否決空單。只要對應策略仍持有該方向，
-即使 13 策略合計方向相反，券商目標也為空手。否決者離開原部位後，
-若合計仍指向原帳戶方向，收到該筆新訊號後可重新進場。
+多空對稱出場規則：只要目前任一子策略部位是 `-1`，就否決多單；
+只要目前任一子策略部位是 `+1`，就否決空單。這包含 `1→-1` 與
+`-1→+1` 的直接反轉。即使 13 策略合計方向相反，券商目標也為空手。
+反向策略離開該部位後，若合計仍指向原帳戶方向，收到該筆新訊號後可重新進場。
 單純 `1→0` 或 `-1→0` 只按合計與仍有效的否決者決定目標，不單獨強制出場。
 每日重設清除兩種否決者；昨天的部位不帶到今天。
 
@@ -28,7 +30,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 
 ## 每日流程
 
-- 13 個子策略的唯一追蹤部位來源是 `runtime/live_state.json` 的 `positions`。每個值只能是 -1、0、1。CSV 只提供新訊號及歷史查核，不再覆蓋 JSON 部位。`long_veto_strategies` 記錄由 `0→-1` 建立且仍持空的策略；`short_veto_strategies` 記錄由 `0→+1` 建立且仍持多的策略。
+- 13 個子策略的唯一追蹤部位來源是 `runtime/live_state.json` 的 `positions`。每個值只能是 -1、0、1。CSV 只提供新訊號及歷史查核，不再覆蓋 JSON 部位。`long_veto_strategies` 記錄目前所有持 `-1` 的策略；`short_veto_strategies` 記錄目前所有持 `+1` 的策略，兩者在啟動與每筆訊號後由 `positions` 重建。
 - 台北時間 08:45～13:45、15:00～隔天 05:00 為同一交易日；午休、15:00、午夜與程式重啟都不歸零。
 - 01:00 查永豐 2 TMF 庫存並送一次清倉委託，保留 JSON 部位至確認空手。01:00 起停止新訊號交易。
 - 01:00 清倉失敗或結果不明，Discord 明確通知人工核對及清倉，不自動重送。
@@ -52,15 +54,15 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 
 送單前將 positions、新訊號進度、目前庫存、最終口數與預計委託一起保存。一般委託只送一次，不查成交、不重試。如果程式在送單途中中斷，該筆標記為 `interrupted_no_retry`，後續新訊號仍照常以當下券商庫存重新計算。
 
-首次升級 v4 時，從既有 `day_signal_positions` 快照遷移一次到 `positions`，保留當日部位，不回放 CSV。遷移後刪除 `day_signal_positions`；每次存檔也移除 `source.positions`、`source.net_position`，避免保存重複且可能過期的部位快照。`source.last_signal` 與該筆訊號明細仍保留作為處理進度；手動修改策略部位時使用最外層 `positions`，並同步核對兩種否決清單。
+首次升級 v4 時，從既有 `day_signal_positions` 快照遷移一次到 `positions`，保留當日部位，不回放 CSV。遷移後刪除 `day_signal_positions`；每次存檔也移除 `source.positions`、`source.net_position`，避免保存重複且可能過期的部位快照。`source.last_signal` 與該筆訊號明細仍保留作為處理進度；手動修改策略部位時使用最外層 `positions`，啟動時會據此重建兩種否決清單。
 
-升級舊版狀態時，若缺少否決清單，會暫時將目前持 `-1` 的策略視為多單否決者、持 `+1` 的策略視為空單否決者；下次 05:05 重設後，兩種否決者只由新的 `0→-1` 或 `0→+1` 訊號建立。服務重啟本身不會補送舊訊號或立即重算委託，仍須等新訊號。
+升級舊版狀態時，不論舊否決清單內容為何，都由目前 `positions` 重建；直接反轉而仍持倉的策略也會成為否決者。服務重啟本身不會補送舊訊號或立即重算委託，仍須等新訊號。
 
 ## 手動修改
 
 1. 停止 `ef-morning-weekend-hedge-strategy` 服務。
 2. 備份 `runtime/live_state.json`，核對券商實際部位及委託紀錄。
-3. 調整 `positions` 中對應策略的 -1 / 0 / 1，必須保留全部13個策略。若調整到 `-1` 或 `+1`，或從這些部位移開，也須同步核對 `long_veto_strategies` 與 `short_veto_strategies`；各清單只能列出目前持有對應部位的策略，且不可重複。
+3. 調整 `positions` 中對應策略的 -1 / 0 / 1，必須保留全部13個策略。重新啟動時會從 `positions` 重建 `long_veto_strategies` 與 `short_veto_strategies`。
 4. 啟動服務，JSON 會直接沿用；修改檔案本身不會觸發補單。
 
 請勿在服務運行中改檔，程式不會即時重新載入，並可能覆寫人工修改。
@@ -75,7 +77,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 docker compose up -d --build --no-deps --force-recreate ef-morning-weekend-hedge-strategy
 ```
 
-啟動通知須顯示 `json-positions-v7-symmetric-veto`。目前服務使用 Shioaji `simulation=True` 模擬帳戶；啟動及每日 08:35 查詢 TMF 庫存並通知，08:35 查詢只讀不送單。同一天 08:35 後啟動時，啟動查詢視為當日查詢。`python monitor_and_trade.py` 與 `--once` 都不可拿來當測試。
+啟動通知須顯示 `json-positions-v8-active-veto`。目前服務使用 Shioaji `simulation=False` 實盤帳戶；啟動及每日 08:35 查詢 TMF 庫存並通知，08:35 查詢只讀不送單。同一天 08:35 後啟動時，啟動查詢視為當日查詢。`python monitor_and_trade.py` 與 `--once` 都不可拿來當測試。
 
 - runtime/live_state.json：positions、long_veto_strategies、short_veto_strategies、訊號進度、單次委託與重設狀態，原子保存。
 - records/live_order_attempts.csv：委託嘗試及回應。

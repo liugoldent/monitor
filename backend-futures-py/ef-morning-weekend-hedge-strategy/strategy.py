@@ -15,6 +15,23 @@ STRATEGIES = (
 )
 
 
+def active_veto_strategies(positions: dict[str, int]) -> tuple[list[str], list[str]]:
+    """Every active short vetoes longs; every active long vetoes shorts."""
+    return ([code for code in STRATEGIES if positions[code] == -1],
+            [code for code in STRATEGIES if positions[code] == 1])
+
+
+def clamped_target_direction(positions: dict[str, int]) -> int:
+    """Clamp the net direction to one contract, subject to active opposition."""
+    net = sum(positions.values())
+    long_vetoes, short_vetoes = active_veto_strategies(positions)
+    if net > 0 and not long_vetoes:
+        return 1
+    if net < 0 and not short_vetoes:
+        return -1
+    return 0
+
+
 def integer(value: object) -> int:
     if isinstance(value, bool):
         raise ValueError("口數不能是布林值")
