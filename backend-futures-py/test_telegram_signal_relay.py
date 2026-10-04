@@ -42,6 +42,7 @@ class TelegramSignalRelayTests(unittest.TestCase):
 
     def test_classifies_h_signal(self):
         self.assertEqual(classify_signal("浩克3V3訊號通知\n目前方向：多"), "h")
+        self.assertEqual(classify_signal("浩克3\n訊號通知\n多3口"), "h")
 
     def test_classifies_ef_signal(self):
         text = "訊號通知《策略》CFC07m《倉位》0 -> 1"

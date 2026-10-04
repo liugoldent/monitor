@@ -62,5 +62,7 @@ crash.log
 crash.*.log
 
 # Dedicated EF closure hedge runtime and private trading records
+backend-futures-py/h3-flatten-reentry-strategy/runtime/
+backend-futures-py/h3-flatten-reentry-strategy/records/
 backend-futures-py/ef-morning-weekend-hedge-strategy/runtime/
 backend-futures-py/ef-morning-weekend-hedge-strategy/records/

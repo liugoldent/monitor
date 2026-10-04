@@ -52,3 +52,19 @@ timestamp,attempt_id,event,trigger,target_position,previous_position,actual_posi
 2026-10-02 10:45:07,b323ad65a169451a992905b1f07c7333,attempt_started,signal/2026-10-02T10:45:05/1146,1,,,,,準備登入永豐、查詢TMF部位並對帳
 2026-10-02 10:45:07,b323ad65a169451a992905b1f07c7333,submitted,signal/2026-10-02T10:45:05/1146,1,0,,buy,1,已呼叫買進 TMF 1口委託；API已返回，未回查成交，不自動重送
 2026-10-02 10:45:07,b323ad65a169451a992905b1f07c7333,failed,signal/2026-10-02T10:45:05/1146,1,,,,,永豐委託失敗（Inactive）：券商未接受委託
+2026-10-02 22:50:27,710f2996a57842e19e94aca3a147a603,attempt_started,signal/2026-10-02T22:50:27/1147,1,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-02 22:50:27,710f2996a57842e19e94aca3a147a603,failed,signal/2026-10-02T22:50:27/1147,1,,,,,TokenError
+2026-10-02 22:54:33,83afdf6c24284c4a90620e7d3dc81b60,attempt_started,signal/2026-10-02T22:54:32/1148,1,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-02 22:54:33,83afdf6c24284c4a90620e7d3dc81b60,failed,signal/2026-10-02T22:54:32/1148,1,,,,,ShioajiConnectionError
+2026-10-02 23:08:46,90f87936c64e403f8ed827c6660b642e,attempt_started,signal/2026-10-02T23:08:45/1149,1,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-02 23:08:46,90f87936c64e403f8ed827c6660b642e,failed,signal/2026-10-02T23:08:45/1149,1,,,,,ShioajiConnectionError
+2026-10-02 23:13:11,0f749ea5e2f54b5389e2d2e01c7065b5,attempt_started,signal/2026-10-02T23:13:10/1150,1,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-02 23:13:11,0f749ea5e2f54b5389e2d2e01c7065b5,failed,signal/2026-10-02T23:13:10/1150,1,,,,,ShioajiConnectionError
+2026-10-02 23:16:26,c2b44c843307436f941927b7fe3c5dfc,attempt_started,signal/2026-10-02T23:16:25/1151,1,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-02 23:16:26,c2b44c843307436f941927b7fe3c5dfc,failed,signal/2026-10-02T23:16:25/1151,1,,,,,ShioajiConnectionError
+2026-10-02 23:17:59,7a568a9ba1bd4f2c93144db47e5e7292,attempt_started,signal/2026-10-02T23:17:58/1152,1,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-02 23:17:59,7a568a9ba1bd4f2c93144db47e5e7292,failed,signal/2026-10-02T23:17:58/1152,1,,,,,ShioajiConnectionError
+2026-10-02 23:25:05,ff33908336494f4391224e033a83e267,attempt_started,signal/2026-10-02T23:25:04/1153,1,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-02 23:25:05,ff33908336494f4391224e033a83e267,failed,signal/2026-10-02T23:25:04/1153,1,,,,,ShioajiConnectionError
+2026-10-03 01:00:00,57ceb31b75364437ac69b6b412177010,attempt_started,01:00/2026-10-03,0,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-03 01:00:00,57ceb31b75364437ac69b6b412177010,failed,01:00/2026-10-03,0,,,,,ShioajiConnectionError

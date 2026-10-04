@@ -136,7 +136,7 @@ def require_env(name: str) -> str:
 
 def classify_signal(text: str) -> str | None:
     """Return the relay route for recognized signal messages."""
-    if H_REQUIRED_MARKER in text:
+    if "浩克3" in text and "訊號通知" in text:
         return "h"
     if "訊號通知" in text and EF_POSITION_PATTERN.search(text):
         return "ef"

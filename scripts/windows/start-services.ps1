@@ -12,6 +12,7 @@ $services = @(
     'webhook-server',
     'cloudflared',
     'ef-hysteresis-again-strategy',
+    'h3-flatten-reentry-strategy',
     'ef-morning-weekend-hedge-strategy'
 )
 function Get-RootEnvValue([string]$Name) {
@@ -203,6 +204,7 @@ $logWindows = @(
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'EF Hysteresis Again SIM - API KEY'; Service = 'ef-hysteresis-again-strategy' },
+    @{ Title = 'Hulk 3 LIVE - API KEY3'; Service = 'h3-flatten-reentry-strategy' },
     @{ Title = 'EF Pure EF Net Direction SIM - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
