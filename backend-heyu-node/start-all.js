@@ -1,9 +1,51 @@
 import { spawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const serviceDir = fileURLToPath(new URL(".", import.meta.url));
+const lockPath = path.join(serviceDir, "runtime", "watcher.pid");
+mkdirSync(path.dirname(lockPath), { recursive: true });
+
+for (;;) {
+  try {
+    const fd = openSync(lockPath, "wx", 0o600);
+    try {
+      writeFileSync(fd, String(process.pid));
+    } finally {
+      closeSync(fd);
+    }
+    break;
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const previousPid = Number(readFileSync(lockPath, "utf8"));
+    if (!Number.isInteger(previousPid) || previousPid <= 0) {
+      throw new Error(`Monitor lock has no valid PID: ${lockPath}`);
+    }
+    let running = true;
+    try {
+      process.kill(previousPid, 0);
+    } catch (probeError) {
+      if (probeError.code === "ESRCH") running = false;
+      else if (probeError.code !== "EPERM") throw probeError;
+    }
+    if (running) throw new Error(`Monitor is already running (pid=${previousPid})`);
+    unlinkSync(lockPath);
+  }
+}
+
+process.on("exit", () => {
+  try {
+    if (Number(readFileSync(lockPath, "utf8")) === process.pid) unlinkSync(lockPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") console.error(`[all] lock cleanup failed: ${error.message}`);
+  }
+});
 
 const services = [
   ["duty", new URL("./index.js", import.meta.url)],
   ["qa", new URL("./qa_dispatch.js", import.meta.url)],
+  ["mr", new URL("./mr_review.js", import.meta.url)],
 ];
 const children = new Map();
 let stopping = false;
