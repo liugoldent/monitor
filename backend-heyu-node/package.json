@@ -8,9 +8,10 @@
     "start": "node start-all.js",
     "duty": "node index.js",
     "qa": "node qa_dispatch.js",
+    "mr": "node mr_review.js",
     "login": "node reauthorize.js",
     "groups": "node list-groups.js",
-    "test": "node watcher_core.test.js && node qa_dispatch.test.js"
+    "test": "node watcher_core.test.js && node watcher_images.test.js && node watcher_repair.test.js && node qa_dispatch.test.js && node mr_review.test.js"
   },
   "keywords": [],
   "author": "",

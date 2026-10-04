@@ -50,7 +50,7 @@ function csrfToken(html) {
     || /<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)["']/i.exec(html)?.[1];
 }
 
-export async function verifyIssueAccess(issue, username, password, transport = httpRequest) {
+export async function readIssuePage(issue, username, password, transport = httpRequest) {
   if (!/^[0-9]{5}$/.test(issue)) throw new Error("Invalid issue number");
   const issueUrl = `${origin}/issues/${issue}`;
   let response = await transport(issueUrl);
@@ -76,5 +76,13 @@ export async function verifyIssueAccess(issue, username, password, transport = h
     || !response.html.includes(issue)) {
     throw new Error("Issue page is not readable after login");
   }
-  return issueUrl;
+  const heading = /<h2\b[^>]*>([\s\S]*?)<\/h2>/i.exec(response.html)?.[1]?.replace(/<[^>]*>/g, "") || "";
+  if (!new RegExp(`#\\s*${issue}(?![0-9])`).test(heading)) {
+    throw new Error("Issue page heading does not match requested number");
+  }
+  return { url: issueUrl, html: response.html };
+}
+
+export async function verifyIssueAccess(issue, username, password, transport = httpRequest) {
+  return (await readIssuePage(issue, username, password, transport)).url;
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { formatMessages, parseDecision, buildAnalysisPrompt } from "./watcher_core.js";
+import { formatMessages, parseDecision, parseRoute, buildAnalysisPrompt } from "./watcher_core.js";
 
 const messages = [
   { id: 3, date: new Date("2026-09-29T01:02:00Z"), senderId: 9n, message: "後續" },
@@ -18,3 +18,9 @@ assert.match(prompt, /只判斷 \[本批起點\] 與其後的新訊息/);
 assert.match(prompt, /boss-question-orchestrator/);
 assert.match(prompt, /不要實際發送/);
 console.log("watcher_core checks passed");
+assert.equal(parseRoute("CLASSIFICATION: PROBLEM\nROUTE: FIX_PC\n根因"), "FIX_PC");
+assert.equal(parseRoute("CLASSIFICATION: PROBLEM\nROUTE: FIX_MOBILE\n根因"), "FIX_MOBILE");
+assert.equal(parseRoute("CLASSIFICATION: NO_PROBLEM\nROUTE: FIX_PC"), "ORCHESTRATE");
+assert.equal(parseRoute("CLASSIFICATION: NEEDS_REVIEW\nROUTE: FIX_PC"), "ORCHESTRATE");
+assert.equal(parseRoute("CLASSIFICATION: PROBLEM\n沒有路由"), "ORCHESTRATE");
+assert.equal(parseRoute("CLASSIFICATION: PROBLEM\nROUTE: FIX_OTHER"), "ORCHESTRATE");
