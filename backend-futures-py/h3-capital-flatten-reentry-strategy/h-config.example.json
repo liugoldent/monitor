@@ -1,0 +1,12 @@
+{
+  "account": "",
+  "entry_quantity": 1,
+  "signal_source": "../telegram-relay-records/telegram_signal_events.jsonl",
+  "contract": {
+    "quote_code": "TM2610",
+    "order_code": "FITM",
+    "settle_ym": "202610",
+    "inventory_code": "TM2610",
+    "inventory_prefix": "TM"
+  }
+}

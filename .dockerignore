@@ -22,3 +22,5 @@ backend-futures-py/ef-strong-consensus-morning-flat-strategy/runtime/
 backend-futures-py/options-level-monitor/runtime/
 backend-futures-py/telegram-relay-runtime/
 backend-futures-py/telegram-relay-records/
+backend-futures-py/h3-capital-flatten-reentry-strategy/runtime/
+backend-futures-py/h3-capital-flatten-reentry-strategy/libs/

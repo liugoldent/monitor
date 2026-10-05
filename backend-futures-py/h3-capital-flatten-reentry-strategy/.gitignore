@@ -1,0 +1,9 @@
+libs/
+SKDLLPython.py
+__pycache__/
+CapitalLog*/
+*.log
+runtime/
+h-config.json
+.env
+!.env.example

@@ -6,6 +6,9 @@ $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $backendDir = Join-Path $projectDir 'backend-futures-py'
 $rootEnvPath = Join-Path $projectDir '.env'
 $watchScript = Join-Path $PSScriptRoot 'watch-service.ps1'
+$capitalServiceScript = Join-Path $PSScriptRoot 'capital-h3-service.ps1'
+# Validate native Windows DLL service before changing any running services.
+& $capitalServiceScript -Action Check
 $services = @(
     'telegram-signal-relay',
     'monitor-mxf',
@@ -246,4 +249,11 @@ foreach ($item in $logWindows) {
     Start-Sleep -Milliseconds 300
 }
 
-Write-Host 'Windows services are running. Closing log tabs does not stop Docker.' -ForegroundColor Green
+& $capitalServiceScript -Action Start
+$capitalWatchScript = Join-Path $PSScriptRoot 'watch-capital-h3.ps1'
+if ($terminal) {
+    & $terminal.Source --window monitor-services new-tab --title 'H3 Capital LIVE' powershell.exe -NoLogo -NoExit -ExecutionPolicy Bypass -File $capitalWatchScript
+} else {
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $capitalWatchScript))
+}
+Write-Host 'Windows services are running, including native H3 Capital. Closing log tabs does not stop trading services.' -ForegroundColor Green
