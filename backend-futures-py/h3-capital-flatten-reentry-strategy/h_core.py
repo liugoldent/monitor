@@ -3,15 +3,13 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-import importlib.util
+import sys
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-_strategy_path = Path(__file__).resolve().parent.parent / 'h3-flatten-reentry-strategy' / 'strategy.py'
-_strategy_spec = importlib.util.spec_from_file_location('_capital_original_h3_strategy', _strategy_path)
-_strategy = importlib.util.module_from_spec(_strategy_spec)
-_strategy_spec.loader.exec_module(_strategy)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from h_signal import parse_h_event_direction
 
 
 class TradingError(RuntimeError):
@@ -36,13 +34,7 @@ class Contract:
 
 
 def parse_signal(event, now=None, max_age=30):
-    if (event.get('event') != 'received' or event.get('route') != 'h'
-            or str(event.get('sender_username', '')).casefold() != 'taiwan_mxf_bot'):
-        return None
-    text = event.get('text', '')
-    if not isinstance(text, str) or '浩克3' not in text or '訊號通知' not in text:
-        return None
-    direction = _strategy.parse_signal(text)
+    direction = parse_h_event_direction(event)
     if direction is None:
         return None
     if not all(isinstance(event.get(k), int) and not isinstance(event[k], bool)

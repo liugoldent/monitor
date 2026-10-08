@@ -30,6 +30,8 @@ services:
       CONSULTANT_SIGNAL_LOG_PATH: ${CONSULTANT_SIGNAL_LOG_PATH:-/external/consultant-log/Bridge_Lite_Signal.log}
       CONSULTANT_SIGNAL_LOG_ENCODING: ${CONSULTANT_SIGNAL_LOG_ENCODING:-cp950}
     volumes:
+      - ./backend-futures-py/telegram_signal_relay.py:/app/backend-futures-py/telegram_signal_relay.py:ro
+      - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/telegram-relay-runtime:/app/backend-futures-py/telegram-relay-runtime
       - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records
@@ -200,6 +202,9 @@ services:
     depends_on:
       - telegram-signal-relay
     volumes:
+      - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
+      - ./backend-futures-py/h3-flatten-reentry-strategy/strategy.py:/app/backend-futures-py/h3-flatten-reentry-strategy/strategy.py:ro
+      - ./backend-futures-py/h3-flatten-reentry-strategy/monitor_and_trade.py:/app/backend-futures-py/h3-flatten-reentry-strategy/monitor_and_trade.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
       - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records:ro

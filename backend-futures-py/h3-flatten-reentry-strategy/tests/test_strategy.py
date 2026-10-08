@@ -9,6 +9,7 @@ from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import auto_trade
+from h_signal import parse_h_direction, parse_h_event_direction
 # The offline runtime may lack filelock; these tests do not run main or locking.
 try:
     import filelock
@@ -119,6 +120,27 @@ class Tests(unittest.TestCase):
         api = Broker(3)
         self.execute(api, parse_signal("浩克3\n訊號通知\n空3口"))
         self.assertEqual([(o.action, o.quantity) for o in api.orders], [("Sell", 3), ("Sell", 2)])
+
+    def test_bs_direction_uses_shared_parser_and_account_unit(self):
+        self.assertIs(parse_signal, parse_h_direction)
+        self.assertIs(monitor.parse_h_event_direction, parse_h_event_direction)
+        os.environ["H_UNIT"] = "2"
+        for text, direction in (("(B=0 S=8)", -1), ("(B=9 S=0)", 1)):
+            with self.subTest(text=text):
+                api = Broker(3)
+                self.execute(api, parse_signal(f"浩克3V3 交易訊號通知 {text}"))
+                self.assertEqual([(o.action, o.quantity) for o in api.orders],
+                                 [("Sell", 3), ("Buy" if direction > 0 else "Sell", 2)])
+
+    def test_bs_event_reaches_account_execution(self):
+        event = dict(event="received", route="h", sender_username="taiwan_mxf_bot",
+                     chat_id=123, message_id=456, received_at="2026-10-07T20:27:33+08:00",
+                     text="自動交易\n浩克3V3 交易訊號通知 (B=0 S=1)\nFrom:")
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(monitor, "STATE", Path(folder) / "state.json"), \
+             patch.object(auto_trade, "execute_signal", return_value=NS(actual_position=-1)) as execute:
+            monitor.process_event(event, {}, Mock())
+            self.assertEqual(execute.call_args.args, (-1,))
 
     def test_flat_account_only_enters(self):
         api = Broker(0)

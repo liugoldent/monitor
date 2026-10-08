@@ -14,7 +14,7 @@ sys.path.insert(0, str(BACKEND))
 from ef_trade_runtime import Notifications, append_order, now_local, save_state
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
 import auto_trade
-from strategy import parse_signal
+from h_signal import parse_h_event_direction
 from trade_records import entry_record, append_entry
 
 SOURCE = BACKEND / "telegram-relay-records/telegram_signal_events.jsonl"
@@ -22,7 +22,6 @@ STATE = BASE / "runtime/state.json"
 ORDERS = BASE / "records/live_order_attempts.csv"
 ENTRIES = BASE / "records/entries.csv"
 DUPLICATE_WINDOW_SECONDS = 10
-ALLOWED_SENDER_USERNAME = "taiwan_mxf_bot"
 
 
 def persist(state):
@@ -31,13 +30,7 @@ def persist(state):
 
 
 def process_event(event, state, notify):
-    if event.get("event") != "received" or event.get("route") != "h":
-        return
-    # Use Telegram sender metadata supplied by Relay, never message body text.
-    sender_username = event.get("sender_username")
-    if not isinstance(sender_username, str) or sender_username.casefold() != ALLOWED_SENDER_USERNAME:
-        return
-    direction = parse_signal(event.get("text", ""))
+    direction = parse_h_event_direction(event)
     if direction is None:
         return
     key = f"{event['chat_id']}:{event['message_id']}"

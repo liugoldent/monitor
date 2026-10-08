@@ -2,7 +2,11 @@
 
 讀取 Telegram Relay 的 `telegram-relay-records/telegram_signal_events.jsonl`，
 只處理 `received`、H 路由、包含 `浩克3`、`訊號通知` 及
-`多X口`／`空X口` 的新訊號（X 為正整數，允許空白及換行）。
+`多X口`／`空X口` 或 `(B=X S=Y)` 的新訊號（數量為整數，允許空白及換行）。
+訊號辨識與可信來源規則統一由 `../h_signal.py` 提供，Relay 紀錄端與群益下單端共用，
+本目錄 `strategy.py` 僅保留相容匯入，不再另外定義解析規則。
+B 大於零且 S 為零判定多方；S 大於零且 B 為零判定空方。
+兩邊皆為零、兩邊皆大於零或訊息方向互相矛盾時不下單。
 下單端只接受 Relay 記錄的 Telegram `sender_username` 為 `taiwan_mxf_bot`
 的訊號（大小寫不影響）；其他來源或缺少來源資料一律跳過。
 訊息內文、顯示名稱及轉傳署名不作為來源判斷。

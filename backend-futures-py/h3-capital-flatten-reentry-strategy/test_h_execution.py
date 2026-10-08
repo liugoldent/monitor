@@ -31,6 +31,40 @@ class ExecutionTests(unittest.TestCase):
     def test_signal_size_does_not_change_one_contract_entry(self):
         self.assertEqual(parse_signal(self.signal(), NOW), ('-1:10', 1, NOW.timestamp()))
 
+    def test_bs_signal_uses_shared_rules_and_fixed_account_entry(self):
+        import h_core
+        from h_signal import parse_h_event_direction
+        self.assertIs(h_core.parse_h_event_direction, parse_h_event_direction)
+        for buy, sell, direction in ((0, 8, -1), (9, 0, 1)):
+            with self.subTest(buy=buy, sell=sell):
+                event = self.signal(text=f'自動交易\n浩克3V3 交易訊號通知 (B={buy} S={sell})\nFrom:')
+                signal = parse_signal(event, NOW)
+                self.assertEqual(signal, ('-1:10', direction, NOW.timestamp()))
+                broker, calls = self.broker(3)
+                execute_h(broker, signal[1], self.store, signal[0])
+                self.assertEqual(calls, [(-3, 'flatten', 0), (direction, 'entry', direction)])
+
+    def test_bs_still_requires_fresh_trusted_unambiguous_signal(self):
+        text = '浩克3V3 交易訊號通知 (B=0 S=1)'
+        for event in (self.signal(text=text, sender_username='fake'),
+                      self.signal(text=text, event='discord_delivery'),
+                      self.signal(text=text, received_at=(NOW-timedelta(seconds=31)).isoformat()),
+                      self.signal(text='浩克3V3 交易訊號通知 (B=1 S=1)')):
+            self.assertIsNone(parse_signal(event, NOW))
+
+    def test_same_signal_is_consumed_independently_by_each_account(self):
+        signal = parse_signal(self.signal(text='浩克3V3 交易訊號通知 (B=0 S=1)'), NOW)
+        second_store = Store(Path(self.temp.name) / 'second-account.sqlite')
+        try:
+            for store, position in ((self.store, 3), (second_store, -2)):
+                self.assertTrue(store.consume(*signal))
+                self.assertFalse(store.consume(*signal))
+                broker, calls = self.broker(position)
+                execute_h(broker, signal[1], store, signal[0])
+                self.assertEqual(calls, [(-position, 'flatten', 0), (-1, 'entry', -1)])
+        finally:
+            second_store.db.close()
+
     def test_forged_sender_stale_and_ambiguous_rejected(self):
         for event in (self.signal(sender_username='fake'),
                       self.signal(received_at=(NOW-timedelta(seconds=31)).isoformat()),

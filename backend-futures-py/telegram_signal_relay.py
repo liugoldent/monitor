@@ -19,6 +19,9 @@ from zoneinfo import ZoneInfo
 import requests
 from telethon import TelegramClient, events
 
+from h_signal import is_h_signal, parse_h_direction
+from h_signal import normalize_h_record_message as _normalize_h_record_message
+
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
@@ -53,11 +56,6 @@ TZ = ZoneInfo("Asia/Taipei")
 
 H_WEBHOOK_ENV = "DISCORD_H_TRADE_WEBHOOK_URL"
 EF_WEBHOOK_ENV = "DISCORD_SIX_STRATEGY_WEBHOOK_URL"
-H_REQUIRED_MARKER = "浩克3V3訊號通知"
-H_POSITION_PATTERN = re.compile(
-    r"小型台指近一訊號部位為\s*[:：]\s*(?P<side>多|空)\s*"
-    r"(?P<quantity>\d+)\s*口"
-)
 EF_POSITION_PATTERN = re.compile(
     r"《策略》\s*(?P<strategy>[A-Za-z0-9]+)\s*"
     r"《倉位》\s*(?P<old>[+-]?\d+(?:\.\d+)?)\s*->\s*"
@@ -136,7 +134,7 @@ def require_env(name: str) -> str:
 
 def classify_signal(text: str) -> str | None:
     """Return the relay route for recognized signal messages."""
-    if "浩克3" in text and "訊號通知" in text:
+    if is_h_signal(text):
         return "h"
     if "訊號通知" in text and EF_POSITION_PATTERN.search(text):
         return "ef"
@@ -293,14 +291,6 @@ def _latest_ef_event_positions() -> dict[str, int]:
             if code in STRATEGY_NAMES and position is not None:
                 latest[code] = position
     return latest
-
-
-def _normalize_h_record_message(text: str) -> str:
-    match = H_POSITION_PATTERN.search(text)
-    if not match:
-        return text
-    start, end = match.span("quantity")
-    return f"{text[:start]}1{text[end:]}"
 
 
 def record_ef_signal(
@@ -484,10 +474,9 @@ def build_ef_discord_message(text: str, received_at: datetime) -> str | None:
 
 
 def record_h_trade(text: str, received_at: datetime) -> bool:
-    match = H_POSITION_PATTERN.search(text)
-    if not match:
+    target = parse_h_direction(text)
+    if target is None:
         return False
-    target = 1 if match.group("side") == "多" else -1
     previous, entry_price = _latest_h_trade()
     # H is recorded as a one-unit direction. Repeated same-direction notices
     # are receipts, not new trades.
@@ -533,10 +522,9 @@ def record_h_signal(
     received_at: datetime,
     event_key: str = "",
 ) -> bool:
-    match = H_POSITION_PATTERN.search(text)
-    if not match:
+    target = parse_h_direction(text)
+    if target is None:
         return False
-    target = 1 if match.group("side") == "多" else -1
     previous = _latest_h_event_position()
     if previous != target and not _event_key_exists(H_POSITION_EVENT_PATH, event_key):
         _append_csv(

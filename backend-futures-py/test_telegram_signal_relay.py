@@ -41,6 +41,8 @@ class TelegramSignalRelayTests(unittest.TestCase):
                     self.assertEqual([row["new_position"] for row in csv.DictReader(handle)], ["1", "-1", "0"])
 
     def test_classifies_h_signal(self):
+        from h_signal import parse_h_direction
+        self.assertIs(relay.parse_h_direction, parse_h_direction)
         self.assertEqual(classify_signal("浩克3V3訊號通知\n目前方向：多"), "h")
         self.assertEqual(classify_signal("浩克3\n訊號通知\n多3口"), "h")
 
@@ -243,6 +245,47 @@ class TelegramSignalRelayTests(unittest.TestCase):
         self.assertEqual(event_row["event_key"], "789:1011")
         self.assertEqual(event_row["new_position"], "1")
         self.assertIn("多 1 口", event_row["raw_message"])
+
+    def test_h_bs_records_direction_changes_and_ignores_quantity_and_duplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(relay, "H_TRADE_LOG_PATH", root / "trades.csv"), \
+                 patch.object(relay, "H_POSITION_EVENT_PATH", root / "positions.csv"), \
+                 patch.object(relay, "_latest_mxf_close", side_effect=[48615, 49493, 49500]):
+                stamp = datetime(2026, 10, 7, 20, 27, 33, tzinfo=ZoneInfo("Asia/Taipei"))
+                messages = [
+                    "浩克3V3訊號通知\n小型台指近一訊號部位為：多 2 口",
+                    "自動交易\n浩克3V3 交易訊號通知 (B=0 S=1)\nFrom:",
+                    "[浩克3V3 交易訊號通知 (B=0 S=8)]",
+                    "[浩克3V3 交易訊號通知 (B=5 S=0)]",
+                ]
+                for index, message in enumerate(messages):
+                    self.assertEqual(classify_signal(message), "h")
+                    self.assertTrue(relay.record_h_signal(message, stamp.replace(second=33 + index), f"h:{index}"))
+                with relay.H_TRADE_LOG_PATH.open(newline="", encoding="utf-8") as handle:
+                    trades = list(csv.DictReader(handle))
+                with relay.H_POSITION_EVENT_PATH.open(newline="", encoding="utf-8") as handle:
+                    positions = list(csv.DictReader(handle))
+        self.assertEqual([row["action"] for row in trades], ["enter", "exiting", "enter", "exiting", "enter"])
+        self.assertEqual([row["side"] for row in trades], ["bull", "bull", "bear", "bear", "bull"])
+        self.assertTrue(all(row["quantity"] == "1" for row in trades))
+        self.assertEqual(trades[1]["pnl"], "8780.0")
+        self.assertEqual(trades[3]["pnl"], "-70.0")
+        self.assertEqual([row["new_position"] for row in positions], ["1", "-1", "1"])
+        self.assertEqual(positions[1]["raw_message"], messages[1])
+
+    def test_h_bs_ignores_missing_or_ambiguous_direction(self):
+        for text in (
+            "浩克3V3 交易訊號通知 (B=0 S=0)",
+            "浩克3V3 交易訊號通知 (B=1 S=1)",
+            "浩克3V3 交易訊號通知 (B=-1 S=0)",
+            "浩克3V3 交易訊號通知 (B=1)",
+            "其他交易訊號通知 (B=1 S=0)",
+        ):
+            with self.subTest(text=text), patch.object(relay, "_append_csv") as append:
+                self.assertIsNone(relay.parse_h_direction(text))
+                self.assertFalse(relay.record_h_signal(text, datetime.now(ZoneInfo("Asia/Taipei"))))
+                append.assert_not_called()
 
 
 if __name__ == "__main__":
