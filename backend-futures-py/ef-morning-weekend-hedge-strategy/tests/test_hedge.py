@@ -233,25 +233,96 @@ class MonitorTests(unittest.TestCase):
             # A different strategy's no-change signal still reconciles to the
             # same clamped broker target while the JSON net position is 3.
             self.now += timedelta(seconds=1)
-            self.signal(-direction, 0, codes[3])
+            self.signal(0, 0, codes[3])
             m.tick()
             self.assertEqual(self.orders, [])
             self.assertIn(f"Clamp目標：{expected_position}", notices[-1])
             self.assertIn("本次預計下單：無需下單", notices[-1])
-            self.now += timedelta(seconds=1)
-            self.signal(direction, 0, codes[2])
-            m.tick()
-            self.assertEqual(self.orders, [])
-            self.now += timedelta(seconds=1)
-            self.signal(direction, 0, codes[1])
-            m.tick()
-            self.assertEqual(self.orders, [])
         self.actual = 8
         self.now = datetime(2026, 9, 15, 1, 0)
         m.tick()
         self.assertEqual(self.orders[-1], -8)
         self.assertEqual(self.actual, 0)
         self.assertIn("01:00清倉", notices[-1])
+
+    def test_source_long_exit_flattens_tracked_or_untracked_leg_and_keeps_other_longs(self):
+        for tracked in (0, 1):
+            with self.subTest(tracked=tracked):
+                m = self.monitor()
+                m.notify = Mock()
+                m.state["positions"] = dict.fromkeys(STRATEGIES, 0)
+                for code in STRATEGIES[:3]:
+                    m.state["positions"][code] = 1
+                m.state["positions"][STRATEGIES[3]] = tracked
+                self.actual = 1
+                self.orders.clear()
+                self.now += timedelta(seconds=1)
+                self.signal(1, 0, STRATEGIES[3])
+                m.tick()
+                m.tick()
+                self.assertEqual(self.orders, [-1])
+                self.assertEqual(self.actual, 0)
+                self.assertEqual([m.state["positions"][c] for c in STRATEGIES[:4]], [1, 1, 1, 0])
+                self.assertEqual(m.state["source"]["previous_position"], tracked)
+                self.assertEqual(m.state["source"]["signal_previous_position"], 1)
+                self.assertTrue(m.state["attempt"]["long_exit_signal"])
+                self.assertIn("原始1→0", m.notify.call_args.args[0])
+                self.assertIn("Clamp目標：空手", m.notify.call_args.args[0])
+
+    def test_long_exit_is_event_only_and_reentry_needs_later_signal_after_cooldown(self):
+        m = self.monitor()
+        m.state["positions"][STRATEGIES[0]] = 1
+        self.actual = 1
+        self.now += timedelta(seconds=1)
+        self.signal(1, 0, STRATEGIES[1])
+        m.tick()
+        closed_at = m.state["entry_policy"]["last_exit_at"]
+        m = self.monitor()
+        self.assertEqual(m.state["entry_policy"]["last_exit_at"], closed_at)
+        self.now += timedelta(minutes=14)
+        self.signal(0, 1, STRATEGIES[2])
+        m.tick()
+        self.assertEqual(self.orders, [-1])
+        self.now += timedelta(minutes=1)
+        m.tick()  # Expiry alone must not reopen the retained longs.
+        self.assertEqual(self.orders, [-1])
+        self.signal(0, 1, STRATEGIES[3])
+        m.tick()
+        self.assertEqual(self.orders, [-1, 1])
+
+    def test_long_exit_while_broker_flat_does_not_open_retained_longs(self):
+        m = self.monitor()
+        m.state["positions"][STRATEGIES[0]] = 1
+        self.now += timedelta(seconds=1)
+        self.signal(1, 0, STRATEGIES[1])
+        m.tick()
+        self.assertEqual(self.orders, [])
+        self.assertEqual(self.actual, 0)
+        self.assertEqual(m.state["positions"][STRATEGIES[0]], 1)
+        self.assertIsNone(m.state["entry_policy"].get("last_exit_at"))
+
+    def test_long_exit_preserves_short_target_and_short_exit_preserves_long_target(self):
+        m = self.monitor()
+        for direction in (-1, 1):
+            m.state["positions"] = dict.fromkeys(STRATEGIES, 0)
+            m.state["positions"][STRATEGIES[0]] = direction
+            self.actual = direction
+            self.now += timedelta(seconds=1)
+            self.signal(-direction, 0, STRATEGIES[1])
+            m.tick()
+            self.assertEqual(self.actual, direction)
+        self.assertEqual(self.orders, [])
+
+    def test_long_exit_after_cutoff_closes_all_configured_units(self):
+        with patch.dict(os.environ, {"EF_MORNING_WEEKEND_HEDGE_UNIT": "2"}):
+            m = self.monitor()
+            m.state["positions"][STRATEGIES[0]] = 1
+            self.actual = 2
+            self.now = self.now.replace(hour=22, minute=30)
+            self.signal(1, 0, STRATEGIES[1])
+            m.tick()
+        self.assertEqual(self.orders, [-2])
+        self.assertEqual(self.actual, 0)
 
     def test_positive_net_after_direct_reversal_clamps_to_one_long(self):
         m = self.monitor()
@@ -622,7 +693,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(sum("永豐2｜EF訊號與帳戶調整" in msg for msg in messages), 2)
         self.assertEqual(m.state["positions"]["CFC07m"], 0)
         self.assertEqual(m.state["positions"]["CFCTX16m"], 0)
-        self.assertEqual(self.orders, [1, -1])
+        self.assertEqual(self.orders, [])
 
     def test_zero_delta_signal_notifies_once(self):
         m = self.monitor()
@@ -1112,6 +1183,29 @@ class BrokerTests(unittest.TestCase):
 
 
 class BacktestTests(unittest.TestCase):
+    def test_source_long_exit_matches_monitor_with_next_open_and_cooldown(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            signals, prices = root / "signals.csv", root / "prices.csv"
+            signals.write_text("received_at,strategy_code,previous_position,new_position\n"
+                "2026-09-14 09:00:00,CFC07m,0,1\n"
+                "2026-09-14 09:01:00,CFCTX17m,0,1\n"
+                "2026-09-14 09:02:00,CFCTX18m,1,0\n"
+                "2026-09-14 09:17:00,CFCTX19m,0,1\n"
+                "2026-09-14 09:18:00,CFCTX20m,0,1\n")
+            prices.write_text("Symbol,TradingView Time,Record Time,Open\n"
+                "MXF1!,2026-09-14 09:01:00,2026-09-14 09:01:00,100\n"
+                "MXF1!,2026-09-14 09:03:00,2026-09-14 09:03:00,110\n"
+                "MXF1!,2026-09-14 09:19:00,2026-09-14 09:19:00,120\n"
+                "MXF1!,2026-09-15 01:00:00,2026-09-15 01:00:00,130\n")
+            result = run(signals, prices, Calendar.load(BASE / "config/calendar.json"),
+                         datetime(2026, 9, 14, 8, 45), datetime(2026, 9, 15, 2))
+            self.assertEqual([r["target"] for r in result["ledger"]], [1, 0, 1, 0])
+            self.assertEqual(result["ledger"][1]["kind"], "CFCTX18m")
+            self.assertEqual(result["ledger"][2]["fill_time"], "2026-09-14T09:19:00")
+            self.assertEqual(result["post_exit_cooldown_minutes"], 15)
+            self.assertEqual(result["net_twd"], 120)  # 20 gross - 4 one-way fills * 2.
+
     def test_zero_to_long_veto_flattens_short_and_reenters_after_exit(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

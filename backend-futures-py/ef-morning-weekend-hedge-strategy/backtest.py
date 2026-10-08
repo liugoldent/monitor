@@ -5,8 +5,8 @@ import json
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
-from strategy import Calendar, STRATEGIES, clamped_target_direction, integer
-from entry_policy import VERSION, entry_target
+from strategy import Calendar, STRATEGIES, signal_target_direction, integer
+from entry_policy import COOLDOWN_MINUTES, VERSION, entry_target
 
 BASE = Path(__file__).resolve().parent
 
@@ -36,19 +36,20 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             if time(1, 0) <= stamp.time() < time(8, 45):
                 continue
             target = integer(row["new_position"])
-            if target not in {-1, 0, 1}:
+            previous = integer(row.get("previous_position") or 0)
+            if target not in {-1, 0, 1} or previous not in {-1, 0, 1}:
                 raise ValueError("EF 訊號部位超出 -1/0/1")
-            events.append((stamp, index, code, target))
+            events.append((stamp, index, code, previous, target))
     day = start.date()
     while day <= end.date():
         closure = calendar.closure(day)
         if closure and start <= closure.start < end:
-            events.append((closure.start, -1, "flat", 0))
+            events.append((closure.start, -1, "flat", 0, 0))
         day += timedelta(days=1)
     legs = dict.fromkeys(STRATEGIES, 0)
     position, cash, ledger = 0, 0.0, []
     last_exit, trading_day = None, None
-    for stamp, _, code, new in sorted(events):
+    for stamp, _, code, previous, new in sorted(events):
         cycle_day = stamp.date() if stamp.time() >= time(8, 45) else stamp.date() - timedelta(days=1)
         if cycle_day != trading_day:
             last_exit, trading_day = None, cycle_day
@@ -58,7 +59,7 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
         else:
             legs[code] = new
             fill = stamp.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        target = clamped_target_direction(legs) * unit
+        target = signal_target_direction(legs, previous, new) * unit
         if code != "flat":
             target, _ = entry_target(target, position, stamp, last_exit)
         if target == position:
@@ -83,8 +84,9 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             "price_proxy": "MXF1! next-minute Open; flat exact 01:00 Open; not TMF fills",
             "single_side_cost_points": cost, "source_unit": unit,
             "base_position_limit": 1, "position_limit_policy": "clamp_sign_active_opposition_veto",
+            "long_exit_policy": "source_1_to_0_suppresses_long_for_this_event",
             "entry_policy": VERSION, "entry_cutoff_taipei": "22:00",
-            "post_exit_cooldown_minutes": 60,
+            "post_exit_cooldown_minutes": COOLDOWN_MINUTES,
             "net_twd": (cash + position * mark) * 10,
             "ending_position": position, "ending_mark": mark, "ledger": ledger}
 

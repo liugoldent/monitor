@@ -32,6 +32,17 @@ def clamped_target_direction(positions: dict[str, int]) -> int:
     return 0
 
 
+def is_long_exit_signal(previous: int, new: int) -> bool:
+    """Use the source transition, including exits from locally untracked legs."""
+    return previous == 1 and new == 0
+
+
+def signal_target_direction(positions: dict[str, int], previous: int, new: int) -> int:
+    """A source long exit suppresses this event's long target, without a latch."""
+    target = clamped_target_direction(positions)
+    return 0 if target > 0 and is_long_exit_signal(previous, new) else target
+
+
 def integer(value: object) -> int:
     if isinstance(value, bool):
         raise ValueError("口數不能是布林值")

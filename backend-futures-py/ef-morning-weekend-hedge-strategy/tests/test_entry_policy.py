@@ -40,8 +40,8 @@ class EntryGateTests(unittest.TestCase):
     def test_cooldown_boundary_shared_by_long_and_short(self):
         exit_at = datetime(2026, 9, 14, 19, 20, 8)
         for side in (-1, 1):
-            self.assertEqual(entry_target(side, 0, exit_at + timedelta(minutes=60, seconds=-1), exit_at)[0], 0)
-            self.assertEqual(entry_target(side, 0, exit_at + timedelta(minutes=60), exit_at)[0], side)
+            self.assertEqual(entry_target(side, 0, exit_at + timedelta(minutes=15, seconds=-1), exit_at)[0], 0)
+            self.assertEqual(entry_target(side, 0, exit_at + timedelta(minutes=15), exit_at)[0], side)
         self.assertEqual(entry_target(-1, 1, exit_at, None)[0], -1)
 
     def test_full_close_requires_enough_actual_fills_and_valid_times(self):
@@ -122,18 +122,35 @@ class EntryPolicyMonitorTests(unittest.TestCase):
         self.signal(1, 0)
         m.tick()
         closed_at = self.now
-        self.now += timedelta(minutes=30)
+        self.now += timedelta(minutes=14)
         m = self.monitor()
         self.signal(0, -1)
         m.tick()
         self.assertEqual(self.orders, [1, -1])
         self.assertEqual(m.state["entry_policy"]["last_exit_at"], closed_at.isoformat())
-        self.now = closed_at + timedelta(minutes=60)
+        self.now = closed_at + timedelta(minutes=15)
         m.tick()
         self.assertEqual(self.orders, [1, -1])  # Expiration has no side effects.
         self.signal(-1, -1)
         m.tick()
         self.assertEqual(self.orders, [1, -1, -1])
+
+    def test_v9_cooldown_upgrade_preserves_exit_time_and_positions_without_new_wait(self):
+        m = self.monitor()
+        exited_at = self.now - timedelta(minutes=16)
+        m.state["entry_policy"]["last_exit_at"] = exited_at.isoformat()
+        m.state["entry_policy"]["last_exit_basis"] = "broker_fill"
+        m.state["positions"]["CFC07m"] = 1
+        m.persist()
+        restarted = self.monitor()
+        self.assertEqual(restarted.state["schema_version"], 9)
+        self.assertEqual(restarted.state["entry_policy"]["last_exit_at"], exited_at.isoformat())
+        self.assertEqual(restarted.state["positions"]["CFC07m"], 1)
+        self.execute.assert_not_called()
+        self.now += timedelta(seconds=1)
+        self.signal(0, 1, "CFCTX17m")
+        restarted.tick()
+        self.assertEqual(self.orders, [1])
 
     def test_atomic_reversal_kept_but_following_reversal_obeys_cooldown(self):
         m = self.monitor()
@@ -185,11 +202,11 @@ class EntryPolicyMonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(m.state["entry_policy"]["last_exit_at"], filled_at.isoformat())
         self.assertNotEqual(submitted_at, filled_at)
-        self.now = submitted_at + timedelta(minutes=60)
+        self.now = submitted_at + timedelta(minutes=15)
         self.signal(0, -1)
         m.tick()
         self.assertEqual(self.orders, [])
-        self.now = filled_at + timedelta(minutes=60)
+        self.now = filled_at + timedelta(minutes=15)
         self.signal(-1, -1)
         m.tick()
         self.assertEqual(self.orders, [-1])
@@ -198,7 +215,7 @@ class EntryPolicyMonitorTests(unittest.TestCase):
         m = self.monitor()
         self.pending_exit(m)
         self.actual = 0
-        self.now += timedelta(minutes=65)
+        self.now += timedelta(minutes=20)
         m = self.monitor()
         m.exit_reader = Mock(side_effect=TimeoutError())
         self.execute.side_effect = self.broker

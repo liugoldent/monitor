@@ -18,9 +18,10 @@ from filelock import FileLock
 from auto_trade import (BROKER_SIMULATION, broker_error_summary, check_startup_broker, confirm_flat,
                         execute_target_position, initialize_broker_session,
                         log_attribute_error, read_exit_status)
-from entry_policy import VERSION, TERMINAL, entry_target, full_close_time
+from entry_policy import COOLDOWN_MINUTES, VERSION, TERMINAL, entry_target, full_close_time
 from strategy import (Calendar, STRATEGIES, active_veto_strategies,
-                      clamped_target_direction, integer, latest_closure, pure_position)
+                      integer, is_long_exit_signal,
+                      latest_closure, pure_position, signal_target_direction)
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
@@ -293,7 +294,9 @@ class Monitor:
         base_net = sum(self.state["positions"].values()) if step is not None else 0
         long_vetoes, short_vetoes = (active_veto_strategies(self.state["positions"])
                                       if step is not None else ([], []))
-        base_target = clamped_target_direction(self.state["positions"]) if step is not None else 0
+        base_target = (signal_target_direction(self.state["positions"],
+                       step["signal_previous_position"], step["new_position"])
+                       if step is not None else 0)
         target = (self.state.get("attempt", {}).get("target_position", base_target * position_unit())
                   if step is not None else 0)
         position = f"{'多' if target > 0 else '空'}{abs(target)}口" if target else "空手（0口）"
@@ -445,6 +448,9 @@ class Monitor:
         attempt = {"key": key, "id": uuid.uuid4().hex, "status": "attempted",
                    "target_position": target, "raw_target_position": target,
                    "at": self.clock().isoformat()}
+        if step is not None:
+            attempt["long_exit_signal"] = is_long_exit_signal(
+                step["signal_previous_position"], step["new_position"])
         self.state["attempt"] = attempt
         if step is not None:
             # Commit intent, position and cursor atomically BEFORE broker side effects.
@@ -558,10 +564,12 @@ class Monitor:
         effective_target = attempt["target_position"]
         gate_text = (f"進場限制：{attempt['entry_block_reason']}\n"
                      if attempt.get("entry_block_reason") else "")
+        exit_text = ("出場規則：原始1→0訊號，本筆不持多；其餘策略追蹤部位保留。\n"
+                     if attempt.get("long_exit_signal") else "")
         self.notify(self.target_heading(step) + f"{heading}\n{source_text}"
                     f"目前券商庫存：{current_text}\n"
                     f"本次預計下單：{planned}\n"
-                    f"帳戶目標口數：{position_text(effective_target)}\n{gate_text}"
+                    f"帳戶目標口數：{position_text(effective_target)}\n{exit_text}{gate_text}"
                     f"送單結果：{detail}\n觸發：{key}")
         return True
 
@@ -618,7 +626,8 @@ class Monitor:
             step["previous_position"] = self.state["positions"][step["strategy_code"]]
             projected_positions = self.state["positions"].copy()
             projected_positions[step["strategy_code"]] = step["new_position"]
-            clamped_direction = clamped_target_direction(projected_positions)
+            clamped_direction = signal_target_direction(
+                projected_positions, step["signal_previous_position"], step["new_position"])
             target = clamped_direction * position_unit()
             key = f"signal/{step['last_signal']}"
             projected_vetoes, projected_short_vetoes = active_veto_strategies(projected_positions)
@@ -670,10 +679,11 @@ def main():
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
             f"版本：{VERSION}；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
             "13策略淨方向採Clamp；任何目前-1否決多單，任何目前+1否決空單。\n"
+            "任一策略原始1→0訊號：本筆多單目標歸零，其餘追蹤部位保留，不鎖死整天。\n"
             f"目前U={position_unit()}；最終目標口數＝否決後方向×U。\n"
             f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"
             "每筆新訊號：查券商TMF庫存，下單口數＝最終目標口數−目前庫存。\n"
-            "新進場只接受08:45～22:00前收到的訊號；平倉成交後多空共用冷卻60分鐘，重啟延續。\n"
+            f"新進場只接受08:45～22:00前收到的訊號；平倉成交後多空共用冷卻{COOLDOWN_MINUTES}分鐘，重啟延續。\n"
             "22:00不強制平倉；原出場條件及01:00清倉保留，冷卻到期不自動進場。\n"
             "每日08:35查券商庫存；05:05確認空手，未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "01:00清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
