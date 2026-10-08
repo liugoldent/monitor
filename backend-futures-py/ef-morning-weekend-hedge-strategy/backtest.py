@@ -6,6 +6,7 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from strategy import Calendar, STRATEGIES, clamped_target_direction, integer
+from entry_policy import VERSION, entry_target
 
 BASE = Path(__file__).resolve().parent
 
@@ -46,7 +47,11 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
         day += timedelta(days=1)
     legs = dict.fromkeys(STRATEGIES, 0)
     position, cash, ledger = 0, 0.0, []
+    last_exit, trading_day = None, None
     for stamp, _, code, new in sorted(events):
+        cycle_day = stamp.date() if stamp.time() >= time(8, 45) else stamp.date() - timedelta(days=1)
+        if cycle_day != trading_day:
+            last_exit, trading_day = None, cycle_day
         if code == "flat":
             legs = dict.fromkeys(STRATEGIES, 0)
             fill = stamp
@@ -54,6 +59,8 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             legs[code] = new
             fill = stamp.replace(second=0, microsecond=0) + timedelta(minutes=1)
         target = clamped_target_direction(legs) * unit
+        if code != "flat":
+            target, _ = entry_target(target, position, stamp, last_exit)
         if target == position:
             continue
         if fill >= end:
@@ -65,6 +72,8 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
         cash -= delta * price + abs(delta) * cost
         ledger.append({"signal_time": stamp.isoformat(), "fill_time": fill.isoformat(),
                        "kind": code, "previous": position, "target": target, "price": price})
+        if position and position * target <= 0:
+            last_exit = fill
         position = target
     marks = [stamp for stamp in bars if start <= stamp < end]
     if position and not marks:
@@ -74,6 +83,8 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             "price_proxy": "MXF1! next-minute Open; flat exact 01:00 Open; not TMF fills",
             "single_side_cost_points": cost, "source_unit": unit,
             "base_position_limit": 1, "position_limit_policy": "clamp_sign_active_opposition_veto",
+            "entry_policy": VERSION, "entry_cutoff_taipei": "22:00",
+            "post_exit_cooldown_minutes": 60,
             "net_twd": (cash + position * mark) * 10,
             "ending_position": position, "ending_mark": mark, "ledger": ledger}
 

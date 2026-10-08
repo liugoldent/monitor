@@ -9,6 +9,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
 
+from entry_policy import TERMINAL, full_close_time
+
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 from ef_trade_runtime import check_order_deadline
@@ -108,9 +110,45 @@ def confirm_flat(*, api: Any = None, sj: Any = None) -> bool:
                    and _shared._position_quantity(p) for p in positions)
 
 
+def read_exit_status(watches: list[dict], *, clock: Callable[[], datetime], api: Any = None):
+    """Read-only close evidence. Never cancel, resend or wait for an order to fill."""
+    api = api if api is not None else initialize_broker_session()
+    api.update_status(api.futopt_account, timeout=1000)
+    trades = api.list_trades()
+    if not isinstance(trades, list):
+        raise BrokerOrderError("平倉成交查詢未回傳有效清單")
+    positions = _shared._read_positions(api)
+    actual = _shared._net_position(positions)
+    now, results = clock(), []
+    for watch in watches:
+        matches = [trade for trade in trades if watch.get("trade_id")
+                   and _shared._trade_id(trade) == watch["trade_id"]]
+        trade = matches[0] if len(matches) == 1 else None
+        closed_at = full_close_time(trade, watch, now) if trade is not None else None
+        status = _shared._status_text(trade).lower() if trade is not None else ""
+        filled = _deal_quantity(trade) if trade is not None else None
+        resolved = False
+        basis = "broker_fill" if closed_at else ""
+        if closed_at is not None:
+            resolved = status in TERMINAL
+        elif actual * watch["before"] <= 0:
+            # A flat/opposite inventory proves the old side has closed. Require
+            # no working TMF orders before retiring an uncertain order watch.
+            _shared.validate_tmf_account(api, positions)
+            closed_at, basis, resolved = now, "inventory_confirmation", True
+        elif status in TERMINAL and filled is not None:
+            expected = watch["before"] + (1 if watch["side"] == "buy" else -1) * filled
+            resolved = expected == actual and filled < abs(watch["before"])
+        results.append(dict(id=watch["id"], resolved=resolved, basis=basis,
+                            closed_at=closed_at.isoformat() if closed_at else None,
+                            actual_position=actual, observed_at=now.isoformat()))
+    return results
+
+
 def execute_target_position(target: int, *, deadline: datetime,
                             clock: Callable[[], datetime], api: Any = None,
-                            sj: Any = None, on_prepared=None, on_submitted=None):
+                            sj: Any = None, on_prepared=None, on_submitted=None,
+                            target_filter=None):
     """Read current TMF inventory and submit the difference to one final target."""
     if isinstance(target, bool) or not isinstance(target, int):
         raise ValueError(f"最終目標口數必須是整數，目前為 {target!r}")
@@ -124,6 +162,10 @@ def execute_target_position(target: int, *, deadline: datetime,
     try:
         check_order_deadline(deadline, clock, BrokerOrderError)
         before_position = _shared.current_tmf_position(api)
+        if target_filter is not None:
+            target = target_filter(before_position, clock())
+            if isinstance(target, bool) or not isinstance(target, int):
+                raise ValueError("進場過濾後目標口數必須是整數")
         delta = target - before_position
         if abs(delta) > 40:
             raise BrokerOrderError(

@@ -286,7 +286,7 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(self.orders, [1, -1])
         self.assertEqual(sum(m.state["positions"].values()), 2)
-        self.now += timedelta(seconds=1)
+        self.now += timedelta(minutes=60)
         self.signal(-1, 0, "CFCTX17m")
         m.tick()
         self.assertEqual(self.orders, [1, -1, 1])
@@ -313,7 +313,7 @@ class MonitorTests(unittest.TestCase):
         m.tick()
         self.assertEqual(self.orders, [-1, 1])
         self.assertEqual(sum(m.state["positions"].values()), -2)
-        self.now += timedelta(seconds=1)
+        self.now += timedelta(minutes=60)
         self.signal(1, 0, "CFCTX17m")
         m.tick()
         self.assertEqual(self.orders, [-1, 1, -1])
@@ -375,7 +375,7 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 8)
+        self.assertEqual(restarted.state["schema_version"], 9)
 
     def test_upgrade_v6_long_is_conservatively_short_vetoed(self):
         m = self.monitor()
@@ -385,7 +385,7 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 8)
+        self.assertEqual(restarted.state["schema_version"], 9)
 
     def test_upgrade_v7_rebuilds_transition_veto_lists_from_positions(self):
         m = self.monitor()
@@ -398,7 +398,7 @@ class MonitorTests(unittest.TestCase):
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFC07m"])
         self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 8)
+        self.assertEqual(restarted.state["schema_version"], 9)
 
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
@@ -444,7 +444,7 @@ class MonitorTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.now = datetime(2026, 9, 14, 22, 30)
+        self.now = datetime(2026, 9, 14, 19, 30)
         self.signals = self.root / "signals.csv"
         self.signals.write_text("received_at,strategy_code,previous_position,new_position\n")
         env = patch.dict(os.environ, {"EF_HEDGE_SIGNAL_CSV": str(self.signals)}, clear=True)
@@ -454,25 +454,44 @@ class MonitorTests(unittest.TestCase):
         self.orders = []
         self.fail_after_fill = False
         self.execute = Mock(side_effect=self.broker)
+        # Unit tests must never initialize the native broker just to perform
+        # the unrelated scheduled inventory notification.
+        daily = patch.object(monitor, "check_daily_inventory")
+        daily.start()
+        self.addCleanup(daily.stop)
 
     def broker(self, target, **kwargs):
         previous = self.actual
         state = json.loads((self.root / "runtime/live_state.json").read_text())
         self.assertEqual(state["attempt"]["status"], "attempted")
+        target = kwargs["target_filter"](previous, self.now)
         quantity = abs(target - previous)
+        side = "buy" if target > previous else "sell" if target < previous else None
+        kwargs["on_prepared"](dict(broker_before_position=previous, target_position=target,
+                                    broker_quantity=quantity, broker_side=side,
+                                    broker_request_at=self.now.isoformat()))
         if quantity:
             self.orders.append(target - previous)
         self.actual = target
         if self.fail_after_fill:
             self.fail_after_fill = False
             raise auto_trade.BrokerOrderError("filled but response lost")
-        return NS(quantity=quantity, submitted=bool(quantity),
-                  side="buy" if target > previous else "sell" if target < previous else None,
-                  previous_position=previous, target_position=target)
+        from zoneinfo import ZoneInfo
+        trade = NS(status=NS(deals=[NS(quantity=quantity,
+                                      ts=self.now.replace(tzinfo=ZoneInfo("Asia/Taipei")).timestamp())]))
+        result = NS(quantity=quantity, submitted=bool(quantity), side=side,
+                    previous_position=previous, target_position=target,
+                    broker_status="Filled", trade=trade)
+        kwargs["on_submitted"](result)
+        return result
 
     def monitor(self):
         return Monitor(root=self.root, live=True, executor=self.execute, clock=lambda: self.now,
-                       flat_checker=lambda: self.actual == 0)
+                       flat_checker=lambda: self.actual == 0,
+                       exit_reader=lambda watches: [dict(id=w["id"], resolved=True,
+                           closed_at=self.now.isoformat() if self.actual * w["before"] <= 0 else None,
+                           basis="inventory_confirmation", actual_position=self.actual,
+                           observed_at=self.now.isoformat()) for w in watches])
 
     def signal(self, previous, new, code="CFC07m", stamp=None):
         with self.signals.open("a") as f:
@@ -551,15 +570,17 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.orders, [1])
         self.assertEqual(self.actual, 1)
 
-    def test_six_transitions_and_batch_not_collapsed(self):
+    def test_batch_consumed_and_cooldown_does_not_replay_blocked_entries(self):
         m = self.monitor()
         for previous, new in ((0, 1), (1, 0), (0, -1), (-1, 0), (0, 1), (1, -1), (-1, 1)):
             self.now += timedelta(seconds=1)
             self.signal(previous, new)
         m.tick()
-        self.assertEqual(self.orders, [1, -1, -1, 1, 1, -2, 2])
+        self.assertEqual(self.orders, [1, -1])
+        self.assertEqual(m.state["positions"]["CFC07m"], 1)
+        self.assertTrue(m.state["source"]["last_signal"].endswith("/6"))
         m.tick()
-        self.assertEqual(len(self.orders), 7)
+        self.assertEqual(len(self.orders), 2)
 
     def test_first_daily_reverse_opens_only_one_contract(self):
         m = self.monitor()
@@ -647,14 +668,14 @@ class MonitorTests(unittest.TestCase):
         m = self.monitor()
         self.signal(1, -1)
         m.tick()
-        self.assertEqual(self.orders, [1, -2])
+        self.assertEqual(self.orders, [1, -1])
         self.assertEqual(m.state["trading_day"], "2026-09-15")
         self.now = datetime(2026, 9, 16, 8, 45)
         self.actual = 0  # Broker confirms the prior session was flattened.
         m = self.monitor()
         self.signal(-1, 0)
         m.tick()
-        self.assertEqual(self.orders, [1, -2])
+        self.assertEqual(self.orders, [1, -1])
         self.assertEqual(m.state["trading_day"], "2026-09-16")
 
     def test_restart_after_submission_before_source_checkpoint_no_duplicate(self):
@@ -847,7 +868,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_flat_overrides_failed_entry_wait(self):
         m = self.monitor()
-        self.now = datetime(2026, 9, 15, 0, 59, 59)
+        self.now = datetime(2026, 9, 14, 21, 59, 59)
         self.signal(0, 1)
         self.fail_after_fill = True
         m.tick()
@@ -890,6 +911,8 @@ class MonitorTests(unittest.TestCase):
 
     def test_batch_does_not_cross_flat_boundary(self):
         m = self.monitor()
+        self.signal(0, 1)
+        m.tick()
         self.now = datetime(2026, 9, 15, 0, 59, 59)
         for code in ("CFC07m", "CFCTX16m"):
             self.signal(0, 1, code)
@@ -1097,11 +1120,12 @@ class BacktestTests(unittest.TestCase):
                 "2026-09-14 09:00:00,CFC07m,-1\n"
                 "2026-09-14 09:01:00,CFCTX16m,-1\n"
                 "2026-09-14 09:02:00,CFCTX17m,1\n"
-                "2026-09-14 09:03:00,CFCTX17m,0\n")
+                "2026-09-14 09:03:00,CFCTX17m,0\n"
+                "2026-09-14 10:03:00,CFCTX17m,0\n")
             prices.write_text("Symbol,TradingView Time,Record Time,Open\n"
                 "MXF1!,2026-09-14 09:01:00,2026-09-14 09:02:00,100\n"
                 "MXF1!,2026-09-14 09:03:00,2026-09-14 09:04:00,98\n"
-                "MXF1!,2026-09-14 09:04:00,2026-09-14 09:05:00,97\n"
+                "MXF1!,2026-09-14 10:04:00,2026-09-14 10:05:00,97\n"
                 "MXF1!,2026-09-15 01:00:00,2026-09-15 01:01:00,96\n")
             result = run(signals, prices, Calendar.load(BASE / "config/calendar.json"),
                          datetime(2026, 9, 14, 8, 45), datetime(2026, 9, 15, 2))
@@ -1112,15 +1136,15 @@ class BacktestTests(unittest.TestCase):
             root = Path(folder)
             signals, prices = root / "signals.csv", root / "prices.csv"
             signals.write_text("received_at,strategy_code,new_position\n"
-                "2026-09-14 23:00:00,CFC07m,1\n"
+                "2026-09-14 21:00:00,CFC07m,1\n"
                 "2026-09-15 05:30:00,CFCTX17m,1\n"
                 "2026-09-15 08:46:00,CFCTX18m,-1\n")
             prices.write_text("Symbol,TradingView Time,Record Time,Open\n"
-                "MXF1!,2026-09-14 23:01:00,2026-09-14 23:02:00,10000\n"
+                "MXF1!,2026-09-14 21:01:00,2026-09-14 21:02:00,10000\n"
                 "MXF1!,2026-09-15 01:00:00,2026-09-15 05:00:00,10100\n"
                 "MXF1!,2026-09-15 08:47:00,2026-09-15 08:48:00,10200\n")
             args = (signals, prices, Calendar.load(BASE / "config/calendar.json"),
-                    datetime(2026, 9, 14, 22), datetime(2026, 9, 15, 9))
+                    datetime(2026, 9, 14, 20), datetime(2026, 9, 15, 9))
             result = run(*args)
             self.assertEqual([row["target"] for row in result["ledger"]], [1, 0, -1])
             self.assertEqual(result["net_twd"], 940)

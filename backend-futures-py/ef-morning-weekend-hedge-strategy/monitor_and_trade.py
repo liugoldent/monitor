@@ -17,7 +17,8 @@ from filelock import FileLock
 
 from auto_trade import (BROKER_SIMULATION, broker_error_summary, check_startup_broker, confirm_flat,
                         execute_target_position, initialize_broker_session,
-                        log_attribute_error)
+                        log_attribute_error, read_exit_status)
+from entry_policy import VERSION, TERMINAL, entry_target, full_close_time
 from strategy import (Calendar, STRATEGIES, active_veto_strategies,
                       clamped_target_direction, integer, latest_closure, pure_position)
 
@@ -187,7 +188,8 @@ def order_text(side: str | None, quantity: int) -> str:
 
 class Monitor:
     def __init__(self, *, root=BASE, live=False, source=None, executor=None,
-                 notify=None, clock=now_local, calendar_path=None, flat_checker=None):
+                 notify=None, clock=now_local, calendar_path=None, flat_checker=None,
+                 exit_reader=None):
         self.root, self.live, self.clock = Path(root), live, clock
         self.mode = "live" if live else "shadow"
         self.path = self.root / "runtime" / f"{self.mode}_state.json"
@@ -195,6 +197,7 @@ class Monitor:
         self.calendar_path = Path(calendar_path or os.getenv("EF_HEDGE_CALENDAR_PATH")
                                   or BASE / "config/calendar.json")
         self.state = json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
+        had_saved_state = bool(self.state)
         if self.state and self.state.get("mode") != self.mode:
             raise ValueError("實單與模擬狀態不可混用")
         if self.state and self.state.get("strategy") != "pure_ef_morning_flat_v1":
@@ -230,7 +233,23 @@ class Monitor:
         # A direct 1 -> -1 or -1 -> 1 reversal now vetoes the opposing side.
         (self.state["long_veto_strategies"],
          self.state["short_veto_strategies"]) = active_veto_strategies(self.state["positions"])
-        self.state["schema_version"] = 8
+        legacy_policy = had_saved_state and "entry_policy" not in self.state
+        self.state.setdefault("entry_policy", {"pending_exits": []})
+        if legacy_policy:
+            self.state["entry_policy"]["initial_inventory_check"] = True
+        # Recover a possibly unconfirmed close from the latest pre-upgrade
+        # submission; never use the old requested target as proof of a fill.
+        if self.state.get("schema_version", 0) < 9:
+            old = self.state.get("attempt", {})
+            before, target = old.get("broker_before_position"), old.get("target_position")
+            if (isinstance(before, int) and before and isinstance(target, int)
+                    and before * target <= 0 and old.get("at")
+                    and (closure is None or datetime.fromisoformat(old["at"]) >= closure.reopen)):
+                self.state["entry_policy"]["pending_exits"] = [
+                    dict(id=old.get("id") or old["key"], before=before, at=old["at"],
+                         side="sell" if before > 0 else "buy",
+                         trade_id=old.get("broker_trade_id", ""))]
+        self.state["schema_version"] = 9
         if self.state.get("attempt", {}).get("status") == "attempted":
             self.state["attempt"]["status"] = "interrupted_no_retry"
             self.state["attempt"]["interrupted_at"] = started.isoformat()
@@ -253,6 +272,9 @@ class Monitor:
         self.persist()
         self.source = source or self.read_source
         self.execute = executor or execute_target_position
+        self.exit_reader = exit_reader or (
+            lambda watches: read_exit_status(watches, clock=self.clock))
+        self.next_exit_check = None
         self.notify = notify or (lambda message: None)
         self.last_alert = None
 
@@ -272,7 +294,8 @@ class Monitor:
         long_vetoes, short_vetoes = (active_veto_strategies(self.state["positions"])
                                       if step is not None else ([], []))
         base_target = clamped_target_direction(self.state["positions"]) if step is not None else 0
-        target = base_target * position_unit()
+        target = (self.state.get("attempt", {}).get("target_position", base_target * position_unit())
+                  if step is not None else 0)
         position = f"{'多' if target > 0 else '空'}{abs(target)}口" if target else "空手（0口）"
         return (f"[13策略淨方向：{base_net:+d}｜Clamp目標：{position}"
                 f"｜目前-1空方否決：{','.join(long_vetoes) if long_vetoes else '無'}"
@@ -294,6 +317,49 @@ class Monitor:
             self.event("alert", message=message)
             self.notify(f"[純 EF 01:00 清倉/{self.mode}] {message}")
             self.last_alert = message
+
+    def record_exit(self, stamp: datetime, basis: str):
+        policy = self.state["entry_policy"]
+        previous = policy.get("last_exit_at")
+        if previous is None or stamp > datetime.fromisoformat(previous):
+            policy["last_exit_at"] = stamp.isoformat()
+            policy["last_exit_basis"] = basis
+
+    def observe_inventory(self, actual: int, stamp: datetime):
+        policy = self.state["entry_policy"]
+        # One-time upgrade: old schemas did not persist the last close. If the
+        # account is flat, conservatively start from the first flat observation
+        # instead of inventing an earlier execution time. Fresh installs don't
+        # have this migration flag, and restarts of v9 never set it again.
+        if (policy.pop("initial_inventory_check", False) and actual == 0
+                and not policy.get("last_exit_at")):
+            self.record_exit(stamp, "upgrade_flat_confirmation")
+        previous = policy.get("observed_position", 0)
+        observed_at, exited_at = policy.get("observed_at"), policy.get("last_exit_at")
+        if (previous and previous * actual <= 0 and observed_at
+                and (not exited_at or datetime.fromisoformat(exited_at) < datetime.fromisoformat(observed_at))):
+            self.record_exit(stamp, "inventory_confirmation")
+        policy["observed_position"], policy["observed_at"] = actual, stamp.isoformat()
+
+    def refresh_exit_status(self):
+        policy = self.state["entry_policy"]
+        watches = policy["pending_exits"]
+        if not self.live or not watches or (self.next_exit_check and self.clock() < self.next_exit_check):
+            return
+        self.next_exit_check = self.clock() + timedelta(seconds=5)
+        try:
+            observations = self.exit_reader([watch.copy() for watch in watches])
+            for item in observations:
+                if not any(watch["id"] == item["id"] for watch in watches):
+                    continue
+                if item.get("closed_at"):
+                    self.record_exit(datetime.fromisoformat(item["closed_at"]), item["basis"])
+                if item["resolved"]:
+                    watches[:] = [watch for watch in watches if watch["id"] != item["id"]]
+                self.observe_inventory(item["actual_position"], datetime.fromisoformat(item["observed_at"]))
+            self.persist()
+        except Exception as exc:
+            self.alert(f"平倉成交尚未確認（{type(exc).__name__}）；保留出場，暫停新進場，不重送前筆委託")
 
     def read_source(self, now: datetime) -> dict:
         calendar = Calendar.load(self.calendar_path)
@@ -356,6 +422,9 @@ class Monitor:
                 self.state["attempt"]["status"] = "resolved_by_confirmed_flat" if confirmed else "manual_flat_required"
         if confirmed:
             self.state.pop("manual_flat_required", None)
+            # New session starts without yesterday's entry gate, only after
+            # the existing reset has confirmed the broker is flat.
+            self.state["entry_policy"] = {"pending_exits": []}
         self.state.pop("reset_check_after", None)
         self.persist()
         self.event("daily_reset", previous_positions=previous, cycle=cycle, confirmed_flat=confirmed)
@@ -374,7 +443,8 @@ class Monitor:
         if key.endswith("/flat") and self.state.get("last_flat_attempt") == key:
             return True
         attempt = {"key": key, "id": uuid.uuid4().hex, "status": "attempted",
-                   "target_position": target, "at": self.clock().isoformat()}
+                   "target_position": target, "raw_target_position": target,
+                   "at": self.clock().isoformat()}
         self.state["attempt"] = attempt
         if step is not None:
             # Commit intent, position and cursor atomically BEFORE broker side effects.
@@ -393,7 +463,27 @@ class Monitor:
         def prepared(data):
             attempt.update(data)
             attempt["broker_phase"] = "prepared"
+            before = data["broker_before_position"]
+            effective = data["target_position"]
+            if before and before * effective <= 0:
+                self.state["entry_policy"]["pending_exits"].append(
+                    dict(id=attempt["id"], before=before, side=data["broker_side"],
+                         at=data["broker_request_at"], trade_id=""))
             self.persist()
+        def filtered(actual, observed_at):
+            self.observe_inventory(actual, observed_at)
+            if step is None:
+                return 0  # 01:00 liquidation bypasses every entry gate.
+            received_at = datetime.fromisoformat(step["last_signal"].rsplit("/", 1)[0])
+            policy = self.state["entry_policy"]
+            exited_at = policy.get("last_exit_at")
+            effective, reason = entry_target(
+                target, actual, received_at,
+                datetime.fromisoformat(exited_at) if exited_at else None,
+                bool(policy["pending_exits"]))
+            attempt["entry_block_reason"] = reason
+            attempt["target_position"] = effective
+            return effective
         def checkpoint(result):
             attempt["status"] = "submitted" if result.submitted else "no_order_needed"
             attempt["submission_returned_at"] = self.clock().isoformat()
@@ -402,6 +492,16 @@ class Monitor:
                 if hasattr(result, name):
                     attempt[name] = getattr(result, name)
             attempt["broker_phase"] = "api_returned"
+            watches = self.state["entry_policy"]["pending_exits"]
+            for watch in watches[:]:
+                if watch["id"] != attempt["id"]:
+                    continue
+                watch["trade_id"] = attempt.get("broker_trade_id", "")
+                closed_at = full_close_time(getattr(result, "trade", None), watch, self.clock())
+                if closed_at:
+                    self.record_exit(closed_at, "broker_fill")
+                    if attempt.get("broker_status", "").lower() in TERMINAL:
+                        watches.remove(watch)
             self.persist()
             record(attempt["status"], side=result.side or "", quantity=result.quantity,
                    detail=(f"API已返回，委託ID={attempt.get('broker_trade_id') or '未取得'}，"
@@ -409,9 +509,9 @@ class Monitor:
         try:
             record("submission_attempt", detail=label)
             if self.live:
-                kwargs = ({"on_prepared": prepared, "on_submitted": checkpoint}
-                          if self.execute is execute_target_position else {})
-                result = self.execute(target, deadline=deadline, clock=self.clock, **kwargs)
+                result = self.execute(target, deadline=deadline, clock=self.clock,
+                                      on_prepared=prepared, on_submitted=checkpoint,
+                                      target_filter=filtered)
                 for name in ("previous_position", "target_position", "broker_before_position",
                              "broker_trade_id", "broker_status", "broker_deal_quantity"):
                     if hasattr(result, name):
@@ -426,6 +526,15 @@ class Monitor:
                 if "submission_returned_at" not in attempt:
                     record(attempt["status"], side=result.side or "", quantity=result.quantity, detail=detail)
             else:
+                policy = self.state["entry_policy"]
+                before = policy.get("shadow_position", 0)
+                effective = filtered(before, self.clock())
+                if before and before * effective <= 0:
+                    self.record_exit(self.clock(), "shadow_fill")
+                policy["shadow_position"] = effective
+                attempt.update(target_position=effective, broker_before_position=before,
+                               broker_quantity=abs(effective - before),
+                               broker_side="buy" if effective > before else "sell" if effective < before else None)
                 detail = "影子模式，未送實單"
                 attempt["status"] = "shadow"
                 record("shadow", detail=label)
@@ -446,10 +555,13 @@ class Monitor:
         planned = (order_text(attempt.get("broker_side"), integer(quantity))
                    if quantity is not None else "尚未確認（未取得券商庫存或委託計畫）")
         heading = "【永豐2｜EF訊號與帳戶調整】" if step is not None else "【永豐2｜01:00清倉計算】"
+        effective_target = attempt["target_position"]
+        gate_text = (f"進場限制：{attempt['entry_block_reason']}\n"
+                     if attempt.get("entry_block_reason") else "")
         self.notify(self.target_heading(step) + f"{heading}\n{source_text}"
                     f"目前券商庫存：{current_text}\n"
                     f"本次預計下單：{planned}\n"
-                    f"帳戶目標口數：{position_text(target or 0)}\n"
+                    f"帳戶目標口數：{position_text(effective_target)}\n{gate_text}"
                     f"送單結果：{detail}\n觸發：{key}")
         return True
 
@@ -478,6 +590,9 @@ class Monitor:
             self.state["session_flat"] = True
             self.state.pop("source", None)
             self.persist()
+        # Read-only close confirmation also runs without a new EF event. Its
+        # completion never creates an entry; only a later signal may do that.
+        self.refresh_exit_status()
         # Weekends/holidays remain flat; calendar updates are read on every tick.
         if closure and now < closure.reopen:
             return
@@ -553,15 +668,17 @@ def main():
         startup_message = (
             "✅【開始監控｜永豐2 純EF＋01:00清倉】\n"
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
-            f"版本：json-positions-v8-active-veto；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
+            f"版本：{VERSION}；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
             "13策略淨方向採Clamp；任何目前-1否決多單，任何目前+1否決空單。\n"
             f"目前U={position_unit()}；最終目標口數＝否決後方向×U。\n"
             f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"
             "每筆新訊號：查券商TMF庫存，下單口數＝最終目標口數−目前庫存。\n"
+            "新進場只接受08:45～22:00前收到的訊號；平倉成交後多空共用冷卻60分鐘，重啟延續。\n"
+            "22:00不強制平倉；原出場條件及01:00清倉保留，冷卻到期不自動進場。\n"
             "每日08:35查券商庫存；05:05確認空手，未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "01:00清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 Shioaji 模擬帳戶' if BROKER_SIMULATION else 'API_KEY2 永豐實單'}。\n"
-            "新訊號只送一次，不回查成交、不重試；啟動不補單，01:00送一次清倉委託。"
+            "新訊號只送一次；平倉成交僅查詢以起算冷卻，不重送委託；啟動不補單，01:00送一次清倉委託。"
         )
         print(startup_message, flush=True)
         monitor.notify(startup_message)
