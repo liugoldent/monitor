@@ -55,6 +55,9 @@ def diagnose(broker):
 
 def watch(config, store, broker=None, *, poll=0.5):
     source = config['signal_source']
+    entry_quantity = config.get('entry_quantity', 1)
+    if type(entry_quantity) is not int or entry_quantity < 1:
+        raise TradingError('進場口數須為正整數')
     if not source.is_file():
         raise TradingError(f'找不到 Relay 訊號檔：{source}')
     stat = source.stat()
@@ -87,13 +90,13 @@ def watch(config, store, broker=None, *, poll=0.5):
                 key, direction, received = signal
                 if broker:
                     store.audit('signal', {'key': key, 'direction': direction})
-                    execute_h(broker, direction, store, key)
-                    print(f'{key}：已確認先平倉，再進場 {direction:+d} 口', flush=True)
+                    execute_h(broker, direction, store, key, entry_quantity=entry_quantity)
+                    print(f'{key}：已確認先平倉，再進場 {direction * entry_quantity:+d} 口', flush=True)
                 else:
-                    detail = {'key': key, 'direction': direction, 'entry_quantity': 1,
+                    detail = {'key': key, 'direction': direction, 'entry_quantity': entry_quantity,
                               'rule': 'flatten_then_entry', 'send': False}
                     store.audit('paper_signal', detail)
-                    print(f'預覽：{key} → 先平微台，再進場 {direction:+d}口（未送單）', flush=True)
+                    print(f'預覽：{key} → 先平微台，再進場 {direction * entry_quantity:+d}口（未送單）', flush=True)
         time.sleep(poll)
 
 

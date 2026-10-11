@@ -131,12 +131,14 @@ def parse_inventory(result, account, login_id, contract):
     return sum(side * qty for side, qty in positions)
 
 
-def execute_h(broker, direction, store, trigger):
+def execute_h(broker, direction, store, trigger, *, entry_quantity=1):
     if direction not in (-1, 1):
         raise TradingError('訊號方向錯誤')
+    if type(entry_quantity) is not int or entry_quantity < 1:
+        raise TradingError('進場口數須為正整數')
     if store.pending():
         raise TradingError('上筆委託未確認，停止送單')
-    for phase, target in (('flatten', 0), ('entry', direction)):
+    for phase, target in (('flatten', 0), ('entry', direction * entry_quantity)):
         previous = broker.position()
         delta = target - previous
         if not delta:
@@ -150,4 +152,4 @@ def execute_h(broker, direction, store, trigger):
             raise TradingError('成交後庫存不符；停止，不重送')
         store.audit('confirmed', payload)
         store.complete()
-    return direction
+    return direction * entry_quantity

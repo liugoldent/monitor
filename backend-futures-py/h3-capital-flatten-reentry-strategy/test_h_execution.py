@@ -4,9 +4,9 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from h_core import Contract, Store, TradingError, execute_h, parse_inventory, parse_signal
-from capital_broker import build_order
+from capital_broker import CapitalBroker, build_order
 
 C = Contract('MICRO10', 'ORDER_MICRO', '202610', 'TMF202610', 'TMF')
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
@@ -177,6 +177,77 @@ class ExecutionTests(unittest.TestCase):
             watch({'signal_source': source}, self.store)
         self.assertIsNone(self.store.db.execute('SELECT id FROM signals WHERE id=?', ('-1:101',)).fetchone())
         self.assertIsNotNone(self.store.db.execute('SELECT id FROM signals WHERE id=?', ('-1:102',)).fetchone())
+
+
+class InventoryQueryTests(unittest.TestCase):
+    def setUp(self):
+        self.broker = object.__new__(CapitalBroker)
+        self.broker.account, self.broker.login_id, self.broker.contract = 'ACC', 'USER', C
+        self.broker.check = Mock()
+        self.broker.store = Mock()
+        self.broker.output = Mock()
+        self.broker.send_and_confirm = Mock()
+        self.clock = 0.0
+        self.waits = []
+
+    def sleep(self, seconds):
+        self.waits.append(seconds)
+        self.clock += seconds
+
+    def result(self, status, raw=''):
+        return SimpleNamespace(StatusCode=status, RawData=raw)
+
+    def query(self, results):
+        return patch('capital_broker.SK.GetOpenInterestGW', side_effect=results)
+
+    def test_busy_requeries_and_uses_fresh_successful_inventory(self):
+        # A failed query cannot be treated as zero, even if its raw text is empty.
+        responses = [self.result(1019), self.result(0, 'TF,ACC,TMF202610,S,3,0,100,0,0,USER#')]
+        with self.query(responses) as query, \
+                patch('capital_broker.time.monotonic', lambda: self.clock), \
+                patch('capital_broker.time.sleep', self.sleep):
+            self.assertEqual(self.broker.position(), -3)
+        self.assertEqual(query.call_count, 2)
+        self.assertGreaterEqual(sum(self.waits), 6)
+        self.assertGreater(self.broker.check.call_count, 2)
+        self.broker.store.audit.assert_called_once_with('inventory_query_busy', {
+            'code': 1019, 'name': 'SK_ERROR_QUERY_IN_PROCESSING', 'attempt': 1,
+        })
+
+    def test_busy_then_verified_no_data_is_zero(self):
+        with self.query([self.result(1019), self.result(1, '001,查無資料,ACC')]), \
+                patch('capital_broker.time.monotonic', lambda: self.clock), \
+                patch('capital_broker.time.sleep', self.sleep):
+            self.assertEqual(self.broker.position(), 0)
+
+    def test_persistent_busy_stops_before_any_order(self):
+        self.broker.store.pending.return_value = None
+        with self.query([self.result(1019)] * 3) as query, \
+                patch('capital_broker.time.monotonic', lambda: self.clock), \
+                patch('capital_broker.time.sleep', self.sleep), \
+                self.assertRaisesRegex(TradingError, '1019.*3 次'):
+            execute_h(self.broker, 1, self.broker.store, 'test')
+        self.assertEqual(query.call_count, 3)
+        self.assertAlmostEqual(sum(self.waits), 12)
+        self.broker.send_and_confirm.assert_not_called()
+        self.broker.store.begin.assert_not_called()
+
+    def test_other_errors_and_invalid_inventory_are_not_retried(self):
+        for result in (self.result(999), self.result(0, 'bad'),
+                       self.result(1, '001,查無資料,OTHER')):
+            with self.subTest(result=result), self.query([result]) as query, \
+                    patch('capital_broker.time.sleep') as sleep, \
+                    self.assertRaises(TradingError):
+                self.broker.position()
+            query.assert_called_once_with('USER', 'ACC', 0)
+            sleep.assert_not_called()
+
+    def test_disconnect_while_waiting_stops_without_requery(self):
+        self.broker.check.side_effect = [None, TradingError('disconnected')]
+        with self.query([self.result(1019)]) as query, \
+                self.assertRaisesRegex(TradingError, 'disconnected'):
+            self.broker.position()
+        self.assertEqual(query.call_count, 1)
 
 
 if __name__ == '__main__':

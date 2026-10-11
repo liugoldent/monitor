@@ -138,7 +138,8 @@ def covered_cycles(events, bars):
     return included, excluded, dict(audit)
 
 
-def replay_one(mode, bootstrap, events, cycles, bars, *, post_decision=None):
+def replay_one(mode, bootstrap, events, cycles, bars, *, post_decision=None,
+               post_event_decision=None):
     months = defaultdict(lambda: {"gross_profit": 0.0, "gross_loss": 0.0,
                                   "closed_legs": 0, "realized": 0.0, "unrealized": 0.0,
                                   "turnover": 0, "cycles": 0, "ending_position": 0})
@@ -167,6 +168,8 @@ def replay_one(mode, bootstrap, events, cycles, bars, *, post_decision=None):
                 if post_decision is not None:
                     decision = post_decision(decision, positions,
                                              source.PORTFOLIO_E, source.PORTFOLIO_F)
+                if post_event_decision is not None:
+                    decision = post_event_decision(decision, held, event)
                 long_locked, short_locked = decision.long_locked, decision.short_locked
             else:
                 decision = total.decide(positions, source.PORTFOLIO_E, source.PORTFOLIO_F,
@@ -230,7 +233,7 @@ def replay_one(mode, bootstrap, events, cycles, bars, *, post_decision=None):
     overall = {key: sum(month[key] for month in months.values()) for key in keys}
     overall["profit_factor"] = (overall["gross_profit"] / overall["gross_loss"]
                                 if overall["gross_loss"] else None)
-    overall["ending_position"] = months["2026-09"]["ending_position"]
+    overall["ending_position"] = months[max(months)]["ending_position"] if months else 0
     assert sum(abs(t["target"] - t["before"]) for t in ledger) == overall["turnover"]
     return {"overall": overall, "months": dict(sorted(months.items())), "ledger": ledger}
 

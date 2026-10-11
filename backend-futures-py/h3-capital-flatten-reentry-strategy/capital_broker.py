@@ -234,9 +234,25 @@ class CapitalBroker:
             raise TradingError('微台存在未結束或無法核對的委託；停止送單')
 
     def position(self):
-        self.check()
-        return parse_inventory(SK.GetOpenInterestGW(self.login_id, self.account, 0),
-                               self.account, self.login_id, self.contract)
+        # 1019 is SK_ERROR_QUERY_IN_PROCESSING, not an inventory response.
+        # Read-only diagnosis reproduced 0 -> busy at +3s -> 0 at +6s.
+        # Retry only the inventory query; never reuse an earlier position.
+        for attempt in range(1, 4):
+            self.check()
+            result = SK.GetOpenInterestGW(self.login_id, self.account, 0)
+            if result.StatusCode != 1019:
+                return parse_inventory(result, self.account, self.login_id, self.contract)
+            self.store.audit('inventory_query_busy', {
+                'code': 1019, 'name': 'SK_ERROR_QUERY_IN_PROCESSING', 'attempt': attempt,
+            })
+            if attempt == 3:
+                raise TradingError('庫存查詢仍忙碌：1019 SK_ERROR_QUERY_IN_PROCESSING；'
+                                   '查詢 3 次仍未取得庫存，停止')
+            self.output(f'庫存查詢忙碌（1019）；6 秒後重查，第 {attempt + 1}/3 次')
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                self.check()
+                time.sleep(min(.05, max(0, deadline - time.monotonic())))
 
     def send_and_confirm(self, delta, phase, target):
         self.check()

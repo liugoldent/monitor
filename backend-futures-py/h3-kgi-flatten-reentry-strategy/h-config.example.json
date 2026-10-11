@@ -1,0 +1,9 @@
+{
+  "signal_source": "../telegram-relay-records/telegram_signal_events.jsonl",
+  "confirmation_timeout": 20,
+  "contract": {
+    "product": "TMF",
+    "settle_ym": "202610",
+    "symbol": "TMFJ6"
+  }
+}
