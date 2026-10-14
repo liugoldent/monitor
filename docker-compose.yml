@@ -54,6 +54,7 @@ services:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
     volumes:
+      - ./backend-futures-py/monitor_mxf.py:/app/backend-futures-py/monitor_mxf.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
@@ -129,6 +130,9 @@ services:
       - telegram-signal-relay
       - webhook-server
     volumes:
+      - ./backend-futures-py/ef-morning-weekend-hedge-strategy/monitor_and_trade.py:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/monitor_and_trade.py:ro
+      - ./backend-futures-py/ef-morning-weekend-hedge-strategy/strategy.py:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/strategy.py:ro
+      - ./backend-futures-py/ef-morning-weekend-hedge-strategy/entry_policy.py:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/entry_policy.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro

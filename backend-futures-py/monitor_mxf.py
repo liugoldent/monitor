@@ -1,5 +1,8 @@
 import os
 import csv
+import math
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import requests
 import time
@@ -43,6 +46,26 @@ WEBHOOK_URL = os.getenv(DISCORD_MXF_ALERT_WEBHOOK_ENV, "").strip()
 MXF_VALUE_WEBHOOK_URL = os.getenv(DISCORD_MXF_VALUE_WEBHOOK_ENV, "").strip()
 MONGO_URI = require_env("MONGO_URI")
 API_URL = "https://market-data-api.futures-ai.com/chip960_tradeinfo/"
+GOODWAY_HISTORY_URL = "https://tvapi.futures-op.com/history"
+GOODWAY_SYMBOLS = ("MTX-1", "MTX-2")
+GOODWAY_POSITIVE_THRESHOLD = 1500
+GOODWAY_GUERRILLA_SYMBOLS = ("TX-1#goodway_chip960", "TX-2#goodway_chip960")
+GOODWAY_GROUPS = (
+    ("掛單能量", "trade_info", ("TX-1", "TX-2", "MTX-1", "MTX-2"),
+     ("大戶掛單", "市場掛單", "散戶成交", "原始close", "原始volume")),
+    ("主散方向", "bs_indicator_acc", ("TX-1", "TX-2", "MTX-1", "MTX-2"),
+     ("總和", "大戶", "散戶", "外盤量", "內盤量")),
+    ("台指籌碼（近次月前綴可能回傳同一合計）", "goodway_chip960", ("TX-1", "TX-2"),
+     ("坦克", "游擊隊", "炮灰", "原始close", "原始volume")),
+    ("股威力道來源（欄位對應依數值比對）", "goodway_sfChip960", ("TX-1", "TX-2"),
+     ("大台近月大戶掛單", "大台近月散戶成交", "大台次月大戶掛單", "大台次月散戶成交", "原始volume")),
+)
+GOODWAY_HISTORY_SYMBOLS = tuple(
+    f"{symbol}#{suffix}"
+    for _, suffix, symbols, _ in GOODWAY_GROUPS
+    for symbol in symbols
+)
+GOODWAY_FIELDS = ("open", "high", "low", "close", "volume")
 DB_NAME = "mxf_futures"
 TZ = ZoneInfo("Asia/Taipei")
 CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "mxf_value.csv"
@@ -52,6 +75,212 @@ def fetch_tradeinfo() -> object:
     response = requests.get(API_URL, timeout=20)
     response.raise_for_status()
     return response.json()
+
+
+def fetch_goodway_history(symbol: str, now: datetime) -> dict[int, dict]:
+    # Fetch a short window so nearby requests can be aligned if their latest
+    # bars arrive at different times. API bar timestamps are milliseconds.
+    response = requests.get(
+        GOODWAY_HISTORY_URL,
+        params={
+            "symbol": symbol,
+            "resolution": "1",
+            "from": int(now.timestamp()) - 15 * 60,
+            "to": int(now.timestamp()),
+            "ws": "true",
+            "metaData": "true",
+            "agent": "daddy960",
+            "product": "web_goodway",
+        },
+        timeout=(3, 8),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    bars = payload.get("bars") if isinstance(payload, dict) else None
+    if not isinstance(bars, list):
+        raise ValueError(f"{symbol}: history 回應沒有 bars")
+    return {
+        bar["time"]: bar
+        for bar in bars
+        if isinstance(bar, dict)
+        and isinstance(bar.get("time"), (int, float))
+        and math.isfinite(bar["time"])
+        and 0 <= bar["time"] <= now.timestamp() * 1000
+    }
+
+
+def build_goodway_components(histories: dict[str, dict[int, dict]]) -> dict:
+    """Use the newest timestamp present in both contracts; never mix bars."""
+    common_times = set(histories[GOODWAY_SYMBOLS[0]])
+    for symbol in GOODWAY_SYMBOLS[1:]:
+        common_times.intersection_update(histories[symbol])
+    if not common_times:
+        raise ValueError("小台近月與次月沒有共同分鐘資料，無法計算游擊隊合計")
+    bar_time = max(common_times)
+
+    def value(symbol: str, field: str) -> float:
+        number = _to_float(histories[symbol][bar_time].get(field))
+        if number is None or not math.isfinite(number):
+            raise ValueError(f"{symbol}.{field}: 無有效數值")
+        return number
+
+    components = {}
+    for label, near_symbol, next_symbol, field in (
+        ("游擊隊", "MTX-1", "MTX-2", "open"),
+    ):
+        near = value(near_symbol, field)
+        next_month = value(next_symbol, field)
+        components[label] = {"near": near, "next": next_month, "total": near + next_month}
+    return {"time": bar_time, "components": components}
+
+
+def fetch_goodway_indicators(now: datetime) -> tuple[dict, dict]:
+    histories = {}
+    errors = {}
+    # Limit concurrent requests and keep the other rows if one API fails.
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(fetch_goodway_history, symbol, now): symbol
+            for symbol in GOODWAY_HISTORY_SYMBOLS
+        }
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                histories[symbol] = future.result()
+            except Exception as exc:
+                errors[symbol] = str(exc)
+    return histories, errors
+
+
+def _format_goodway_value(value: object) -> str:
+    number = _to_float(value)
+    if number is None or not math.isfinite(number):
+        return "-"
+    marker = " [>1500]" if number > GOODWAY_POSITIVE_THRESHOLD else ""
+    return f"{number:g}{marker}"
+
+
+def print_goodway_indicators(histories: dict, errors: dict, now: datetime) -> None:
+    lines = [
+        f"{now:%Y-%m-%d %H:%M:%S} 股威指標完整對照｜TX=大台、MTX=小台、-1=近月、-2=次月",
+        "  每列採該 API 最新資料時間；[>1500] 表示正數大於 1500。",
+    ]
+    for group, suffix, symbols, labels in GOODWAY_GROUPS:
+        lines.append(f"  【{group} #{suffix}】")
+        for symbol in symbols:
+            ticker = f"{symbol}#{suffix}"
+            history = histories.get(ticker, {})
+            if not history:
+                lines.append(f"    {ticker}：無資料｜{errors.get(ticker, 'history 沒有有效 bars')}")
+                continue
+            bar = history[max(history)]
+            bar_time = datetime.fromtimestamp(bar["time"] / 1000, TZ)
+            age = max(0, int((now - bar_time).total_seconds()))
+            freshness = f"｜資料落後 {age} 秒" if age > 120 else ""
+            fields = []
+            for field, label in zip(GOODWAY_FIELDS, labels):
+                fields.append(f"{field}({label})={_format_goodway_value(bar.get(field))}")
+            lines.append(
+                f"    {ticker}｜資料時間 {bar_time:%Y-%m-%d %H:%M:%S}{freshness}｜"
+                + "｜".join(fields)
+            )
+
+    try:
+        snapshot = build_goodway_components({
+            symbol: histories.get(f"{symbol}#trade_info", {}) for symbol in GOODWAY_SYMBOLS
+        })
+        values = snapshot["components"]["游擊隊"]
+        bar_time = datetime.fromtimestamp(snapshot["time"] / 1000, TZ)
+        lines.append(
+            f"  游擊隊組成比對｜共同資料時間 {bar_time:%Y-%m-%d %H:%M:%S}"
+            f"｜近月 {_format_goodway_value(values['near'])}"
+            f" ＋ 次月 {_format_goodway_value(values['next'])}"
+            f" ＝ 合計 {_format_goodway_value(values['total'])}"
+        )
+    except ValueError as exc:
+        lines.append(f"  游擊隊組成比對：{exc}")
+
+    print("\n".join(lines), flush=True)
+
+
+class GoodwayGuerrillaAlerts:
+    """Track high only, including revisions to the current minute's value."""
+
+    def __init__(self) -> None:
+        self.previous: dict[str, tuple[int, float]] = {}
+        self.pending: deque[str] = deque()
+
+    def observe(self, histories: dict) -> None:
+        crossings = {}
+        for ticker in GOODWAY_GUERRILLA_SYMBOLS:
+            history = histories.get(ticker, {})
+            samples = []
+            for stamp in sorted(history):
+                value = _to_float(history[stamp].get("high"))
+                if value is not None and math.isfinite(value):
+                    samples.append((stamp, value))
+            if not samples:
+                continue
+            if ticker not in self.previous:
+                # A first observation establishes a baseline, not a crossing.
+                self.previous[ticker] = samples[-1]
+                continue
+
+            for stamp, value in samples:
+                prev_stamp, prev_value = self.previous[ticker]
+                if stamp < prev_stamp or (stamp == prev_stamp and value == prev_value):
+                    continue
+                direction = None
+                if prev_value <= GOODWAY_POSITIVE_THRESHOLD < value:
+                    direction = "向上突破 +1500"
+                elif prev_value >= -GOODWAY_POSITIVE_THRESHOLD > value:
+                    direction = "向下跌破 -1500"
+                self.previous[ticker] = (stamp, value)
+                if direction:
+                    # The two prefixes can return one identical aggregate.
+                    key = (stamp, direction, prev_value, value)
+                    crossings.setdefault(key, []).append(ticker)
+
+        for (stamp, direction, prev_value, value), tickers in sorted(crossings.items()):
+            bar_time = datetime.fromtimestamp(stamp / 1000, TZ)
+            contracts = "、".join(
+                f"{'近月' if ticker.startswith('TX-1#') else '次月'} {ticker}"
+                for ticker in tickers
+            )
+            self.pending.append(
+                f"📣 台指籌碼游擊隊 {direction}\n"
+                f"{contracts}\n"
+                f"資料時間 {bar_time:%Y-%m-%d %H:%M:%S}\n"
+                f"游擊隊（high）：{prev_value:g} → {value:g}"
+            )
+
+    def flush(self) -> None:
+        while self.pending:
+            message = self.pending[0]
+            try:
+                send_discord_message(message, WEBHOOK_URL)
+            except Exception as exc:
+                # Request exceptions can contain the secret webhook URL.
+                print(
+                    f"❌ 游擊隊跨越通知失敗，下輪重試（{type(exc).__name__}）",
+                    flush=True,
+                )
+                return
+            self.pending.popleft()
+            print(f"📣 已送出游擊隊跨越通知: {message}", flush=True)
+
+
+GOODWAY_GUERRILLA_ALERTS = GoodwayGuerrillaAlerts()
+
+
+def poll_goodway_indicators(now: datetime) -> None:
+    try:
+        histories, errors = fetch_goodway_indicators(now)
+        print_goodway_indicators(histories, errors, datetime.now(TZ))
+        GOODWAY_GUERRILLA_ALERTS.observe(histories)
+    except Exception as exc:
+        print(f"{now:%Y-%m-%d %H:%M:%S} ⚠️ 股威指標查詢失敗: {exc}", flush=True)
+    GOODWAY_GUERRILLA_ALERTS.flush()
 
 
 def normalize_documents(payload: object) -> list[dict]:
@@ -450,9 +679,15 @@ def main() -> None:
                 check_service_alive_alert(now)
             except Exception as exc:
                 print(f"❌ 打 API 或寫入失敗: {exc}")
+            poll_goodway_indicators(datetime.now(TZ))
         sleep_until_next_minute()
 
 
 if __name__ == "__main__":
     print('=== 坦克、炮灰、游擊手資料監控 ===')
+    print(
+        "游擊隊跨越通知｜TX-1/TX-2#goodway_chip960.high｜突破 +1500 或跌破 -1500"
+        f"｜Discord {'已設定' if WEBHOOK_URL else '未設定'}｜沿用每分鐘輪詢",
+        flush=True,
+    )
     main()

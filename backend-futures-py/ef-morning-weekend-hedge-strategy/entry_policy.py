@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 ENTRY_CUTOFF = time(22)
 COOLDOWN_MINUTES = 15
 COOLDOWN = timedelta(minutes=COOLDOWN_MINUTES)
-VERSION = "json-positions-v9-cutoff22-cooldown15-long-exit"
+VERSION = "json-positions-v10-cutoff22-cooldown15-short-exit-long"
 TERMINAL = {"filled", "cancelled", "failed"}
 
 

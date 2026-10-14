@@ -19,9 +19,9 @@ from auto_trade import (BROKER_SIMULATION, broker_error_summary, check_startup_b
                         execute_target_position, initialize_broker_session,
                         log_attribute_error, read_exit_status)
 from entry_policy import COOLDOWN_MINUTES, VERSION, TERMINAL, entry_target, full_close_time
-from strategy import (Calendar, STRATEGIES, active_veto_strategies,
+from strategy import (Calendar, STRATEGIES, POSITION_POLICY, active_veto_strategies,
                       integer, is_long_exit_signal,
-                      latest_closure, pure_position, signal_target_direction)
+                      latest_closure, pure_position, signal_target_direction, signal_tracked_position)
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
@@ -44,40 +44,21 @@ def load_env(path: Path) -> None:
         load_dotenv(path, override=False)
 
 
-def reload_env(path: Path) -> None:
-    if path.exists():
-        from dotenv import load_dotenv
-        load_dotenv(path, override=True)
-
-
-def env_stamp(path: Path) -> tuple[int, int] | None:
+def wait_for_broker_session(notify) -> int:
+    """Keep signals unread; let Docker retry login with fresh native resources."""
     try:
-        stat = path.stat()
-        return stat.st_mtime_ns, stat.st_size
-    except OSError:
-        return None
-
-
-def wait_for_broker_session(env_path: Path, notify) -> int:
-    """Keep signals unread until login, inventory, and contract are available."""
-    stamp = env_stamp(env_path)
-    while True:
-        try:
-            api = initialize_broker_session()
-            break
-        except Exception as exc:
-            log_attribute_error(exc)
-            summary = broker_error_summary(exc)
-            message = (f"🚨【永豐2】Shioaji 啟動登入失敗：{summary}。"
-                       "服務安全待命，不讀取或消耗新訊號；更新 .env 憑證後將重新登入。")
-            print(message, file=sys.stderr, flush=True)
-            notify(message)
-        # Keep the container healthy and quiet instead of entering Docker's
-        # rapid restart loop. Retry only after the bind-mounted file changes.
-        while env_stamp(env_path) == stamp:
-            time.sleep(5)
-        stamp = env_stamp(env_path)
-        reload_env(env_path)
+        api = initialize_broker_session()
+    except Exception as exc:
+        log_attribute_error(exc)
+        summary = broker_error_summary(exc)
+        message = (f"🚨【永豐2】Shioaji 啟動登入失敗：{summary}。"
+                   "尚未讀取或消耗新訊號；30 秒後由 Docker 重啟再試。")
+        print(message, file=sys.stderr, flush=True)
+        notify(message)
+        # Recreate the process instead of accumulating failed pysolace sessions.
+        # A temporary outage must not require a credential-file edit to recover.
+        time.sleep(30)
+        raise SystemExit(1) from None
 
     notified_failure = False
     while True:
@@ -250,7 +231,10 @@ class Monitor:
                     dict(id=old.get("id") or old["key"], before=before, at=old["at"],
                          side="sell" if before > 0 else "buy",
                          trade_id=old.get("broker_trade_id", ""))]
-        self.state["schema_version"] = 9
+        # Preserve saved directions and the entry gate; do not reinterpret old
+        # source exits or replay CSV when installing the short-exit-long rule.
+        self.state["schema_version"] = 10
+        self.state["position_policy"] = POSITION_POLICY
         if self.state.get("attempt", {}).get("status") == "attempted":
             self.state["attempt"]["status"] = "interrupted_no_retry"
             self.state["attempt"]["interrupted_at"] = started.isoformat()
@@ -451,10 +435,14 @@ class Monitor:
         if step is not None:
             attempt["long_exit_signal"] = is_long_exit_signal(
                 step["signal_previous_position"], step["new_position"])
+            attempt["short_exit_to_long_signal"] = (
+                step["signal_previous_position"] == -1 and step["new_position"] == 0)
         self.state["attempt"] = attempt
         if step is not None:
             # Commit intent, position and cursor atomically BEFORE broker side effects.
-            self.state["positions"][step["strategy_code"]] = step["new_position"]
+            step["tracked_position"] = signal_tracked_position(
+                step["signal_previous_position"], step["new_position"])
+            self.state["positions"][step["strategy_code"]] = step["tracked_position"]
             self.state["long_veto_strategies"] = long_veto_strategies
             self.state["short_veto_strategies"] = short_veto_strategies
             self.state["source"] = step
@@ -566,10 +554,12 @@ class Monitor:
                      if attempt.get("entry_block_reason") else "")
         exit_text = ("出場規則：原始1→0訊號，本筆不持多；其餘策略追蹤部位保留。\n"
                      if attempt.get("long_exit_signal") else "")
+        direction_text = ("轉多規則：原始-1→0，該策略追蹤方向改為+1，保留至下一筆訊號或每日重設。\n"
+                          if attempt.get("short_exit_to_long_signal") else "")
         self.notify(self.target_heading(step) + f"{heading}\n{source_text}"
                     f"目前券商庫存：{current_text}\n"
                     f"本次預計下單：{planned}\n"
-                    f"帳戶目標口數：{position_text(effective_target)}\n{exit_text}{gate_text}"
+                    f"帳戶目標口數：{position_text(effective_target)}\n{exit_text}{direction_text}{gate_text}"
                     f"送單結果：{detail}\n觸發：{key}")
         return True
 
@@ -624,8 +614,10 @@ class Monitor:
             if self.clock() >= deadline:
                 return
             step["previous_position"] = self.state["positions"][step["strategy_code"]]
+            step["tracked_position"] = signal_tracked_position(
+                step["signal_previous_position"], step["new_position"])
             projected_positions = self.state["positions"].copy()
-            projected_positions[step["strategy_code"]] = step["new_position"]
+            projected_positions[step["strategy_code"]] = step["tracked_position"]
             clamped_direction = signal_target_direction(
                 projected_positions, step["signal_previous_position"], step["new_position"])
             target = clamped_direction * position_unit()
@@ -663,7 +655,7 @@ def main():
         # any signal.  A startup failure can therefore never turn a signal
         # into a consumed-but-unsent order attempt.
         notifications = Notifications()
-        startup_position = wait_for_broker_session(env_path, notifications)
+        startup_position = wait_for_broker_session(notifications)
         api = initialize_broker_session()
         reconnect_timeout = float(os.getenv(RECONNECT_TIMEOUT_ENV, "120"))
         watchdog = BrokerReconnectWatchdog(reconnect_timeout)
@@ -679,6 +671,7 @@ def main():
             f"時間：{monitor.clock():%Y-%m-%d %H:%M:%S}\n"
             f"版本：{VERSION}；{len(STRATEGIES)}策略以JSON部位為準，重啟延續、不補舊單。\n"
             "13策略淨方向採Clamp；任何目前-1否決多單，任何目前+1否決空單。\n"
+            "任一策略原始-1→0訊號：追蹤方向設為+1，保留至該策略下一筆訊號或每日重設。\n"
             "任一策略原始1→0訊號：本筆多單目標歸零，其餘追蹤部位保留，不鎖死整天。\n"
             f"目前U={position_unit()}；最終目標口數＝否決後方向×U。\n"
             f"啟動券商 TMF 淨部位：{startup_position} 口（僅查詢，未送單）。\n"

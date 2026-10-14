@@ -95,7 +95,7 @@ class CapitalBroker:
             fields = {k: str(getattr(report, k)).strip() for k in
                       ('KeyNo', 'SeqNo', 'MarketType', 'Type', 'OrderErr', 'Broker', 'CustNo',
                        'BuySell', 'ComId', 'OrderNo', 'Qty', 'ExecutionNo', 'YearMonth1',
-                       'ComId1', 'ErrorMsg', 'CancelOrderMarkByExchange', 'TradeDate')}
+                       'ComId1', 'ErrorMsg', 'CancelOrderMarkByExchange', 'TradeDate', 'Date', 'Time')}
             with self.lock:
                 self.reports.append(fields)
         except Exception as exc:
@@ -104,6 +104,22 @@ class CapitalBroker:
     def on_proxy(self, stamp, code, message):
         with self.lock:
             self.proxy_reports.append((stamp, code, str(message)))
+
+    def redact(self, message):
+        message = str(message)
+        for secret in sorted({self.login_id, self.account}, key=len, reverse=True):
+            if secret:
+                message = message.replace(secret, '[redacted]')
+        return message
+
+    def rejection(self, reason, phase, key, messages, code=None):
+        # Preserve the broker's reason without exposing the login or account.
+        messages = [self.redact(message) for message in messages]
+        detail = {'phase': phase, 'key': key, 'code': code, 'messages': messages}
+        self.store.audit('order_rejected', detail)
+        error = reason + '：' + '；'.join(messages) + '；停止，不重送'
+        self.output(error)
+        return TradingError(error)
 
     def check(self):
         pump_messages()
@@ -270,6 +286,8 @@ class CapitalBroker:
             raise TradingError(f'送單回傳未確認：{code}，停止，不重送')
         key = key.strip()
         deadline = time.monotonic() + 30
+        proxies_seen = reports_seen = 0
+        pending_rejection = None
         while time.monotonic() < deadline:
             self.check()
             with self.lock:
@@ -278,17 +296,48 @@ class CapitalBroker:
                 identifiers = {key}
                 for _stamp, _code, message in correlated:
                     identifiers.update(re.findall(r'SeqNo:\s*(\d+)', message))
-                rows = [r for r in self.reports[start:] if self.is_micro(r)
-                        and identifiers.intersection((r['KeyNo'], r['SeqNo']))]
+                new_reports = list(self.reports[start:])
+                order_reports = [r for r in new_reports if self.is_micro(r)]
+                rows = [r for r in order_reports
+                        if identifiers.intersection((r['KeyNo'], r['SeqNo']))]
+            for stamp, report_code, message in proxies[proxies_seen:]:
+                self.store.audit('proxy_report', {'phase': phase, 'key': key, 'stamp': stamp,
+                    'code': report_code, 'message': self.redact(message), 'correlated': key in message})
+            proxies_seen = len(proxies)
+            for report in new_reports[reports_seen:]:
+                if self.is_micro(report):
+                    self.store.audit('order_report', {'phase': phase, 'key': key,
+                        'correlated': bool(identifiers.intersection((report['KeyNo'], report['SeqNo']))),
+                        'report': {k: self.redact(v) for k, v in report.items()
+                                   if k not in ('Broker', 'CustNo')}})
+            reports_seen = len(new_reports)
             # Any proxy rejection while single-flight stops execution conservatively.
-            if any(p[1] != 0 for p in proxies):
-                raise TradingError('Proxy 送單回報失敗，需人工核對')
-            if any(re.search(r'\[\d+\]', p[2]) for p in correlated):
-                raise TradingError('此筆 ORKEY 收到券商拒單回報；停止，不重送')
+            failed = [p for p in proxies if p[1] != 0]
+            if failed:
+                raise self.rejection('Proxy 送單回報失敗，需人工核對', phase, key,
+                                     [p[2] for p in failed], code=failed[0][1])
+            rejected = [p for p in correlated if re.search(r'\[\d+\]', p[2])]
+            if rejected:
+                pending_rejection = [p[2] for p in rejected]
+                # The 10/05 probe waited for OnNewData before disconnecting.
+                # Keep pumping after Proxy rejection to capture that report too.
+                # A report without a linked SeqNo is diagnostic evidence only;
+                # it never clears the guard or confirms an execution.
+                reasons = set(re.findall(r'\[\d+\]', ' '.join(pending_rejection)))
+                observed = [r for r in order_reports if r['Type'] == 'N' and r['OrderErr'] == 'Y'
+                            and r['Qty'] == str(abs(delta))
+                            and r['BuySell'].startswith('B' if delta > 0 else 'S')
+                            and reasons.intersection(re.findall(r'\[\d+\]', r['ErrorMsg']))]
+                if observed:
+                    raise self.rejection('此筆 ORKEY 收到券商拒單回報', phase, key,
+                                         pending_rejection)
+                time.sleep(.05)
+                continue
             fills = {}
             for r in rows:
                 if r['OrderErr'] != 'N':
-                    raise TradingError('委託回報失敗／逾時；停止，不重送')
+                    raise self.rejection('委託回報失敗／逾時', phase, key,
+                                         [r['ErrorMsg'] or '券商未提供原因'], code=r['OrderErr'])
                 if r['Type'] == 'D':
                     if not r['ExecutionNo'] or not r['Qty'].isdigit():
                         raise TradingError('成交資料不完整')
@@ -302,7 +351,12 @@ class CapitalBroker:
                 return target
             if any(r['Type'] in ('C', 'S', 'U', 'B') for r in rows):
                 raise TradingError('委託取消、部分成交或變更；停止，不重送')
-            time.sleep(0.5)
+            time.sleep(.05)
+        if pending_rejection:
+            self.store.audit('order_report_timeout', {'phase': phase, 'key': key,
+                                                     'message': 'Proxy 已拒單，未取得對應條件的 OnNewData'})
+            raise self.rejection('此筆 ORKEY 收到券商拒單回報；30 秒內未取得後續委託回報',
+                                 phase, key, pending_rejection)
         raise TradingError('30 秒內未核對到完整成交及庫存；停止，不重送')
 
     def close(self):

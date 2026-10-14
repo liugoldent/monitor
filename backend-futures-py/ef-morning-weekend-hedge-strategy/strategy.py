@@ -14,6 +14,16 @@ STRATEGIES = (
     "CFCTX15m",
 )
 
+POSITION_POLICY = "source_minus1_to0_tracks_plus1_until_next_signal_or_reset"
+
+
+def signal_tracked_position(previous: int, new: int) -> int:
+    """A raw short exit becomes a retained bullish direction, even after reset."""
+    previous, new = integer(previous), integer(new)
+    if previous not in {-1, 0, 1} or new not in {-1, 0, 1}:
+        raise ValueError("EF 訊號部位超出 -1/0/1")
+    return 1 if previous == -1 and new == 0 else new
+
 
 def active_veto_strategies(positions: dict[str, int]) -> tuple[list[str], list[str]]:
     """Every active short vetoes longs; every active long vetoes shorts."""
@@ -168,7 +178,7 @@ def latest_closure(calendar: Calendar, now: datetime) -> Closure | None:
 def pure_position(path: Path, now: datetime, since: datetime, calendar: Calendar,
                   unit: int = 1, boot: datetime | None = None,
                   initial_from_signal: bool = False, start_index: int | None = None) -> dict:
-    """Only post-reopen signals update their own leg; old legs never restore."""
+    """Read raw post-reopen events; the monitor applies its tracked-direction rule."""
     unit = integer(unit)
     if not 1 <= unit <= 20:
         raise ValueError("每策略口數必須介於 1 與 20")

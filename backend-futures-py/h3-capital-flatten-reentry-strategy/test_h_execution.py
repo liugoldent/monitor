@@ -1,5 +1,6 @@
 import json
 import tempfile
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -248,6 +249,125 @@ class InventoryQueryTests(unittest.TestCase):
                 self.assertRaisesRegex(TradingError, 'disconnected'):
             self.broker.position()
         self.assertEqual(query.call_count, 1)
+
+
+class BrokerRejectionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = Store(Path(self.temp.name) / 'state.sqlite')
+        self.broker = object.__new__(CapitalBroker)
+        self.broker.login_id, self.broker.account, self.broker.contract = 'USER', 'ACC', C
+        self.broker.store, self.broker.output = self.store, Mock()
+        self.broker.lock = threading.RLock()
+        self.broker.reports, self.broker.proxy_reports = [], []
+        self.broker.check = Mock()
+        self.broker.validate_contract = Mock()
+        self.broker.check_outstanding = Mock()
+        self.broker.position = Mock(return_value=0)
+        self.broker.is_micro = Mock(return_value=True)
+
+    def tearDown(self):
+        self.store.db.close()
+        self.temp.cleanup()
+
+    def assert_rejected_once(self, submit, reason):
+        with patch('capital_broker.SK.SendFutureProxyOrder', side_effect=submit) as send:
+            with self.assertRaisesRegex(TradingError, reason):
+                execute_h(self.broker, 1, self.store, 'signal')
+            self.assertIsNotNone(self.store.pending())
+            with self.assertRaisesRegex(TradingError, '上筆委託未確認'):
+                execute_h(self.broker, 1, self.store, 'next-signal')
+            send.assert_called_once()
+        detail = json.loads(self.store.db.execute(
+            "SELECT detail FROM audit WHERE event='order_rejected'").fetchone()[0])
+        self.assertEqual((detail['phase'], detail['key']), ('entry', 'SKAPI_TEST'))
+        self.assertIn(reason, ' '.join(detail['messages']))
+        self.assertNotIn('USER', json.dumps(detail))
+        self.assertNotIn('ACC', json.dumps(detail))
+        self.broker.output.assert_called_once()
+
+    def rejected_report(self, key='SKAPI_TEST'):
+        return {'KeyNo': key, 'SeqNo': key, 'Type': 'N', 'OrderErr': 'Y',
+                'Qty': '1', 'BuySell': 'BNI10', 'ErrorMsg': 'USER ACC [060] 保證金不足',
+                'Broker': 'A', 'CustNo': 'CC', 'Date': '20261005', 'Time': '18:47:24'}
+
+    def test_correlated_margin_rejection_preserves_reason_and_guard(self):
+        def submit(*_args):
+            self.broker.proxy_reports.append((1, 0, 'SKAPI_TEST USER ACC [060] 保證金不足'))
+            self.broker.reports.append(self.rejected_report())
+            return 0, 'SKAPI_TEST'
+        self.assert_rejected_once(submit, '060')
+
+    def test_nonzero_proxy_failure_preserves_message_and_guard(self):
+        def submit(*_args):
+            self.broker.proxy_reports.append((1, 999, 'USER ACC gateway failure'))
+            return 0, 'SKAPI_TEST'
+        self.assert_rejected_once(submit, 'gateway failure')
+
+    def test_order_report_rejection_preserves_reason_and_guard(self):
+        def submit(*_args):
+            self.broker.reports.append(self.rejected_report())
+            return 0, 'SKAPI_TEST'
+        self.assert_rejected_once(submit, '060')
+
+    def test_proxy_rejection_waits_for_delayed_order_report_and_records_both(self):
+        def submit(*_args):
+            self.broker.proxy_reports.extend([
+                (1, 0, 'Pending Order ORKEY: SKAPI_TEST'),
+                (1, 0, 'SKAPI_TEST USER ACC [060] 保證金不足')])
+            return 0, 'SKAPI_TEST'
+        def deliver_report(_seconds):
+            # As in the probe, the rejected report has an independent sequence
+            # and no SeqNo in the Proxy response. Keep the guard in this case.
+            self.broker.reports.append(self.rejected_report('2315616462211'))
+        with patch('capital_broker.time.sleep', side_effect=deliver_report) as sleep:
+            self.assert_rejected_once(submit, '060')
+        sleep.assert_called_once_with(.05)
+        rows = self.store.db.execute(
+            "SELECT event,detail FROM audit WHERE event IN ('proxy_report','order_report') ORDER BY id").fetchall()
+        self.assertEqual([r[0] for r in rows], ['proxy_report', 'proxy_report', 'order_report'])
+        detail = json.loads(rows[-1][1])
+        self.assertFalse(detail['correlated'])
+        self.assertEqual(detail['report']['SeqNo'], '2315616462211')
+        self.assertEqual(detail['report']['Time'], '18:47:24')
+        self.assertNotIn('Broker', detail['report'])
+        self.assertNotIn('CustNo', detail['report'])
+        self.assertNotIn('USER', str(rows))
+        self.assertNotIn('ACC', str(rows))
+
+    def test_proxy_rejection_without_order_report_waits_at_most_thirty_seconds(self):
+        clock = [0.0]
+        def submit(*_args):
+            self.broker.proxy_reports.append((1, 0, 'SKAPI_TEST [060] 保證金不足'))
+            return 0, 'SKAPI_TEST'
+        def sleep(seconds):
+            clock[0] += seconds
+        with patch('capital_broker.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('capital_broker.time.sleep', side_effect=sleep):
+            self.assert_rejected_once(submit, '060')
+        self.assertGreaterEqual(clock[0], 30)
+        self.assertLess(clock[0], 30.1)
+        self.assertEqual(self.store.db.execute(
+            "SELECT count(*) FROM audit WHERE event='proxy_report'").fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute(
+            "SELECT count(*) FROM audit WHERE event='order_report_timeout'").fetchone()[0], 1)
+
+    def test_success_still_requires_correlated_fill_and_verified_position(self):
+        self.broker.position.side_effect = [0, 0, 1]
+        def submit(*_args):
+            self.broker.proxy_reports.append((1, 0, 'SeqNo: 123 ORKEY: SKAPI_TEST'))
+            self.broker.reports.extend([
+                {'KeyNo': '123', 'SeqNo': '123', 'Type': 'N', 'OrderErr': 'N', 'Qty': '1'},
+                {'KeyNo': '123', 'SeqNo': '123', 'Type': 'D', 'OrderErr': 'N',
+                 'Qty': '1', 'BuySell': 'B', 'ExecutionNo': 'fill-1'}])
+            return 0, 'SKAPI_TEST'
+        with patch('capital_broker.SK.SendFutureProxyOrder', side_effect=submit) as send:
+            self.assertEqual(execute_h(self.broker, 1, self.store, 'signal'), 1)
+            send.assert_called_once()
+        self.assertIsNone(self.store.pending())
+        self.assertEqual(self.broker.position.call_count, 3)
+        self.assertEqual(self.store.db.execute(
+            "SELECT count(*) FROM audit WHERE event='order_report'").fetchone()[0], 2)
 
 
 if __name__ == '__main__':

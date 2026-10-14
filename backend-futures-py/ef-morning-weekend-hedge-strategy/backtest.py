@@ -5,13 +5,14 @@ import json
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
-from strategy import Calendar, STRATEGIES, signal_target_direction, integer
+from strategy import (Calendar, STRATEGIES, POSITION_POLICY, signal_target_direction,
+                      signal_tracked_position, integer)
 from entry_policy import COOLDOWN_MINUTES, VERSION, entry_target
 
 BASE = Path(__file__).resolve().parent
 
 
-def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
+def run(signals, prices, calendar, start, end, cost=2.0, unit=1, *, short_exit_to_long=True):
     unit = integer(unit)
     if not start < end or cost < 0 or not 1 <= unit <= 20:
         raise ValueError("區間、成本或每策略口數不合法")
@@ -57,7 +58,7 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             legs = dict.fromkeys(STRATEGIES, 0)
             fill = stamp
         else:
-            legs[code] = new
+            legs[code] = signal_tracked_position(previous, new) if short_exit_to_long else new
             fill = stamp.replace(second=0, microsecond=0) + timedelta(minutes=1)
         target = signal_target_direction(legs, previous, new) * unit
         if code != "flat":
@@ -85,6 +86,7 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1):
             "single_side_cost_points": cost, "source_unit": unit,
             "base_position_limit": 1, "position_limit_policy": "clamp_sign_active_opposition_veto",
             "long_exit_policy": "source_1_to_0_suppresses_long_for_this_event",
+            "short_exit_policy": POSITION_POLICY if short_exit_to_long else "legacy_source_new_position",
             "entry_policy": VERSION, "entry_cutoff_taipei": "22:00",
             "post_exit_cooldown_minutes": COOLDOWN_MINUTES,
             "net_twd": (cash + position * mark) * 10,
@@ -97,13 +99,16 @@ def main():
     parser.add_argument("--end", required=True)
     parser.add_argument("--cost", type=float, default=2)
     parser.add_argument("--unit", type=int, default=1)
+    parser.add_argument("--legacy-short-exit-flat", action="store_true",
+                        help="僅回測舊版：原始-1→0仍追蹤為0，不套用轉多規則")
     parser.add_argument("--signals", type=Path, default=BASE.parent / "tv_doc/six_strategy_signal_events.csv")
     parser.add_argument("--prices", type=Path, default=BASE.parent / "tv_doc/webhook_data_1min.csv")
     parser.add_argument("--calendar", type=Path, default=BASE / "config/calendar.json")
     parser.add_argument("--output", type=Path, default=BASE / "records/pure_ef_backtest.json")
     args = parser.parse_args()
     result = run(args.signals, args.prices, Calendar.load(args.calendar),
-                 datetime.fromisoformat(args.start), datetime.fromisoformat(args.end), args.cost, args.unit)
+                 datetime.fromisoformat(args.start), datetime.fromisoformat(args.end), args.cost, args.unit,
+                 short_exit_to_long=not args.legacy_short_exit_flat)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in result.items() if k != "ledger"}, ensure_ascii=False))

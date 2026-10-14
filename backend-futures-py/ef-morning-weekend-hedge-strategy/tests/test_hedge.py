@@ -37,7 +37,7 @@ class StrategyTests(unittest.TestCase):
         notify = Mock()
         with patch.object(monitor, "initialize_broker_session", return_value=api), \
              patch.object(monitor, "check_startup_broker", return_value=1):
-            self.assertEqual(monitor.wait_for_broker_session(BASE.parent / ".env", notify), 1)
+            self.assertEqual(monitor.wait_for_broker_session(notify), 1)
         notify.assert_called_once()
         self.assertIn("1 口", notify.call_args.args[0])
 
@@ -49,11 +49,27 @@ class StrategyTests(unittest.TestCase):
                           side_effect=[AttributeError("missing"), 2]) as check, \
              patch.object(monitor, "log_attribute_error"), \
              patch.object(monitor.time, "sleep") as sleep:
-            self.assertEqual(monitor.wait_for_broker_session(BASE.parent / ".env", notify), 2)
+            self.assertEqual(monitor.wait_for_broker_session(notify), 2)
         self.assertEqual(check.call_count, 2)
         sleep.assert_called_once_with(30)
         self.assertEqual(notify.call_count, 2)
         api.place_order.assert_not_called()
+
+    def test_startup_login_failure_exits_for_docker_retry_without_inventory(self):
+        notify = Mock()
+        with patch.object(monitor, "initialize_broker_session",
+                          side_effect=ConnectionError("temporary outage")) as login, \
+             patch.object(monitor, "check_startup_broker") as inventory, \
+             patch.object(monitor, "log_attribute_error"), \
+             patch.object(monitor.time, "sleep") as sleep:
+            with self.assertRaises(SystemExit) as failure:
+                monitor.wait_for_broker_session(notify)
+        self.assertEqual(failure.exception.code, 1)
+        login.assert_called_once_with()
+        inventory.assert_not_called()
+        sleep.assert_called_once_with(30)
+        notify.assert_called_once()
+        self.assertIn("30 秒後由 Docker 重啟再試", notify.call_args.args[0])
 
     def test_daily_inventory_runs_once_after_0835_without_order(self):
         state = {}
@@ -446,7 +462,7 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 9)
+        self.assertEqual(restarted.state["schema_version"], 10)
 
     def test_upgrade_v6_long_is_conservatively_short_vetoed(self):
         m = self.monitor()
@@ -456,7 +472,7 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 9)
+        self.assertEqual(restarted.state["schema_version"], 10)
 
     def test_upgrade_v7_rebuilds_transition_veto_lists_from_positions(self):
         m = self.monitor()
@@ -469,7 +485,7 @@ class MonitorTests(unittest.TestCase):
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFC07m"])
         self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 9)
+        self.assertEqual(restarted.state["schema_version"], 10)
 
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
