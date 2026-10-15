@@ -462,7 +462,7 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 10)
+        self.assertEqual(restarted.state["schema_version"], 12)
 
     def test_upgrade_v6_long_is_conservatively_short_vetoed(self):
         m = self.monitor()
@@ -472,7 +472,7 @@ class MonitorTests(unittest.TestCase):
         m.persist()
         restarted = self.monitor()
         self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 10)
+        self.assertEqual(restarted.state["schema_version"], 12)
 
     def test_upgrade_v7_rebuilds_transition_veto_lists_from_positions(self):
         m = self.monitor()
@@ -485,7 +485,7 @@ class MonitorTests(unittest.TestCase):
         restarted = self.monitor()
         self.assertEqual(restarted.state["long_veto_strategies"], ["CFC07m"])
         self.assertEqual(restarted.state["short_veto_strategies"], ["CFCTX17m"])
-        self.assertEqual(restarted.state["schema_version"], 10)
+        self.assertEqual(restarted.state["schema_version"], 12)
 
     def test_legacy_cleanup_preserves_positions_cursor_and_attempt(self):
         m = self.monitor()
@@ -1261,6 +1261,70 @@ class BacktestTests(unittest.TestCase):
             prices.write_text(prices.read_text().replace("01:00:00", "00:59:00"))
             with self.assertRaisesRegex(ValueError, "缺少精確"):
                 run(*args)
+
+
+
+class MonitorWithoutH3Tests(unittest.TestCase):
+    broker=MonitorTests.broker
+    monitor=MonitorTests.monitor
+    signal=MonitorTests.signal
+
+    def setUp(self):
+        MonitorTests.setUp(self)
+
+    def test_new_ef_entry_needs_no_h3_files_and_records_no_h3_snapshot(self):
+        m=self.monitor()
+        m.notify=Mock()
+        self.signal(0,1)
+        m.tick()
+        self.assertEqual(self.orders,[1])
+        self.assertNotIn("h3_profit_snapshot",m.state["attempt"])
+        self.assertFalse(hasattr(m,"h3_source"))
+        self.assertEqual(m.state["h3_entry_policy"],"disabled")
+        self.assertIs(m.state["broker_simulation"],False)
+        self.assertNotIn("H3即時判斷",m.notify.call_args.args[0])
+
+    def test_short_entry_and_atomic_reversal_do_not_require_h3(self):
+        m=self.monitor()
+        self.signal(0,-1)
+        m.tick()
+        self.assertEqual(self.orders,[-1])
+        self.now+=timedelta(seconds=1)
+        self.signal(-1,1)
+        m.tick()
+        self.assertEqual(self.orders,[-1,2])
+        self.assertEqual(self.actual,1)
+        self.assertEqual(m.state["entry_policy"]["last_exit_at"],self.now.isoformat())
+
+    def test_exit_hold_reduction_and_clock_flat_preserved(self):
+        m=self.monitor()
+        self.actual=2
+        self.signal(0,1)
+        m.tick()
+        self.assertEqual(self.orders,[-1])
+        self.now+=timedelta(seconds=1)
+        self.signal(0,0,"CFCTX17m")
+        m.tick()
+        self.assertEqual(self.orders,[-1])
+        self.now=datetime(2026,9,15,1)
+        m.tick()
+        self.assertEqual(self.actual,0)
+
+    def test_v11_upgrade_disables_h3_preserves_positions_cooldown_and_no_orders(self):
+        m=self.monitor()
+        m.state["schema_version"]=11
+        m.state["h3_entry_policy"]="h3-profit-direction"
+        m.state["positions"]["CFC07m"]=1
+        self.actual=1
+        m.state["entry_policy"]["last_exit_at"]=(self.now-timedelta(minutes=20)).isoformat()
+        m.persist()
+        restarted=self.monitor()
+        restarted.tick()
+        self.assertEqual(self.orders,[])
+        self.assertEqual(restarted.state["positions"]["CFC07m"],1)
+        self.assertEqual(restarted.state["entry_policy"]["last_exit_at"],m.state["entry_policy"]["last_exit_at"])
+        self.assertEqual(restarted.state["schema_version"],12)
+        self.assertEqual(restarted.state["h3_entry_policy"],"disabled")
 
 
 if __name__ == "__main__":

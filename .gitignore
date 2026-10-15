@@ -39,6 +39,7 @@ backend-heyu-node/runtime/
 *.eslintcache
 
 # Misc runtime files
+backend-futures-py/tv_doc/goodway_opening_alert_state.json*
 *.session
 *.session-journal
 private-runtime-files.zip

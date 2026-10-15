@@ -143,7 +143,7 @@ class EntryPolicyMonitorTests(unittest.TestCase):
         m.state["positions"]["CFC07m"] = 1
         m.persist()
         restarted = self.monitor()
-        self.assertEqual(restarted.state["schema_version"], 10)
+        self.assertEqual(restarted.state["schema_version"], 12)
         self.assertEqual(restarted.state["entry_policy"]["last_exit_at"], exited_at.isoformat())
         self.assertEqual(restarted.state["positions"]["CFC07m"], 1)
         self.execute.assert_not_called()

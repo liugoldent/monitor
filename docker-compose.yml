@@ -103,6 +103,7 @@ services:
       - telegram-signal-relay
       - webhook-server
     volumes:
+      - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/auto_trade.py:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/auto_trade.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro
@@ -131,6 +132,7 @@ services:
       - webhook-server
     volumes:
       - ./backend-futures-py/ef-morning-weekend-hedge-strategy/monitor_and_trade.py:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/monitor_and_trade.py:ro
+      - ./backend-futures-py/ef-morning-weekend-hedge-strategy/auto_trade.py:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/auto_trade.py:ro
       - ./backend-futures-py/ef-morning-weekend-hedge-strategy/strategy.py:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/strategy.py:ro
       - ./backend-futures-py/ef-morning-weekend-hedge-strategy/entry_policy.py:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/entry_policy.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
@@ -158,6 +160,8 @@ services:
     depends_on:
       - telegram-signal-relay
     volumes:
+      - ./backend-futures-py/ef-hysteresis-again-strategy/auto_trade.py:/app/backend-futures-py/ef-hysteresis-again-strategy/auto_trade.py:ro
+      - ./backend-futures-py/ef-strong-consensus-morning-flat-strategy/auto_trade.py:/app/backend-futures-py/ef-strong-consensus-morning-flat-strategy/auto_trade.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro

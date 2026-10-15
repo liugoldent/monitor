@@ -117,7 +117,7 @@ class ShortExitLongMonitorTests(unittest.TestCase):
         m.persist()
         old_policy = m.state['entry_policy'].copy()
         restarted = self.monitor()
-        self.assertEqual(restarted.state['schema_version'], 10)
+        self.assertEqual(restarted.state['schema_version'], 12)
         self.assertEqual(restarted.state['position_policy'], POSITION_POLICY)
         self.assertEqual(restarted.state['entry_policy'], old_policy)
         self.assertTrue(all(p == 0 for p in restarted.state['positions'].values()))

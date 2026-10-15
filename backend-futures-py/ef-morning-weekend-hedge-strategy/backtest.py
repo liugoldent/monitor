@@ -22,7 +22,9 @@ def run(signals, prices, calendar, start, end, cost=2.0, unit=1, *, short_exit_t
             if row.get("Symbol") == "MXF1!":
                 stamp = datetime.fromisoformat(row["TradingView Time"])
                 value = (row["Record Time"], float(row["Open"].replace(",", "")))
-                if stamp not in bars or value[0] > bars[stamp][0]:
+                if stamp >= end or datetime.fromisoformat(value[0]) > end:
+                    continue
+                if stamp not in bars or value[0] < bars[stamp][0]:
                     bars[stamp] = value
     events = []
     with signals.open(encoding="utf-8-sig", newline="") as handle:

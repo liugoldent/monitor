@@ -1,9 +1,9 @@
-# EF Hysteresis Again（API_KEY 實單）
+# EF Hysteresis Again（API_KEY 模擬）
 
 未來回撤達門檻後固定 `U+1` 的進出場規格見 [Again 與 Clamp 回撤後加一口的進出場 SOP](../EF_DRAWDOWN_UNIT_SOP.md)；目前尚未啟用。
 
 這套策略使用原永豐 1 的 `API_KEY` / `SECRET_KEY`、`PERSON_ID` 與憑證，
-以 Shioaji `simulation=False` 向正式環境的 TMF 近一合約送市價 IOC 差額單。它讀取共用的
+以 Shioaji `simulation=True` 向模擬環境的 TMF 近一合約送市價 IOC 差額單。2026-10-15 起 EF 系列統一使用模擬模式；切換不會自動平掉原有實倉。它讀取共用的
 `tv_doc/six_strategy_signal_events.csv`，但擁有自己的 runtime、records、鎖檔與
 Discord webhook。啟動時先查券商庫存，既有訊號僅用於重建當日策略目標，
 不補送舊單；後續每筆新訊號都重新查庫存並調整到目標。委託失敗或回傳不明時，

@@ -1,10 +1,16 @@
-# 永豐 2 Clamp：-1→0 轉多、1→0 平多、22:00 進場截止、平倉後冷卻 15 分鐘、01:00 清倉
+# 永豐 2 Clamp：22:00 進場截止、冷卻 15 分鐘、01:00 清倉
 
 未來回撤達門檻後固定 `U+1` 的進出場規格見 [Again 與 Clamp 回撤後加一口的進出場 SOP](../EF_DRAWDOWN_UNIT_SOP.md)；目前尚未啟用。
 
 CFCTX15m（財神列車15號）屬於 E 投組，與其餘 12 組策略一同追蹤。舊有 12 組 JSON 升級時保留原部位，新增 CFCTX15m 的追蹤部位為 0，僅處理啟動後的新訊號。
 
-版本：`json-positions-v10-cutoff22-cooldown15-short-exit-long`（狀態 schema 10）。本版新增原始 `-1→0` 的保留多方方向；未加入 H 過濾。從 v9 更新時保留既有 `positions`、待確認平倉與 `last_exit_at`，不重新解讀舊訊號、不新增冷卻、不補單。只有升級後接收到的新訊號套用新規則。
+版本：`json-positions-v12-no-h3-cutoff22-cooldown15-short-exit-long`（狀態 schema 12）。本版移除 H3 進場過濾，沿用其餘 Clamp 進出場規則。更新時保留既有 `positions`、待確認平倉與 `last_exit_at`，不重新解讀舊 EF 訊號、不新增冷卻、不補單。只有升級後接收到的新 EF 訊號套用新進場規則。
+
+## 不加 H3
+
+- 服務不讀取 H3 訊號、價格或浮盈虧，也不使用游擊方向或數值門檻。
+- 保留 13 個 EF 追蹤方向、反向否決、原始 `-1→0` 追蹤為多、原始 `1→0` 當筆多單出場、22:00 進場截止、15 分鐘冷卻與 01:00 清倉。
+- 狀態記錄 `h3_entry_policy=disabled`、`broker_simulation=false`。升級保留既有部位與冷卻，重啟不補舊單。
 
 ## -1→0 轉多
 
@@ -107,7 +113,7 @@ TMFR1 / MKT / IOC / Auto 格式不變。API 返回後原子保存
 docker compose up -d --build --no-deps --force-recreate ef-morning-weekend-hedge-strategy
 ```
 
-啟動通知須顯示 `json-positions-v9-cutoff22-cooldown15-long-exit`。目前服務使用 Shioaji `simulation=False` 實盤帳戶；啟動及每日 08:35 查詢 TMF 庫存並通知，08:35 查詢只讀不送單。同一天 08:35 後啟動時，啟動查詢視為當日查詢。`python monitor_and_trade.py` 與 `--once` 都不可拿來當測試。
+啟動通知須顯示 `json-positions-v12-no-h3-cutoff22-cooldown15-short-exit-long`。2026-10-15 本次調整僅 Clamp 使用 Shioaji `simulation=False` 實盤帳戶，其他 EF 服務維持模擬模式。啟動及每日 08:35 查詢實盤 TMF 庫存並通知，08:35 查詢只讀不送單。同一天 08:35 後啟動時，啟動查詢視為當日查詢。`python monitor_and_trade.py` 與 `--once` 都不可拿來當單元測試。
 
 - runtime/live_state.json：positions、long_veto_strategies、short_veto_strategies、entry_policy、訊號進度、單次委託與重設狀態，原子保存。
 - records/live_order_attempts.csv：委託嘗試及回應。
@@ -121,10 +127,10 @@ docker compose up -d --build --no-deps --force-recreate ef-morning-weekend-hedge
 python -m unittest discover -s tests -v
 ```
 
-backtest.py 使用相同原始 `1→0` 平多判斷與截止／冷卻函式，訊號收到後下一分鐘開盤成交，01:00 精確開盤清倉。它仍是理想成交回放，不模擬本版 JSON 手動修改、拒單、成交確認延遲或重設阻擋。
+backtest.py 依目前 Clamp 規則回放，不加 H3。訊號收到後下一分鐘開盤成交，01:00 精確開盤清倉。它仍是理想成交回放，不模擬 JSON 手動修改、拒單、成交確認延遲或重設阻擋；缺必要成交價格會停止，不靜默跳過。
 
 ## 帳戶通知
 
-正式入口目前使用 API_KEY2 Shioaji 實盤帳戶。Discord 通知策略開始、訊號委託及 01:00 清倉。每筆訊號通知區分子策略的進出場訊號、套用進場限制後的帳戶目標、券商目前庫存與本次預計下單，並顯示被截止或冷卻擋下的原因。若未取得券商庫存或委託計畫，預計下單顯示「尚未確認」，不顯示「無需下單」。送單失敗或結果不明時，通知人工核對帳戶委託及庫存；委託已送出不表示已成交。
+入口目前使用 API_KEY2 Shioaji 實盤帳戶。Discord 通知策略開始、訊號委託及 01:00 清倉。每筆訊號通知區分子策略的進出場訊號、套用進場限制後的帳戶目標、券商目前庫存與本次預計下單，並顯示被截止或冷卻擋下的原因。若未取得券商庫存或委託計畫，預計下單顯示「尚未確認」，不顯示「無需下單」。送單失敗或結果不明時，通知人工核對帳戶委託及庫存；委託已送出不表示已成交。
 
 平倉成交的 `status.deals[].ts` 與 `update_status` 用法依 [Shioaji 委託狀態文件](https://sinotrade.github.io/tutor/order/UpdateStatus/)。

@@ -1,17 +1,17 @@
 {
   "started_at": "2026-09-22T23:17:47.702143",
   "attempt": {
-    "key": "signal/2026-10-14T13:22:32/1239",
-    "id": "6348a21c92714a57a422ab830b52f09f",
+    "key": "signal/2026-10-15T19:45:13/1257",
+    "id": "30305a26c6d5408dbfac51dca35996de",
     "status": "done",
     "target": 0,
-    "at": "2026-10-14T13:22:32.687166",
+    "at": "2026-10-15T19:45:15.180428",
     "broker_before_position": 0,
     "broker_contract": "TMFR1",
     "broker_side": null,
     "broker_quantity": 0,
     "target_position": 0,
-    "broker_request_at": "2026-10-14T13:22:32.758185"
+    "broker_request_at": "2026-10-15T19:45:15.220103"
   },
   "last_unconfirmed_attempt": {
     "key": "01:00/2026-10-14",
@@ -30,8 +30,8 @@
   "schema_version": 2,
   "strategy": "ef_hysteresis_again_live_v2",
   "raw_positions": {
-    "CFC07m": 1,
-    "CFCTX17m": 0,
+    "CFC07m": 0,
+    "CFCTX17m": 1,
     "CFCTX18m": 0,
     "CFCTX19m": 0,
     "CFCTX20m": 0,
@@ -39,19 +39,19 @@
     "CFCTX15m": 0,
     "CFCWIN01m": 0,
     "CFCPW3m": 0,
-    "CFCCPm": -1,
-    "CFCTX16m": 1,
-    "CFCTX22m": 0,
-    "CFCTX23m": 0
+    "CFCCPm": 0,
+    "CFCTX16m": 0,
+    "CFCTX22m": -1,
+    "CFCTX23m": 1
   },
-  "source_row_count": 1239,
+  "source_row_count": 1257,
   "target": 0,
   "long_locked": false,
   "short_locked": false,
-  "lock_initialized_date": "2026-10-14",
-  "last_flat_date": "2026-10-14",
-  "last_event": "2026-10-14T13:22:32",
-  "daily_inventory_attempt_date": "2026-10-14",
+  "lock_initialized_date": "2026-10-15",
+  "last_flat_date": "2026-10-15",
+  "last_event": "2026-10-15T19:45:13",
+  "daily_inventory_attempt_date": "2026-10-15",
   "daily_inventory_position": 0,
-  "daily_inventory_checked_at": "2026-10-14T08:35:01.677648"
+  "daily_inventory_checked_at": "2026-10-15T15:41:07.259851"
 }

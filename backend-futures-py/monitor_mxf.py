@@ -1,12 +1,14 @@
 import os
 import csv
 import math
+import io
+import json
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import requests
 import time
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 
@@ -49,6 +51,7 @@ API_URL = "https://market-data-api.futures-ai.com/chip960_tradeinfo/"
 GOODWAY_HISTORY_URL = "https://tvapi.futures-op.com/history"
 GOODWAY_SYMBOLS = ("MTX-1", "MTX-2")
 GOODWAY_POSITIVE_THRESHOLD = 1500
+GOODWAY_GUERRILLA_THRESHOLDS = (1000, 1500)
 GOODWAY_GUERRILLA_SYMBOLS = ("TX-1#goodway_chip960", "TX-2#goodway_chip960")
 GOODWAY_GROUPS = (
     ("掛單能量", "trade_info", ("TX-1", "TX-2", "MTX-1", "MTX-2"),
@@ -69,6 +72,7 @@ GOODWAY_FIELDS = ("open", "high", "low", "close", "volume")
 DB_NAME = "mxf_futures"
 TZ = ZoneInfo("Asia/Taipei")
 CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "mxf_value.csv"
+GOODWAY_OPENING_STATE_PATH = CSV_PATH.parent / "goodway_opening_alert_state.json"
 
 
 def fetch_tradeinfo() -> object:
@@ -230,16 +234,17 @@ class GoodwayGuerrillaAlerts:
                 prev_stamp, prev_value = self.previous[ticker]
                 if stamp < prev_stamp or (stamp == prev_stamp and value == prev_value):
                     continue
-                direction = None
-                if prev_value <= GOODWAY_POSITIVE_THRESHOLD < value:
-                    direction = "向上突破 +1500"
-                elif prev_value >= -GOODWAY_POSITIVE_THRESHOLD > value:
-                    direction = "向下跌破 -1500"
+                for threshold in GOODWAY_GUERRILLA_THRESHOLDS:
+                    direction = None
+                    if prev_value <= threshold < value:
+                        direction = f"向上突破 +{threshold}"
+                    elif prev_value >= -threshold > value:
+                        direction = f"向下跌破 -{threshold}"
+                    if direction:
+                        # The two prefixes can return one identical aggregate.
+                        key = (stamp, direction, prev_value, value)
+                        crossings.setdefault(key, []).append(ticker)
                 self.previous[ticker] = (stamp, value)
-                if direction:
-                    # The two prefixes can return one identical aggregate.
-                    key = (stamp, direction, prev_value, value)
-                    crossings.setdefault(key, []).append(ticker)
 
         for (stamp, direction, prev_value, value), tickers in sorted(crossings.items()):
             bar_time = datetime.fromtimestamp(stamp / 1000, TZ)
@@ -270,7 +275,147 @@ class GoodwayGuerrillaAlerts:
             print(f"📣 已送出游擊隊跨越通知: {message}", flush=True)
 
 
+def read_opening_price_bar(bar_time: datetime) -> tuple[float, float] | None:
+    """Read the matching MXF 1m close and MA, never a different minute's row."""
+    if not WEBHOOK_DATA_1MIN_PATH.exists():
+        return None
+    # Only recent rows are needed; do not load the growing price archive.
+    with WEBHOOK_DATA_1MIN_PATH.open("rb") as handle:
+        header = next(csv.reader([handle.readline().decode("utf-8-sig")]))
+        data_start = handle.tell()
+        handle.seek(0, os.SEEK_END)
+        tail_start = max(data_start, handle.tell() - 65536)
+        handle.seek(tail_start)
+        if tail_start > data_start:
+            handle.readline()  # Discard a partial first row.
+        tail = handle.read().decode("utf-8")
+    if tail and not tail.endswith("\n"):
+        tail = tail.rpartition("\n")[0]  # Ignore a row still being appended.
+    matched = None
+    timestamp = bar_time.strftime("%Y-%m-%d %H:%M:%S")
+    for row in csv.DictReader(io.StringIO(tail), fieldnames=header):
+        if (
+            row.get("TradingView Time") == timestamp
+            and row.get("Symbol") == "MXF1!"
+            and row.get("Timeframe") == "1"
+        ):
+            matched = row
+    if matched is None:
+        return None
+    close, ma = _to_float(matched.get("Close")), _to_float(matched.get("MA_960"))
+    if close is None or ma is None or not math.isfinite(close) or not math.isfinite(ma):
+        return None
+    return close, ma
+
+
+class GoodwayOpeningAlerts:
+    """Evaluate the completed opening bar once per date/session/prefix."""
+
+    def __init__(self, state_path: Path | None = None) -> None:
+        self.state_path = state_path
+        self.processed: set[str] = set()
+        self.pending: deque[str] = deque()
+        self.dirty = False
+        if state_path is not None and state_path.exists():
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(state, dict) or state.get("version") != 1
+                or not isinstance(state.get("processed"), list)
+                or not isinstance(state.get("pending"), list)
+                or not all(isinstance(key, str) for key in state["processed"])
+                or not all(isinstance(message, str) for message in state["pending"])
+            ):
+                raise ValueError("Invalid opening alert state")
+            self.processed = set(state["processed"])
+            self.pending = deque(state["pending"])
+
+    def _save(self) -> None:
+        if not self.dirty or self.state_path is None:
+            return
+        try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = self.state_path.with_suffix(".json.tmp")
+            temp_path.write_text(json.dumps({
+                "version": 1,
+                "processed": sorted(self.processed),
+                "pending": list(self.pending),
+            }, ensure_ascii=False), encoding="utf-8")
+            temp_path.replace(self.state_path)
+            self.dirty = False
+        except OSError as exc:
+            print(f"❌ 開盤通知狀態儲存失敗，下輪重試（{type(exc).__name__}）", flush=True)
+
+    def observe(self, histories: dict, now: datetime) -> None:
+        local_now = now.astimezone(TZ)
+        if local_now.weekday() > 4:
+            return
+        for hour, minute, session in ((8, 45, "日盤"), (15, 0, "夜盤")):
+            bar_time = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            age = (local_now - bar_time).total_seconds()
+            # Query time must be after bar close, even if fetching spans the boundary.
+            # Delayed data can be retried within the existing 15-minute history window.
+            if not 60 <= age <= 900:
+                continue
+            stamp = int(bar_time.timestamp() * 1000)
+            candidates = []
+            for ticker in GOODWAY_GUERRILLA_SYMBOLS:
+                key = f"{bar_time:%Y-%m-%d %H:%M}|{ticker}"
+                if key in self.processed:
+                    continue
+                bar = histories.get(ticker, {}).get(stamp, {})
+                value = _to_float(bar.get("high"))
+                if value is not None and math.isfinite(value):
+                    candidates.append((ticker, key, value))
+            if not candidates:
+                continue
+            price = read_opening_price_bar(bar_time)
+            if price is None:
+                continue
+            close, ma = price
+            signals = {}
+            for ticker, key, value in candidates:
+                self.processed.add(key)
+                self.dirty = True
+                if close < ma and value > 0:
+                    label = "960下游擊正｜開盤轉多"
+                elif close > ma and value < 0:
+                    label = "960上游擊負數｜開盤轉空"
+                else:
+                    continue
+                signals.setdefault((label, value), []).append(ticker)
+            for (label, value), tickers in signals.items():
+                contracts = "、".join(
+                    f"{'近月' if ticker.startswith('TX-1#') else '次月'} {ticker}"
+                    for ticker in tickers
+                )
+                closed_at = bar_time + timedelta(minutes=1)
+                self.pending.append(
+                    f"📣 {label}\n"
+                    f"{session}｜開盤 K 棒 {bar_time:%Y-%m-%d %H:%M}"
+                    f"（{closed_at:%H:%M} 收棒）\n"
+                    f"{contracts}\n"
+                    f"收盤價 {close:g}｜MA_960 {ma:g}\n"
+                    f"游擊隊（high）：{value:g}"
+                )
+        self._save()
+
+    def flush(self) -> None:
+        while self.pending:
+            message = self.pending[0]
+            try:
+                send_discord_message(message, WEBHOOK_URL)
+            except Exception as exc:
+                print(f"❌ 游擊隊開盤通知失敗，下輪重試（{type(exc).__name__}）", flush=True)
+                break
+            self.pending.popleft()
+            self.dirty = True
+            self._save()
+            print(f"📣 已送出游擊隊開盤通知: {message}", flush=True)
+        self._save()
+
+
 GOODWAY_GUERRILLA_ALERTS = GoodwayGuerrillaAlerts()
+GOODWAY_OPENING_ALERTS = GoodwayOpeningAlerts(GOODWAY_OPENING_STATE_PATH)
 
 
 def poll_goodway_indicators(now: datetime) -> None:
@@ -278,8 +423,10 @@ def poll_goodway_indicators(now: datetime) -> None:
         histories, errors = fetch_goodway_indicators(now)
         print_goodway_indicators(histories, errors, datetime.now(TZ))
         GOODWAY_GUERRILLA_ALERTS.observe(histories)
+        GOODWAY_OPENING_ALERTS.observe(histories, now)
     except Exception as exc:
         print(f"{now:%Y-%m-%d %H:%M:%S} ⚠️ 股威指標查詢失敗: {exc}", flush=True)
+    GOODWAY_OPENING_ALERTS.flush()
     GOODWAY_GUERRILLA_ALERTS.flush()
 
 
@@ -686,8 +833,14 @@ def main() -> None:
 if __name__ == "__main__":
     print('=== 坦克、炮灰、游擊手資料監控 ===')
     print(
-        "游擊隊跨越通知｜TX-1/TX-2#goodway_chip960.high｜突破 +1500 或跌破 -1500"
+        "游擊隊跨越通知｜TX-1/TX-2#goodway_chip960.high"
+        "｜突破 +1000/+1500 或跌破 -1000/-1500"
         f"｜Discord {'已設定' if WEBHOOK_URL else '未設定'}｜沿用每分鐘輪詢",
+        flush=True,
+    )
+    print(
+        "游擊隊開盤通知｜08:45/15:00 一分鐘棒收完｜收盤價 < MA_960 且游擊 > 0 轉多"
+        "｜收盤價 > MA_960 且游擊 < 0 轉空｜相同 Discord",
         flush=True,
     )
     main()

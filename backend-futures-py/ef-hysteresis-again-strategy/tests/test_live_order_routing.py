@@ -86,10 +86,10 @@ class LiveRoutingTests(unittest.TestCase):
         now[0] = 120.0
         self.assertEqual(watchdog.status(), (True, True))
 
-    def test_again_uses_production_and_old_adapter_stays_simulated(self):
+    def test_again_and_old_adapter_both_use_simulation(self):
         self.assertTrue(monitor.auto_trade._adapter is not None)
-        self.assertFalse(monitor.auto_trade.BROKER_SIMULATION)
-        self.assertFalse(monitor.auto_trade._adapter.BROKER_SIMULATION)
+        self.assertTrue(monitor.auto_trade.BROKER_SIMULATION)
+        self.assertTrue(monitor.auto_trade._adapter.BROKER_SIMULATION)
         old_path = BASE.parent / "ef-strong-consensus-morning-flat-strategy/auto_trade.py"
         self.assertIn("BROKER_SIMULATION = True", old_path.read_text(encoding="utf-8"))
         old_spec = importlib.util.spec_from_file_location("old_sim_adapter_under_test", old_path)
@@ -103,10 +103,10 @@ class LiveRoutingTests(unittest.TestCase):
             env = {"API_KEY": "fake", "SECRET_KEY": "fake", "PERSON_ID": "fake",
                    "CA_PATH": str(ca_path)}
             with patch.dict(os.environ, env, clear=True):
-                live_sj, sim_sj = Mock(), Mock()
-                monitor.auto_trade._adapter._login(live_sj)
+                again_sj, sim_sj = Mock(), Mock()
+                monitor.auto_trade._adapter._login(again_sj)
                 old_adapter._login(sim_sj)
-        live_sj.Shioaji.assert_called_once_with(simulation=False)
+        again_sj.Shioaji.assert_called_once_with(simulation=True)
         sim_sj.Shioaji.assert_called_once_with(simulation=True)
 
     def test_new_short_exits_long_and_orders_flat(self):

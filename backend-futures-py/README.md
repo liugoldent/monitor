@@ -20,7 +20,7 @@ source venv/bin/activate
 | 原有股威籌碼快照 | [chip960_tradeinfo](https://market-data-api.futures-ai.com/chip960_tradeinfo/) | `tx_bvav` 坦克、`mtx_bvav` 游擊隊合計、`mtx_tbta` 炮灰 | 原有 MongoDB 與 `tv_doc/mxf_value.csv` 流程 |
 | 掛單能量 `#trade_info` | [API 範例](https://tvapi.futures-op.com/history?symbol=MTX-2%23trade_info&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2、MTX-1、MTX-2，共 4 次；全部 OHLCV 欄位 | 只列印日誌 |
 | 主散方向 `#bs_indicator_acc` | [API 範例](https://tvapi.futures-op.com/history?symbol=MTX-1%23bs_indicator_acc&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2、MTX-1、MTX-2，共 4 次；全部 OHLCV 欄位 | 只列印日誌 |
-| 台指籌碼 `#goodway_chip960` | [API 範例](https://tvapi.futures-op.com/history?symbol=TX-2%23goodway_chip960&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2，共 2 次；全部 OHLCV 欄位 | 列印日誌；只對 high（游擊隊）跨越 ±1500 發通知 |
+| 台指籌碼 `#goodway_chip960` | [API 範例](https://tvapi.futures-op.com/history?symbol=TX-2%23goodway_chip960&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2，共 2 次；全部 OHLCV 欄位 | 列印日誌；high（游擊隊）跨越 ±1000／±1500 與開盤通知 |
 | 股威力道來源 `#goodway_sfChip960` | [API 範例](https://tvapi.futures-op.com/history?symbol=TX-1%23goodway_sfChip960&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2，共 2 次；全部 OHLCV 欄位 | 只列印日誌 |
 
 上表 history 連結用 `days=1`，方便直接貼到瀏覽器；**服務實際改用最近 15 分鐘的範圍**，
@@ -93,12 +93,22 @@ CSV 欄位、原有訊號與平均值計算沿用原流程。
 2026-10-14 加入游擊隊跨越通知：只追蹤 `TX-1#goodway_chip960.high` 與
 `TX-2#goodway_chip960.high`，使用 `.env` 的 `DISCORD_MXF_ALERT_WEBHOOK_URL`。
 前值 ≤1500、現值 >1500 時通知向上突破；前值 ≥-1500、現值 <-1500 時通知向下跌破。
+另加入 ±1000：前值 ≤1000、現值 >1000 時通知向上突破；前值 ≥-1000、現值 <-1000
+時通知向下跌破。兩組門檻獨立判斷；一次跳越兩個門檻會各發一則門檻通知。
 等於門檻、持續在門檻外，以及返回門檻內都不通知；返回後再次跨出會再通知。
 近次月同一輪、同資料時間、同方向及同前後數值的跨越合併一則，訊息列出兩個前綴。
 啟動或重啟後以每個前綴最新有效值建立基準，不補發啟動前的跨越。
 後續按時間處理最近 15 分鐘視窗內的新資料，也追蹤最新分鐘 high 的修訂；
 缺值或 API 失敗保留前值，通知發送失敗會留在記憶體佇列中供下輪重試（重啟會清空）。
 沿用每分鐘輪詢與開盤時段，所以通知在下一輪取得跨越資料時發送。
+另加入「960下游擊正／960上游擊負數」開盤通知，送至相同 alert webhook：
+只看當日平日的 08:45 與 15:00 一分鐘棒，分別在 08:46、15:01 收完後判斷。
+同分鐘 `webhook_data_1min.csv` 的 `MXF1!` 收盤價 < `MA_960` 且
+`goodway_chip960.high` > 0 時通知「開盤轉多」；收盤價 > `MA_960` 且 high < 0
+時通知「開盤轉空」。相等、游擊為 0 或不符合雙條件都不通知；不要求跨越 ±1000／±1500。
+價格與籌碼必須對齊開盤棒的原始時間，缺資料會在原有 15 分鐘視窗內等待重試，
+不以隔壁分鐘或 API 的最新棒代替。近次月同值合併一則；每個前綴每場開盤只判斷一次。
+判斷紀錄及待送訊息保存至 `tv_doc/goodway_opening_alert_state.json`，重啟後仍可去重及重試。
 這次保留的是上述四類已確認的 API；沒有把網站所有探查路徑加入每分鐘輪詢。
 
 先前游擊隊組成輸出範例（2026-10-13 的歷史樣本；目前另有完整指標列）：

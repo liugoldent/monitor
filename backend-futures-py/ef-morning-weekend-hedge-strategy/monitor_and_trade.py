@@ -233,7 +233,9 @@ class Monitor:
                          trade_id=old.get("broker_trade_id", ""))]
         # Preserve saved directions and the entry gate; do not reinterpret old
         # source exits or replay CSV when installing the short-exit-long rule.
-        self.state["schema_version"] = 10
+        self.state["schema_version"] = 12
+        self.state["h3_entry_policy"] = "disabled"
+        self.state["broker_simulation"] = BROKER_SIMULATION
         self.state["position_policy"] = POSITION_POLICY
         if self.state.get("attempt", {}).get("status") == "attempted":
             self.state["attempt"]["status"] = "interrupted_no_retry"
@@ -678,6 +680,7 @@ def main():
             "每筆新訊號：查券商TMF庫存，下單口數＝最終目標口數−目前庫存。\n"
             f"新進場只接受08:45～22:00前收到的訊號；平倉成交後多空共用冷卻{COOLDOWN_MINUTES}分鐘，重啟延續。\n"
             "22:00不強制平倉；原出場條件及01:00清倉保留，冷卻到期不自動進場。\n"
+            "進出場依EF／Clamp規則計算，不套用H3過濾。\n"
             "每日08:35查券商庫存；05:05確認空手，未清完通知人工處理，開盤重設策略JSON並照常接新訊號。\n"
             "01:00清倉；08:45不恢復舊部位，等待新EF訊號；週末與連假保持空手。\n"
             f"模式：{'API_KEY2 Shioaji 模擬帳戶' if BROKER_SIMULATION else 'API_KEY2 永豐實單'}。\n"
