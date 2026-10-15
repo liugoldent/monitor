@@ -276,3 +276,9 @@ timestamp,attempt_id,event,trigger,target_position,previous_position,actual_posi
 2026-10-15 19:37:34,83e839d3beea403799bfe8ae8250f0f5,no_order_needed,signal/2026-10-15T19:37:33/1256,0,0,0,,0,帳戶已是空手，無需送單
 2026-10-15 19:45:15,30305a26c6d5408dbfac51dca35996de,attempt_started,signal/2026-10-15T19:45:13/1257,0,,,,,準備登入永豐、查詢TMF部位並對帳
 2026-10-15 19:45:15,30305a26c6d5408dbfac51dca35996de,no_order_needed,signal/2026-10-15T19:45:13/1257,0,0,0,,0,帳戶已是空手，無需送單
+2026-10-15 20:35:24,a4960d807bb74f96a11d9c4723a78a6d,attempt_started,signal/2026-10-15T20:35:23/1258,0,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-15 20:35:24,a4960d807bb74f96a11d9c4723a78a6d,no_order_needed,signal/2026-10-15T20:35:23/1258,0,0,0,,0,帳戶已是空手，無需送單
+2026-10-15 21:57:34,c695d00976ad4ef9b789149f72de1cbf,attempt_started,signal/2026-10-15T21:57:32/1259,0,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-15 21:57:34,c695d00976ad4ef9b789149f72de1cbf,no_order_needed,signal/2026-10-15T21:57:32/1259,0,0,0,,0,帳戶已是空手，無需送單
+2026-10-15 22:11:10,3135cac1dca841caa5d5426f66b24b74,attempt_started,signal/2026-10-15T22:11:09/1260,0,,,,,準備登入永豐、查詢TMF部位並對帳
+2026-10-15 22:11:10,3135cac1dca841caa5d5426f66b24b74,no_order_needed,signal/2026-10-15T22:11:09/1260,0,0,0,,0,帳戶已是空手，無需送單

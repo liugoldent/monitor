@@ -203,3 +203,6 @@
 {"timestamp": "2026-10-15T17:09:38.727414", "status": "sent", "content": "📊【EF Hysteresis Again｜API_KEY】\n訊號：新財神列車3號 -1 → +0\nE淨部位：+0；F淨部位：+1\n多方鎖定：否；空方鎖定：否\n策略目標：空手 → 空手\n原因：共識退出\n券商執行：券商 TMF 庫存已是 空手，無需下單"}
 {"timestamp": "2026-10-15T19:37:35.482717", "status": "sent", "content": "📊【EF Hysteresis Again｜API_KEY】\n訊號：財神列車17號 +0 → +1\nE淨部位：+1；F淨部位：+1\n多方鎖定：否；空方鎖定：否\n策略目標：空手 → 空手\n原因：共識退出\n券商執行：券商 TMF 庫存已是 空手，無需下單"}
 {"timestamp": "2026-10-15T19:45:15.824225", "status": "sent", "content": "📊【EF Hysteresis Again｜API_KEY】\n訊號：財神列車22號 +0 → -1\nE淨部位：+1；F淨部位：+0\n多方鎖定：否；空方鎖定：否\n策略目標：空手 → 空手\n原因：共識退出\n券商執行：券商 TMF 庫存已是 空手，無需下單"}
+{"timestamp": "2026-10-15T20:35:25.308884", "status": "sent", "content": "📊【EF Hysteresis Again｜API_KEY】\n訊號：財神列車6號 +0 → -1\nE淨部位：+1；F淨部位：-1\n多方鎖定：否；空方鎖定：否\n策略目標：空手 → 空手\n原因：共識退出\n券商執行：券商 TMF 庫存已是 空手，無需下單"}
+{"timestamp": "2026-10-15T21:57:34.755224", "status": "sent", "content": "📊【EF Hysteresis Again｜API_KEY】\n訊號：財神列車17號 +1 → +0\nE淨部位：+0；F淨部位：-1\n多方鎖定：否；空方鎖定：否\n策略目標：空手 → 空手\n原因：共識退出\n券商執行：券商 TMF 庫存已是 空手，無需下單"}
+{"timestamp": "2026-10-15T22:11:11.480540", "status": "sent", "content": "📊【EF Hysteresis Again｜API_KEY】\n訊號：財神列車6號 -1 → +0\nE淨部位：+0；F淨部位：+0\n多方鎖定：否；空方鎖定：否\n策略目標：空手 → 空手\n原因：共識退出\n券商執行：券商 TMF 庫存已是 空手，無需下單"}
