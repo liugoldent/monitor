@@ -123,6 +123,8 @@ class KgiBroker:
         self.contract = config['contract']
         self.timeout = config['confirmation_timeout']
         self.entry_quantity = config.get('entry_quantity', 1)
+        self.mdd_sizing = config.get('mdd_sizing', False)
+        self.last_fill = None
         if type(self.entry_quantity) is not int or self.entry_quantity < 1:
             raise TradingError('凱基進場口數須為正整數')
         self.store = store
@@ -217,10 +219,13 @@ class KgiBroker:
                 time.sleep(min(.05, max(0, until - time.monotonic())))
 
     def send_and_confirm(self, delta, phase, target):
+        self.last_fill = None
         if type(delta) is not int or not delta or phase not in ('flatten', 'entry'):
             raise TradingError('委託方向、數量或階段不符')
         if phase == 'entry' and (abs(delta) != self.entry_quantity or target != delta):
             raise TradingError('進場口數須符合 KGI_UNIT 設定')
+        if self.mdd_sizing and phase == 'entry' and abs(delta) not in (1, 2):
+            raise TradingError('回撤加口策略只允許1口或2口')
         self.check()
         self.ensure_no_working_orders()
         if self.position() != target - delta:
@@ -249,6 +254,9 @@ class KgiBroker:
                 # Inventory can lag the fill report; wait, never submit again.
                 position = self.position(deadline=deadline)
                 if position == target:
+                    if self.mdd_sizing:
+                        from mdd_sizing import execution_fill
+                        self.last_fill = execution_fill(trade, abs(delta), self.contract.symbol)
                     self.store.audit('kgi_fill', {'phase': phase, 'symbol': self.contract.symbol,
                         'order_id': str(trade.order.order_id), 'quantity': abs(delta)})
                     return position

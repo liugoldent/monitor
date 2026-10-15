@@ -5,8 +5,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from shared_h import Store, TradingError, load_env, watch
+from shared_h import Store, TradingError, load_env
 from kgi_broker import Contract, KgiBroker
+from mdd_sizing import Discord, number, read_webhook, watch
 
 BASE = Path(__file__).resolve().parent
 
@@ -14,8 +15,12 @@ BASE = Path(__file__).resolve().parent
 def read_config(path):
     path = Path(path).resolve()
     config = json.loads(path.read_text(encoding='utf-8-sig'))
-    # B/S quantities select direction only. KGI_UNIT alone sets this account's entry size.
+    # B/S selects direction only; this policy is fixed to base 1 / boosted 2.
     config['entry_quantity'] = read_unit()
+    if config['entry_quantity'] != 1:
+        raise TradingError('回撤加口版本固定1口起跑，請將 KGI_UNIT 設為1；達3%後自動2口')
+    config['mdd_sizing'] = True
+    config['mdd_one_way_cost'] = str(number(os.getenv('KGI_MDD_ONE_WAY_COST_TWD', '24')))
     source = Path(config['signal_source'])
     config['signal_source'] = source if source.is_absolute() else (path.parent / source).resolve()
     config['contract'] = Contract(**config['contract'])
@@ -53,7 +58,7 @@ def account_key(account, broker_id, simulation):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='凱基 H3 微台先平再依 KGI_UNIT 進場；預設只預覽')
+    parser = argparse.ArgumentParser(description='凱基 H3：1口跟單，回撤3%後2口，歸零後1口；預設只預覽')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--live', action='store_true', help='登入並依新訊號送單')
     mode.add_argument('--diagnose', action='store_true', help='登入、查詢帳戶與庫存，不下單')
@@ -65,13 +70,15 @@ def main(argv=None):
         raise TradingError('--service 必須與 --live 一起使用')
     load_env(BASE / '.env')
     config = read_config(args.config)
+    if not args.diagnose:
+        config['notification_url'] = read_webhook(BASE.parent / '.env')
     creds = credentials() if args.live or args.diagnose or args.check_config else None
     if args.check_config:
-        print(f'H3 KGI configuration OK; KGI_UNIT={config["entry_quantity"]}; no login or order attempted.')
+        print('H3 KGI configuration OK; 1->2 contracts at 3% closed-equity drawdown; Discord key configured; no login or order attempted.')
         return
     if args.live and not args.service:
         environment = '測試' if creds[-1] else '正式'
-        print(f'凱基{environment}環境，帳號末碼 {creds[2][-4:]}，{config["contract"].symbol}，進場 {config["entry_quantity"]} 口，市價 IOC。')
+        print(f'凱基{environment}環境，帳號末碼 {creds[2][-4:]}，{config["contract"].symbol}，基礎1口／回撤3%後2口，市價 IOC。')
         if input('確認開始依 H3 新訊號送單，請輸入 START KGI H：').strip() != 'START KGI H':
             print('未啟動。')
             return
@@ -105,14 +112,18 @@ def main(argv=None):
                 print(f'凱基帳戶末碼 {broker.account[-4:]}；{broker.contract.symbol} 淨庫存 {broker.position():+d} 口。')
                 print(f'未確認委託阻擋：{bool(store.pending())}；此模式未送單。')
                 return
-            print(f'凱基 H3 已登入；每筆新訊號先平倉再進場 {config["entry_quantity"]} 口；啟動跳過歷史訊號。', flush=True)
+            print('凱基 H3 已登入；回撤加口規則：1口起跑、達3%後2口、回撤歸零後1口；啟動跳過歷史訊號。', flush=True)
         watch(config, store, broker)
     except KeyboardInterrupt:
         print('已停止監控；不會自動平倉或撤單。')
+        if broker and config.get('notification_url'):
+            Discord(config['notification_url'], store)('【凱基 H3 回撤加口｜停止】\n手動停止監控；未自動平倉或撤單。')
     except Exception as exc:
         if store:
             # Vendor exceptions may contain account/credential payloads; keep only their type.
             store.audit('stopped', {'error': type(exc).__name__})
+            if broker and config.get('notification_url'):
+                Discord(config['notification_url'], store)(f'【凱基 H3 回撤加口｜異常停止】\n錯誤類型：{type(exc).__name__}。請核對庫存、委託及本機紀錄；不重送委託。')
         raise
     finally:
         try:

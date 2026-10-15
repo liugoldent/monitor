@@ -40,7 +40,7 @@ def row(**kw):
 
 def trade(state=State.Filled, qty=1, failed=False):
     return NS(order=NS(order_id='ORDER1', symbol='TMFJ6'),
-              order_status=NS(status=state, deals=[NS(reportseq='FILL1', quantity=qty)] if qty else []),
+              order_status=NS(status=state, deals=[NS(reportseq='FILL1', quantity=qty, price=50000, ts='120001')] if qty else []),
               operations=[NS(status=State.Failed if failed else State.Submitted)])
 
 
@@ -109,6 +109,43 @@ class KgiTests(unittest.TestCase):
         calls = b.api.FutOrder.create_order.call_args_list
         self.assertEqual([(c.kwargs['action'], c.kwargs['qty']) for c in calls], [('S', 3), ('S', 1)])
         self.assertIsNone(self.store.pending())
+
+    def test_mdd_broker_books_close_then_opens_two_using_actual_fill_prices(self):
+        from mdd_sizing import MddPolicy, execute_mdd
+        from test_mdd_sizing import FakeBroker
+        policy = MddPolicy(self.store, C.symbol, one_way_cost='0')
+        execute_mdd(FakeBroker([51500]), policy, 'initial', 1)
+        b = self.broker([[row()], [row()], [], [], [], [row(BS='S', OTQty=2)]], trade())
+        b.mdd_sizing = True
+        opened = trade(qty=2)
+        opened.order.order_id = 'ORDER2'
+        b.api.FutOrder.create_order.side_effect = [trade(), opened]
+        with patch('kgi_broker.time.sleep'):
+            self.assertEqual(execute_mdd(b, policy, 'reverse', -1), -2)
+        self.assertEqual([c.kwargs['qty'] for c in b.api.FutOrder.create_order.call_args_list], [1, 2])
+        self.assertEqual(policy.state()['equity'], '-15000')
+        self.assertEqual(policy.state()['open_trade']['quantity'], 2)
+        self.assertIsNone(self.store.pending())
+
+    def test_mdd_missing_fill_price_keeps_guard_and_does_not_book_entry(self):
+        from mdd_sizing import MddPolicy, execute_mdd
+        policy = MddPolicy(self.store, C.symbol, one_way_cost='0')
+        returned = trade()
+        returned.order_status.deals[0].price = None
+        b = self.broker([[], [], [], [row()]], returned)
+        b.mdd_sizing = True
+        with self.assertRaises(TradingError):
+            execute_mdd(b, policy, 'entry', 1)
+        b.api.FutOrder.create_order.assert_called_once()
+        self.assertIsNotNone(self.store.pending())
+        self.assertIsNone(policy.state()['open_trade'])
+
+    def test_mdd_broker_rejects_any_entry_above_two(self):
+        b=self.broker([],trade(qty=3),unit=3)
+        b.mdd_sizing=True
+        with self.assertRaisesRegex(TradingError,'只允許1口或2口'):
+            b.send_and_confirm(3,'entry',3)
+        b.api.FutOrder.create_order.assert_not_called()
 
     def test_failed_close_retains_guard_and_never_enters(self):
         b = self.broker([[row(OTQty=3)], [row(OTQty=3)]], trade(State.PartFilled_Cancelled, qty=1))
@@ -323,14 +360,18 @@ class KgiTests(unittest.TestCase):
             with self.assertRaises(TradingError):
                 execute_h(b, 1, self.store, 'invalid', entry_quantity=invalid)
 
-    def test_env_unit_overrides_legacy_json_entry_quantity(self):
+    def test_mdd_config_fixes_base_one_and_rejects_legacy_multi_unit(self):
         source = Path(self.temp.name) / 'signals.jsonl'
         source.write_text('', encoding='utf-8')
         config_path = Path(self.temp.name) / 'config.json'
         config_path.write_text(json.dumps(dict(entry_quantity=1, signal_source='signals.jsonl',
             contract=dict(product=C.product, settle_ym=C.settle_ym, symbol=C.symbol))), encoding='utf-8')
         with patch.dict(os.environ, {'KGI_UNIT': '3'}):
-            self.assertEqual(read_config(config_path)['entry_quantity'], 3)
+            with self.assertRaisesRegex(TradingError, '固定1口'):
+                read_config(config_path)
+        with patch.dict(os.environ, {'KGI_UNIT': '1'}):
+            self.assertEqual(read_config(config_path)['entry_quantity'], 1)
+            self.assertTrue(read_config(config_path)['mdd_sizing'])
 
     def test_watcher_applies_unit_to_live_orders_and_paper_audit(self):
         for live in (False, True):
@@ -420,6 +461,9 @@ class SdkSourceTests(unittest.TestCase):
                 core._OnExecReport(dict(Symbol='TMFJ6', BS='S', DealQty='3', DealPrice='100',
                     TradeHour='R', ReportTime='120001', OrderNo=order_id, CNT=cnt, MarketNo=f'FILL{request_id}'))
                 self.assertTrue(filled_quantity(returned, 3))
+                from mdd_sizing import execution_fill
+                snapshot = execution_fill(returned, 3, 'TMFJ6')
+                self.assertEqual((snapshot['price'],snapshot['quantity']), ('100',3))
                 self.assertIs(core.get_trades(full=True)[order_id], returned)
             self.assertEqual(events.call_count, 6)
 
