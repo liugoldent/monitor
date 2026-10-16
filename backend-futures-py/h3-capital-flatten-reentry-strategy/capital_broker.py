@@ -8,7 +8,7 @@ import re
 from ctypes import wintypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from h_core import TradingError, parse_inventory
+from h_core import OrderRejected, TradingError, parse_inventory
 
 BASE = Path(__file__).resolve().parent
 _dll_search = os.add_dll_directory(str(BASE / 'libs'))
@@ -48,6 +48,11 @@ def build_order(account, contract, delta, phase):
     )
 
 
+def proxy_matches(key, message):
+    # ORKEYs can share a prefix; a substring is not an order identity.
+    return bool(re.search(r'(?<![A-Za-z0-9_])' + re.escape(key) + r'(?![A-Za-z0-9_])', message))
+
+
 class CapitalBroker:
     def __init__(self, config, store, output=print):
         self.config, self.store, self.output = config, store, output
@@ -64,6 +69,7 @@ class CapitalBroker:
         self.disconnected = threading.Event()
         self.fault = None
         self.waiting_target = None
+        self._next_inventory_query = 0.0
         SK.OnReplyMessage(lambda _id, _msg: None)
         SK.OnConnection(self.on_connection)
         SK.OnComplete(lambda who: self.replay_complete.set() if who == self.login_id else None)
@@ -154,8 +160,6 @@ class CapitalBroker:
                                    'branch_length': len(a.Branch)} for a in result.TFAccounts],
                 }))
                 raise TradingError('設定帳號不在登入取得的國內期貨帳戶清單；請核對完整帳號')
-        if self.store.pending() and not diagnose:
-            raise TradingError('上次委託未確認，需人工核對 runtime/live.sqlite；不自動清除')
         for target, event in ((0, self.reply_ready), (1, self.quote_ready), (4, self.proxy_ready)):
             self.waiting_target = target
             code = SK.ManageServerConnection('' if target == 1 else user, 0, target)
@@ -168,7 +172,7 @@ class CapitalBroker:
             if not event.is_set():
                 raise TradingError(f'連線主機 {target} 就緒逾時')
             self.waiting_target = None
-        required_events = ((self.quote_ready, '商品'),) if diagnose else (
+        required_events = (
             (self.proxy_ready, '下單'), (self.reply_ready, '回報'),
             (self.quote_ready, '商品'), (self.replay_complete, '委託回補'))
         for event, label in required_events:
@@ -179,10 +183,12 @@ class CapitalBroker:
             if not event.is_set():
                 raise TradingError(f'{label}連線／回補逾時')
             self.check()
-        if not diagnose:
-            self.validate_contract()
-            self.check_outstanding()
-            self.position()
+        self.validate_contract()
+        self.check_outstanding()
+        current = self.position()
+        self.output(f'群益帳號末碼 {self.account[-4:]}；{self.contract.quote_code} 淨庫存 {current:+d} 口；委託回補已完成。', flush=True)
+        if self.store.pending() and not diagnose:
+            raise TradingError('上次委託尚待核對；本次已完成庫存查詢。請執行 --review-pending 核對拒單，不自動刪除或重送')
 
     def validate_contract(self):
         c = self.contract
@@ -249,13 +255,29 @@ class CapitalBroker:
         if any(s['ordered'] is None or s['ordered'] != s['ended'] for s in ledger.values()):
             raise TradingError('微台存在未結束或無法核對的委託；停止送單')
 
-    def position(self):
-        # 1019 is SK_ERROR_QUERY_IN_PROCESSING, not an inventory response.
-        # Read-only diagnosis reproduced 0 -> busy at +3s -> 0 at +6s.
-        # Retry only the inventory query; never reuse an earlier position.
-        for attempt in range(1, 4):
+    def wait_query(self, until, deadline=None):
+        while time.monotonic() < until:
             self.check()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TradingError('群益庫存確認逾時，停止，不重送')
+            remaining = until - time.monotonic()
+            if deadline is not None:
+                remaining = min(remaining, deadline - time.monotonic())
+            time.sleep(min(.05, max(0, remaining)))
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TradingError('群益庫存確認逾時，停止，不重送')
+
+    def position(self, *, deadline=None):
+        # The gateway throttles back-to-back queries. Space all queries, including
+        # successful ones; never reuse an old result for a new order or fill.
+        for attempt in range(1, 4):
+            self.wait_query(getattr(self, '_next_inventory_query', 0), deadline)
+            self.check()
+            self._next_inventory_query = time.monotonic() + 6
             result = SK.GetOpenInterestGW(self.login_id, self.account, 0)
+            self.check()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TradingError('群益庫存確認逾時，停止，不重送')
             if result.StatusCode != 1019:
                 return parse_inventory(result, self.account, self.login_id, self.contract)
             self.store.audit('inventory_query_busy', {
@@ -264,11 +286,25 @@ class CapitalBroker:
             if attempt == 3:
                 raise TradingError('庫存查詢仍忙碌：1019 SK_ERROR_QUERY_IN_PROCESSING；'
                                    '查詢 3 次仍未取得庫存，停止')
+            # Also wait six seconds after a blocking busy response.
+            self._next_inventory_query = max(self._next_inventory_query, time.monotonic() + 6)
             self.output(f'庫存查詢忙碌（1019）；6 秒後重查，第 {attempt + 1}/3 次')
-            deadline = time.monotonic() + 6
-            while time.monotonic() < deadline:
-                self.check()
-                time.sleep(min(.05, max(0, deadline - time.monotonic())))
+
+    def confirmed_rejection(self, reason, phase, key, messages, delta, target, *, deadline):
+        # A keyed Proxy [060] is an explicit rejection of this new order.
+        # A rejected close keeps the old position and never opens a new one.
+        # Never apply this to a gateway timeout or partial fill.
+        if phase not in ('entry', 'flatten') or (phase == 'entry' and target != delta) or (phase == 'flatten' and target != 0):
+            return self.rejection(reason, phase, key, messages)
+        previous = target - delta
+        self.check_outstanding()
+        if self.position(deadline=deadline) != previous:
+            raise TradingError('拒單後庫存與送單前不符，保留委託阻擋，停止核對')
+        self.check_outstanding()
+        error = self.rejection(reason, phase, key, messages)
+        evidence = dict(key=key, phase=phase, position=previous, outcome='new_order_rejected',
+                        messages=[self.redact(m) for m in messages])
+        return OrderRejected(str(error), evidence)
 
     def send_and_confirm(self, delta, phase, target):
         self.check()
@@ -292,7 +328,7 @@ class CapitalBroker:
             self.check()
             with self.lock:
                 proxies = list(self.proxy_reports[proxy_start:])
-                correlated = [p for p in proxies if key in p[2]]
+                correlated = [p for p in proxies if proxy_matches(key, p[2])]
                 identifiers = {key}
                 for _stamp, _code, message in correlated:
                     identifiers.update(re.findall(r'SeqNo:\s*(\d+)', message))
@@ -302,7 +338,7 @@ class CapitalBroker:
                         if identifiers.intersection((r['KeyNo'], r['SeqNo']))]
             for stamp, report_code, message in proxies[proxies_seen:]:
                 self.store.audit('proxy_report', {'phase': phase, 'key': key, 'stamp': stamp,
-                    'code': report_code, 'message': self.redact(message), 'correlated': key in message})
+                    'code': report_code, 'message': self.redact(message), 'correlated': proxy_matches(key, message)})
             proxies_seen = len(proxies)
             for report in new_reports[reports_seen:]:
                 if self.is_micro(report):
@@ -326,9 +362,15 @@ class CapitalBroker:
                 reasons = set(re.findall(r'\[\d+\]', ' '.join(pending_rejection)))
                 observed = [r for r in order_reports if r['Type'] == 'N' and r['OrderErr'] == 'Y'
                             and r['Qty'] == str(abs(delta))
+                            and r.get('YearMonth1') == self.contract.settle_ym
+                            and r.get('ComId1') == self.contract.order_code
                             and r['BuySell'].startswith('B' if delta > 0 else 'S')
                             and reasons.intersection(re.findall(r'\[\d+\]', r['ErrorMsg']))]
                 if observed:
+                    if ('[060]' in ' '.join(pending_rejection)
+                            and not any(r['Type'] == 'D' for r in order_reports)):
+                        raise self.confirmed_rejection('此筆 ORKEY 收到券商拒單回報',
+                            phase, key, pending_rejection, delta, target, deadline=deadline)
                     raise self.rejection('此筆 ORKEY 收到券商拒單回報', phase, key,
                                          pending_rejection)
                 time.sleep(.05)
@@ -336,6 +378,15 @@ class CapitalBroker:
             fills = {}
             for r in rows:
                 if r['OrderErr'] != 'N':
+                    if (r['OrderErr'] == 'Y' and r['Type'] == 'N'
+                            and r.get('OrderNo') == '00000'
+                            and r['Qty'] == str(abs(delta))
+                            and r.get('YearMonth1') == self.contract.settle_ym
+                            and r.get('ComId1') == self.contract.order_code
+                            and r['BuySell'].startswith('B' if delta > 0 else 'S')
+                            and not any(row['Type'] == 'D' for row in order_reports)):
+                        raise self.confirmed_rejection('券商已確認新單拒絕', phase, key,
+                            [r['ErrorMsg'] or '券商未提供原因'], delta, target, deadline=deadline)
                     raise self.rejection('委託回報失敗／逾時', phase, key,
                                          [r['ErrorMsg'] or '券商未提供原因'], code=r['OrderErr'])
                 if r['Type'] == 'D':
@@ -343,11 +394,15 @@ class CapitalBroker:
                         raise TradingError('成交資料不完整')
                     if not r['BuySell'].startswith('B' if delta > 0 else 'S'):
                         raise TradingError('成交買賣方向不符')
+                    if r['ExecutionNo'] in fills and fills[r['ExecutionNo']] != int(r['Qty']):
+                        raise TradingError('重複成交序號的口數不一致，停止核對')
                     fills[r['ExecutionNo']] = int(r['Qty'])
             filled = sum(fills.values())
             if filled > abs(delta):
                 raise TradingError('成交口數超出委託')
-            if correlated and filled == abs(delta) and self.position() == target:
+            if correlated and filled == abs(delta) and self.position(deadline=deadline) == target:
+                if time.monotonic() >= deadline:
+                    raise TradingError('群益成交確認逾時，不重送')
                 return target
             if any(r['Type'] in ('C', 'S', 'U', 'B') for r in rows):
                 raise TradingError('委託取消、部分成交或變更；停止，不重送')

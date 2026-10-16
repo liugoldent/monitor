@@ -2,10 +2,11 @@ import csv
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 
 os.environ.setdefault("API_ID", "1")
@@ -286,6 +287,48 @@ class TelegramSignalRelayTests(unittest.TestCase):
                 self.assertIsNone(relay.parse_h_direction(text))
                 self.assertFalse(relay.record_h_signal(text, datetime.now(ZoneInfo("Asia/Taipei"))))
                 append.assert_not_called()
+
+
+class H3NoticeIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def run_h_signal(self, observer, *, sender="taiwan_mxf_bot", recorded=True):
+        stamp = datetime(2026, 10, 16, 9, tzinfo=ZoneInfo("Asia/Taipei"))
+        event = SimpleNamespace(
+            raw_text="浩克3V3 交易訊號通知 (B=1 S=0)", date=stamp,
+            chat_id=1, id=2, sender_id=3,
+            get_sender=AsyncMock(return_value=SimpleNamespace(username=sender)),
+        )
+        with patch.object(relay, "append_event"), \
+             patch.object(relay, "record_h_signal", return_value=recorded), \
+             patch.object(relay, "_latest_h_event_position", return_value=-1), \
+             patch.object(relay, "_event_key_exists", return_value=False), \
+             patch.object(relay, "build_h3_entry_notice", observer), \
+             patch.object(relay, "send_to_discord", return_value=(True, "ok")) as send:
+            await relay.telegram_message_handler(event)
+        return send.call_args.args
+
+    async def test_h_original_signal_and_observation_share_existing_h_channel(self):
+        args = await self.run_h_signal(Mock(return_value="【H3 單口回撤觀察】等待修復"))
+        self.assertEqual(args[1], "h")
+        self.assertIn("浩克3V3 交易訊號通知 (B=1 S=0)", args[2])
+        self.assertIn("等待修復", args[2])
+
+    async def test_observer_failure_does_not_prevent_original_delivery(self):
+        args = await self.run_h_signal(Mock(side_effect=RuntimeError("private diagnostic")))
+        self.assertIn("浩克3V3", args[2])
+        self.assertIn("暫不判定", args[2])
+        self.assertNotIn("private diagnostic", args[2])
+
+    async def test_untrusted_signal_is_forwarded_without_entry_evaluation(self):
+        observer = Mock()
+        args = await self.run_h_signal(observer, sender="untrusted")
+        observer.assert_not_called()
+        self.assertIn("來源待核對", args[2])
+
+    async def test_recording_failure_is_not_an_entry_window(self):
+        observer = Mock()
+        args = await self.run_h_signal(observer, recorded=False)
+        observer.assert_not_called()
+        self.assertIn("暫不判定", args[2])
 
 
 if __name__ == "__main__":

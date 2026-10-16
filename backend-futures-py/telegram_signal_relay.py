@@ -1,6 +1,6 @@
 """Receive H/EF Telegram signals, persist the raw event, and relay it to Discord.
 
-This service deliberately contains no strategy evaluation or broker integration.
+H3 notices include a read-only entry observation; this service never places orders.
 """
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ from zoneinfo import ZoneInfo
 import requests
 from telethon import TelegramClient, events
 
-from h_signal import is_h_signal, parse_h_direction
+from h_signal import is_h_signal, parse_h_direction, parse_h_event_direction
 from h_signal import normalize_h_record_message as _normalize_h_record_message
+from h3_entry_watch import build_notice as build_h3_entry_notice
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -52,6 +53,7 @@ SESSION_PATH = Path(
         str(BASE_DIR / "telegram-relay-runtime" / "session_h_ef_relay"),
     )
 )
+H3_ENTRY_SEED_PATH = BASE_DIR / "telegram-relay-runtime" / "h3_recovery_seed_v2.json"
 TZ = ZoneInfo("Asia/Taipei")
 
 H_WEBHOOK_ENV = "DISCORD_H_TRADE_WEBHOOK_URL"
@@ -699,7 +701,7 @@ def send_startup_notifications() -> None:
             "✅【服務啟動｜Telegram H/EF Relay】\n"
             f"時間：{started_at}\n"
             f"接收路由：{route.upper()}\n"
-            "模式：只接收、記錄並轉送；不計算策略、不下單。"
+            "模式：接收、記錄並轉送；H3 附單口回撤觀察，不下單。"
         )
         delivered, detail = send_discord_notice(webhook_url, content)
         append_event(
@@ -751,7 +753,13 @@ async def telegram_message_handler(event) -> None:
     append_event({**base_record, "event": "received"})
     print(f"收到 Telegram {route.upper()} 訊號: {event.chat_id}:{event.id}")
 
+    h_new_transition = False
     try:
+        if route == "h":
+            h_new_transition = (
+                _latest_h_event_position() != parse_h_direction(text)
+                and not _event_key_exists(H_POSITION_EVENT_PATH, f"{event.chat_id}:{event.id}")
+            )
         recorded = (
             record_h_signal(text, received_at, f"{event.chat_id}:{event.id}")
             if route == "h"
@@ -775,6 +783,22 @@ async def telegram_message_handler(event) -> None:
     discord_content = text
     if route == "ef" and recorded:
         discord_content = build_ef_discord_message(text, received_at) or text
+    elif route == "h":
+        try:
+            observation = (
+                await asyncio.to_thread(
+                    build_h3_entry_notice,
+                    H3_ENTRY_SEED_PATH, EVENT_LOG_PATH, WEBHOOK_DATA_1MIN_PATH,
+                    received_at, f"{event.chat_id}:{event.id}", parse_h_direction(text),
+                    new_transition=h_new_transition,
+                )
+                if recorded and parse_h_event_direction({**base_record, "event": "received"}) is not None
+                else "【H3 單口回撤觀察】本次訊號記錄或來源待核對，暫不判定進場條件。"
+            )
+        except Exception:
+            # Keep delivering the original signal even if the observer fails.
+            observation = "【H3 單口回撤觀察】計算暫時失敗，暫不判定進場條件。"
+        discord_content = f"{text}\n\n{observation}"
     delivered, detail = await asyncio.to_thread(
         send_to_discord,
         WEBHOOKS[route],

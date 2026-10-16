@@ -15,7 +15,7 @@ import pandas as pd
 from shared_h import Store, TradingError, execute_h, parse_signal, watch
 from kgi_broker import (Contract, ExplicitPositionBridge, KgiBroker, POSITION_COLUMNS,
                         filled_quantity, parse_position)
-from kgi_monitor import account_key, main, read_config, read_unit
+from kgi_monitor import account_key, main, read_config, read_unit, stop_detail
 
 C = Contract('TMF', '202610', 'TMFJ6')
 class State(Enum):
@@ -93,6 +93,8 @@ class KgiTests(unittest.TestCase):
         config = dict(contract=C, confirmation_timeout=20, entry_quantity=unit)
         b = KgiBroker(config, self.store)
         b.account, b.broker_id = 'ACC', 'BROKER'
+        # These executor tests cover query results; real spacing has dedicated tests.
+        b._inventory_interval = 0
         native = NS(FIsConnected=True, FIsLogon=True)
         b.bridge = NS(phase=None)
         b.api = NS(_ObjOrder=native, FutAccount=NS(PositionSum=Mock(side_effect=[frame(*p) for p in positions])),
@@ -180,6 +182,37 @@ class KgiTests(unittest.TestCase):
         finally:
             second.db.close()
 
+    def test_domestic_login_does_not_search_overseas_product_list(self):
+        core=NS(_Order=Mock())
+        def forbidden_order(_self,*args,**kwargs):
+            raise AssertionError('Read-only login must not submit orders')
+        order=NS(create_order=types.MethodType(forbidden_order,core),set_event=Mock(),
+                 get_trades=Mock(return_value={}))
+        native=NS(FIsConnected=True,FIsLogon=True,
+                  get_Fcontracts=Mock(side_effect=AssertionError('Overseas list is not domestic metadata')))
+        api=NS(set_FutAccount=Mock(),set_disconnect_cb=Mock(),
+               show_account=Mock(return_value=[dict(account='ACC',broker_id='BROKER',account_flag='期貨')]),
+               login_info=Mock(return_value={'期貨':{'account':'ACC','broker_id':'BROKER'}}),
+               FutOrder=order,FutAccount=NS(PositionSum=Mock(return_value=frame())),_ObjOrder=native)
+        sdk=NS(login=Mock(return_value=api))
+        b=KgiBroker(dict(contract=C,confirmation_timeout=20),self.store)
+        b.wait_inventory=Mock()
+        b._inventory_interval=0
+        with patch('kgi_broker.importlib.metadata.version',return_value='2.1.2'), \
+                patch.dict(sys.modules,{'kgisuperpy':sdk}):
+            b.login('USER','PASS','ACC','BROKER',False)
+        sdk.login.assert_called_once_with('USER','PASS',simulation=False)
+        native.get_Fcontracts.assert_not_called()
+        self.assertEqual(b.position(),0)
+        self.assertIsNone(b.last_submission)
+
+    def test_wrong_domestic_contract_fails_before_login(self):
+        b=KgiBroker(dict(contract=Contract('MXF','202610','MXFJ6'),confirmation_timeout=20),self.store)
+        with patch('kgi_broker.importlib.metadata.version') as version:
+            with self.assertRaisesRegex(TradingError,'只交易 TMF'):
+                b.login('USER','PASS','ACC','BROKER',False)
+            version.assert_not_called()
+
     def test_shared_signal_trust_freshness_and_fixed_quantity(self):
         now = datetime.now(timezone.utc)
         event = dict(event='received', route='h', sender_username='taiwan_mxf_bot', chat_id=-1,
@@ -190,6 +223,41 @@ class KgiTests(unittest.TestCase):
                         dict(text='浩克3 訊號通知 (B=1 S=1)')]:
             self.assertIsNone(parse_signal(event | changes, now))
 
+    def test_stop_detail_includes_controlled_reason_but_hides_vendor_payload(self):
+        detail=stop_detail(TradingError('凱基庫存查詢 3 次仍無回應，不能視為空手，停止'),
+                           stage='broker_login_and_inventory',pending=None)
+        self.assertIn('3 次仍無回應',detail['reason'])
+        self.assertFalse(detail['pending_order'])
+        vendor=stop_detail(RuntimeError('password=secret account=private'),
+                           stage='broker_login_and_inventory',pending={'phase':'entry'})
+        self.assertNotIn('secret',json.dumps(vendor))
+        self.assertNotIn('private',json.dumps(vendor))
+        self.assertTrue(vendor['pending_order'])
+
+    def test_login_failure_records_cause_and_never_starts_watcher_or_order(self):
+        reason='凱基斷線或登入狀態不明，停止送單'
+        fake=NS(login=Mock(side_effect=TradingError(reason)),close=Mock(),send_and_confirm=Mock())
+        config=dict(contract=C,entry_quantity=1,mdd_one_way_cost='0')
+        with patch('kgi_monitor.BASE',Path(self.temp.name)), \
+                patch('kgi_monitor.read_config',return_value=config), \
+                patch('kgi_monitor.read_webhook',return_value='https://discord.com/api/webhooks/1/test'), \
+                patch('kgi_monitor.credentials',return_value=('USER','PASS','ACC','BROKER',False)), \
+                patch('kgi_monitor.KgiBroker',return_value=fake), \
+                patch('kgi_monitor.Discord',return_value=Mock()) as discord, \
+                patch('kgi_monitor.watch') as watcher:
+            with self.assertRaisesRegex(TradingError,reason):main(['--live','--service'])
+        fake.send_and_confirm.assert_not_called()
+        watcher.assert_not_called()
+        message=discord.return_value.call_args.args[0]
+        self.assertIn(reason,message)
+        self.assertIn('broker_login_and_inventory',message)
+        db=__import__('sqlite3').connect(Path(self.temp.name)/'runtime'/(account_key('ACC','BROKER',False)+'.sqlite'))
+        try:
+            recorded=json.loads(db.execute("SELECT detail FROM audit WHERE event='stopped'").fetchone()[0])
+            self.assertEqual(recorded['reason'],reason)
+            self.assertFalse(recorded['pending_order'])
+        finally:db.close()
+
     def test_config_check_does_not_login(self):
         env = dict(KGI_LOGIN_ID='USER', KGI_PASSWORD='PASS', KGI_ACCOUNT='ACC',
                    KGI_BROKER_ID='BROKER', KGI_SIMULATION='true')
@@ -199,8 +267,97 @@ class KgiTests(unittest.TestCase):
             main(['--check-config'])
             broker.assert_not_called()
 
+    def test_production_startup_test_is_rejected_before_broker_login(self):
+        for args in (['--live','--service','--startup-simulation-buy-one'],
+                     ['--check-config','--startup-simulation-buy-one']):
+            with self.subTest(args=args), \
+                    patch('kgi_monitor.read_config',return_value={'contract':C}), \
+                    patch('kgi_monitor.read_webhook',return_value='https://discord.com/api/webhooks/1/test'), \
+                    patch('kgi_monitor.credentials',return_value=('USER','PASS','ACC','BROKER',False)), \
+                    patch('kgi_monitor.KgiBroker') as broker:
+                with self.assertRaisesRegex(TradingError,'正式環境禁止'):
+                    main(args)
+                broker.assert_not_called()
+
+    def test_startup_flag_rejects_paper_and_diagnose_before_config_load(self):
+        for args in (['--startup-simulation-buy-one'],['--diagnose','--startup-simulation-buy-one']):
+            with self.subTest(args=args),patch('kgi_monitor.read_config') as config:
+                with self.assertRaises(TradingError):main(args)
+                config.assert_not_called()
+
+    def test_simulation_startup_order_runs_before_h3_watcher(self):
+        calls=[]
+        fake=NS(account='ACC',contract=C,simulation=True,login=Mock(),close=Mock())
+        config=dict(contract=C,entry_quantity=1,mdd_one_way_cost='0')
+        with patch('kgi_monitor.BASE',Path(self.temp.name)), \
+                patch('kgi_monitor.read_config',return_value=config), \
+                patch('kgi_monitor.read_webhook',return_value='https://discord.com/api/webhooks/1/test'), \
+                patch('kgi_monitor.credentials',return_value=('USER','PASS','ACC','BROKER',True)), \
+                patch('kgi_monitor.KgiBroker',return_value=fake), \
+                patch('kgi_monitor.startup_simulation_buy_one',side_effect=lambda *a,**k: calls.append('buy') or True) as startup, \
+                patch('kgi_monitor.watch',side_effect=lambda *a,**k: calls.append('watch')):
+            main(['--live','--service','--startup-simulation-buy-one'])
+        self.assertEqual(calls,['buy','watch'])
+        self.assertIs(startup.call_args.kwargs['simulation'],True)
+        fake.close.assert_called_once()
+
+
+    def test_manual_production_rejects_unattended_or_invalid_modes_before_config(self):
+        for args in (['--startup-production-buy-one'],
+                     ['--diagnose','--startup-production-buy-one'],
+                     ['--live','--service','--startup-production-buy-one'],
+                     ['--live','--startup-production-buy-one']):
+            with self.subTest(args=args), patch('kgi_monitor.sys.stdin.isatty',return_value=False), \
+                    patch('kgi_monitor.read_config') as config, patch('kgi_monitor.KgiBroker') as broker:
+                with self.assertRaises(TradingError):main(args)
+                config.assert_not_called()
+                broker.assert_not_called()
+
+    def test_manual_production_check_only_never_logins_and_rejects_simulation(self):
+        for simulation in (True,False):
+            with self.subTest(simulation=simulation), \
+                    patch('kgi_monitor.read_config',return_value={'contract':C}), \
+                    patch('kgi_monitor.read_webhook',return_value='https://discord.com/api/webhooks/1/test'), \
+                    patch('kgi_monitor.credentials',return_value=('USER','PASS','ACC','BROKER',simulation)), \
+                    patch('kgi_monitor.KgiBroker') as broker:
+                if simulation:
+                    with self.assertRaises(TradingError):main(['--check-config','--startup-production-buy-one'])
+                else:
+                    main(['--check-config','--startup-production-buy-one'])
+                broker.assert_not_called()
+
+    def test_manual_production_confirmation_precedes_watcher_and_cancellation_stops_it(self):
+        for accepted in (True,False):
+            calls=[]
+            fake=NS(account='ACC',contract=C,simulation=False,login=Mock(),close=Mock())
+            config=dict(contract=C,entry_quantity=1,mdd_one_way_cost='0')
+            def manual(*args,**kwargs):
+                calls.append('confirmation')
+                self.assertIs(kwargs['simulation'],False)
+                self.assertIs(kwargs['confirm'],human)
+                if not accepted:raise TradingError('operator cancelled')
+                return True
+            with self.subTest(accepted=accepted), patch('kgi_monitor.BASE',Path(self.temp.name)), \
+                    patch('kgi_monitor.sys.stdin.isatty',return_value=True), \
+                    patch('kgi_monitor.read_config',return_value=config), \
+                    patch('kgi_monitor.read_webhook',return_value='https://discord.com/api/webhooks/1/test'), \
+                    patch('kgi_monitor.credentials',return_value=('USER','PASS','ACC','BROKER',False)), \
+                    patch('kgi_monitor.KgiBroker',return_value=fake), \
+                    patch('kgi_monitor.Discord',return_value=Mock()), \
+                    patch('builtins.input') as human, \
+                    patch('kgi_monitor.manual_production_buy_one',side_effect=manual), \
+                    patch('kgi_monitor.watch',side_effect=lambda *a,**k: calls.append('watch')):
+                if accepted:
+                    main(['--live','--startup-production-buy-one'])
+                else:
+                    with self.assertRaises(TradingError):main(['--live','--startup-production-buy-one'])
+                human.assert_not_called()
+            self.assertEqual(calls,['confirmation','watch'] if accepted else ['confirmation'])
+            fake.close.assert_called_once()
+
     def test_timeout_keeps_guard_without_retry(self):
         b = self.broker([[], [], []], trade(State.Submitted, 0))
+        b.position = Mock(return_value=0)
         # First clock sets submission time; second is deadline; third expires it.
         with patch('kgi_broker.time.monotonic', side_effect=[0, 0, 21]), self.assertRaises(TradingError):
             execute_h(b, 1, self.store, 'signal')
@@ -371,7 +528,8 @@ class KgiTests(unittest.TestCase):
                 read_config(config_path)
         with patch.dict(os.environ, {'KGI_UNIT': '1'}):
             self.assertEqual(read_config(config_path)['entry_quantity'], 1)
-            self.assertTrue(read_config(config_path)['mdd_sizing'])
+            self.assertFalse(read_config(config_path)['mdd_sizing'])
+            self.assertTrue(read_config(config_path)['recovery_sizing'])
 
     def test_watcher_applies_unit_to_live_orders_and_paper_audit(self):
         for live in (False, True):
@@ -466,6 +624,23 @@ class SdkSourceTests(unittest.TestCase):
                 self.assertEqual((snapshot['price'],snapshot['quantity']), ('100',3))
                 self.assertIs(core.get_trades(full=True)[order_id], returned)
             self.assertEqual(events.call_count, 6)
+            # Real SDK rejection: order_status stays None; operation is Failed,
+            # CNT links the native report, and the reported quantity becomes 0.
+            native.RetriveRequestID.return_value = 997
+            bridge.phase = 'entry'
+            rejected = core.create_order(sdk_base.Action.Buy, 'TMFJ6', 1,
+                                         sdk_base.PriceType.MKT, sdk_base.TimeInForce.IOC)
+            core._OnOrderPending(dict(RequestID='997', CNT='REJECT-CNT', OrderNo='cA000', Error='0', WEBID='WEB'))
+            core._OnOrderReport(dict(CNT='REJECT-CNT', OrderNo='cA000', WEBID='WEB', ErrCode='3296',
+                OrderFunc='I', Symbol='TMFJ6', ReportTime='120000000', BS='B', BeforeQty='0', AfterQty='0',
+                PriceFlag='1', Price='0', TimeInForce='I', TradeHour='R', TaiCode='', ErrMsg='保證金不足',
+                ActNo='ACC', BrokerID='BROKER', PositionEffect='O', TradeDate='20261015'))
+            adapter = KgiBroker(dict(contract=C, confirmation_timeout=20), Mock())
+            adapter.account, adapter.broker_id, adapter.core = 'ACC', 'BROKER', core
+            adapter.api = NS(FutOrder=NS(get_trades=lambda **_: core.get_trades(full=True)))
+            self.assertIsNone(rejected.order_status.status)
+            self.assertEqual(adapter.trade_rejection(rejected)['error_code'], '3296')
+            adapter.ensure_no_working_orders()
 
 
 if __name__ == '__main__':

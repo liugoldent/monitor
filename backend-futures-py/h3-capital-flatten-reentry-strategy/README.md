@@ -1,3 +1,20 @@
+# 2026-10-16 H3 修復進場規則
+
+常態 `h_monitor.py` 已改用共用 `../h3_recovery_sizing.py`：固定單口已平倉
+淨損益回撤點數／訊號時指數。第1口從新H3訊號持續跟隨，不等回撤；
+只有第2口等待先達2.5%再修復至≤1.25%。
+首次那一輪不加碼；先回前高，後續新一輪符合相同條件才進2口，歸零回1口。
+單口持續跟隨，上限2口。啟動不下單，必須等新H3換向訊號；第1口沒有回撤門檻。
+H3 Discord由Relay提醒；訊號行情缺失或舊倉與新帳本不符時停止核對。
+群益專用的啟動、成交、拒單與異常通知使用上層 `backend-futures-py/.env` 的
+`DISCORD_CAPITAL_H3_MDD_ADD_URL`，不載入其他券商帳密；`--check-config` 會驗證此設定。
+通知加上「群益」標籤，HTTP失敗只記錄錯誤類型，不影響成交流程或重送委託。
+成功／失敗保存於SQLite audit的 `capital_discord_delivered`／`capital_discord_failed`。
+新狀態保存於原SQLite的 `h3_recovery_state`，未確認委託保護與先平後開流程保留。
+歷史基準建立方式見上層README；每日重啟不重置單口前高、1／2口階段或首次回前高的進度。
+
+以下較早記錄中的固定每筆1口說明，僅描述舊版行為。
+
 # 群益 H3 微型台指策略
 
 ## 新電腦設定
@@ -8,7 +25,7 @@
 
 雙擊根目錄 run-windows-services.cmd，透過 scripts/windows/capital-h3-service.ps1 啟動本機 h_monitor.py --live --service。群益 DLL 在 Windows 原生 Python 執行。重複啟動會核對既有程序，避免第二個交易程序。
 
-根目錄停止腳本會停止此服務。關閉日誌視窗不會停止策略；停止程序不會自動平倉或撤銷委託。
+根目錄統一啟動也會一起啟動凱基H3，兩者均只等待新訊號，不帶測試買單參數。根目錄停止腳本會停止群益與凱基H3。關閉日誌視窗不會停止策略；停止程序不會自動平倉或撤銷委託。
 
 ## 設定與規則
 
@@ -20,7 +37,7 @@ h-config.json 指定合約、固定進場1口及 Relay 路徑。現在設定2026
 
 未來在本目錄擴充其他帳號時，沿用 `h_core.parse_signal()` 取得共用方向，不再新增各帳號的訊號解析規則。帳號連線、委託、庫存核對與交易狀態由各帳號各自處理；每個帳號必須使用獨立 Store、委託 guard 與鎖檔，讓同一訊號能各自執行一次。現有服務仍只執行 CAPITAL_ACCOUNT_SELECT 指定的帳號，這次不會新增啟動其他帳號。
 
-啟動及重啟從檔尾開始，不追補歷史或停機訊號。群益版另拒絕超過30秒訊號；委託不明、部分成交、斷線或庫存無法確認時停止，不重送。没有每日固定清倉。原永豐H3仍運作，兩者使用不同券商帳戶。
+啟動及重啟從檔尾開始，不追補歷史或停機訊號。群益版另拒絕超過30秒訊號；已明確核對的新單拒絕會保留原因與證據，結束該筆委託並繼續等待新訊號，不重送同一訊號；委託不明、部分成交、斷線或庫存無法確認時仍停止。没有每日固定清倉。原永豐H3仍運作，兩者使用不同券商帳戶。
 
 ## 檔案
 
@@ -34,20 +51,54 @@ h-config.json 指定合約、固定進場1口及 Relay 路徑。現在設定2026
 
 服務日誌為 runtime/windows-service.log，錯誤為 runtime/windows-service-error.log。帳密、DLL與runtime列入Git忽略。不要刪除交易狀態來解除未確認委託阻擋，須先核對券商庫存與委託。
 
-庫存查詢遇到 `1019 SK_ERROR_QUERY_IN_PROCESSING`（查詢尚未結束）時，每隔 6 秒重查，含首次最多 3 次；等待期間持續檢查連線。只有重新取得有效庫存回覆後才繼續，不沿用舊庫存，也不將 1019 視為 0 口。每次忙碌會記錄 `inventory_query_busy`；仍忙碌、其他查詢錯誤或斷線則停止。這個重查只適用庫存查詢，不重送委託。
+## 庫存查詢與拒單恢復
+
+所有庫存查詢（含成功的查詢）至少間隔6秒，期間持續處理DLL訊息與檢查連線，不沿用前一次庫存。遇到 1019 SK_ERROR_QUERY_IN_PROCESSING 時，每隔6秒重查，含首次最多3次；空白的成功回覆不當成空手。成交後查詢受同一筆委託的30秒確認期限限制，SDK同步回覆逾時也不能確認成交。
+
+只有可關聯本筆 ORKEY 的 [060] Proxy 拒單、相符的新單失敗回報、無成交及最新庫存與送單前相同，或直接關聯的正式新單拒絕回報，才會結束本次guard。整筆平倉拒絕也按相同條件核對：原持倉保留，當筆不另開新倉，繼續等下一個新訊號。結束與證據在同一SQLite交易保存；訊號仍維持已消耗，不會重送。Gateway錯誤、缺回報、未知結果、無法確認的平倉失敗及部分成交仍保留guard並停止。
+
+### 查詢與核對10月12日的舊拒單
+
+可直接在 PowerShell 執行（路徑含空白也適用）：
+
+~~~powershell
+# 唯讀登入、核對合約、回補、庫存與本機guard；不送單
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\USER\Desktop\monitor\scripts\windows\capital-h3-service.ps1" -Action Diagnose
+
+# 本人核對10/12新單拒絕；不送單，不監控訊號
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\USER\Desktop\monitor\scripts\windows\capital-h3-service.ps1" -Action ReviewPending -RejectionEvidence "C:\Users\USER\Desktop\monitor\backend-futures-py\h3-capital-flatten-reentry-strategy\runtime\read-only-order-check-20261012.json"
+~~~
+
+ReviewPending 核對歷史回補的帳號、商品、方向、1口、送單時間及 OrderErr=Y／OrderNo=00000，且最新庫存0口、沒有未結束微台委託。畫面列出證據後，使用者須先在券商端核對並本人輸入指定的「RESOLVE REJECTED 帳號末碼 序號」，才會保留核對紀錄並解除舊guard；工具本身不送單。未確認、證據不符或庫存變動均保留阻擋。不直接刪SQLite、不重播舊訊號。
+
+診斷輸出保存在 runtime/diagnostic.json，含遮蔽帳號後的微台回補資料；可用作後續核對入口的 -RejectionEvidence。若回補已不含那筆歷史單，不能用空回補推定舊單已拒絕；須使用當時保存的證據並本人核對。
+
+### 本人單次正式送單測試
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\USER\Desktop\monitor\scripts\windows\capital-h3-service.ps1" -Action TestBuyOne
+~~~
+
+若有舊guard，TestBuyOne 會先顯示並核對已保存的10/12拒單證據，要求本人確認解除；成功後才進入新測試單的另一個確認畫面。取消任一步驟都不送新單。證據不符或缺漏仍停止；其他證據可用 -RejectionEvidence 指定。這個模式先完成唯讀登入與庫存查詢，不會在顯示舊單核對畫面前就因guard退出。一般背景 Start 仍保留未確認委託阻擋。
+
+僅本人在互動終端操作，畫面核對正式帳號末碼、當期合約後，輸入指定的「BUY 1 合約 MKT IOC 帳號末碼」才送出微型台指買進1口、市價IOC、新倉、非當沖。須空手且無未確認委託；送出前持久化一次性嘗試紀錄，成功、拒單或中斷後都不因重啟再送。以成交回報及最新庫存共同確認；測試完成即退出，不會自動平倉或開始H3監控。開發驗證不代替使用者執行正式委託。
+
+完成舊單核對後，一般背景策略使用：
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\USER\Desktop\monitor\scripts\windows\capital-h3-service.ps1" -Action Start
+~~~
 
 ## 驗證
 
-已回查2026-10-05 18:47帳號2的一次性測試腳本：呼叫 `SK.SendFutureProxyOrder(broker.login_id, build_order(broker.account, contract, 1, 'entry'))`，與目前自動策略的送單API及委託建構函式相同；都是202610微台買進1口、市價IOC、新倉、非當沖、Proxy target=4。一次性測試與正式策略的差異在回報等待：前者等到新 `OnNewData` 才结束，正式策略原本在 Proxy 拒單後立即退出。現在正式策略在 Proxy 拒單後持續處理訊息，最長30秒內等待同帳戶微台的新單失敗回報，並保存 `proxy_report`、`order_report`（包含時間和序號），缺少後續回報則另記錄 `order_report_timeout`。缺少可直接連結的SeqNo時，回報只作為診斷證據，不確認成交、不清除guard、不重送。此調整已經離線測試，尚未驗證行動贏家的跨平台回報顯示，也未重啟實單服務。
+2026-10-15 已以正式帳號末碼2899進行唯讀登入，通過商品核對及委託回補，連續兩次查到微台庫存0口，無未結束微台委託。權益、可用餘額均為0；查詢成功不代表具備下單保證金。修正後的 PowerShell Diagnose 入口也完成實際查詢。後續使用者已本人完成舊拒單核對，並送出一筆新的1口正式MKT/IOC測試，券商回覆 [060] 保證金不足；該筆零成交拒單已依最新庫存核對結案。一般 Start 不看單次測試marker、不再送測試單；開發工具未啟動正式監控。
 
-2026-10-12 09:17 的新訊號觸發買進1口下單請求，收到拒單後服務退出；未確認委託成功成立。當日重新只讀登入群益取得伺服器回補，核對完整帳號與末碼2899的指定帳戶一致：回報時間 `20261012 09:17:09`、序號 `2315617343305`、`OrderErr=Y`、`OrderNo=00000`，原因為 `[060] 此投資人個幣保證金不足 不可下單`。指定帳戶的帳戶權益、可用餘額皆為0，微台庫存0口。遮蔽後的回補證據保存於 `runtime/read-only-order-check-20261012.json`。使用者在交易軟體看不到任何回報，該軟體的顯示原因仍未確認；不能僅以保證金不足解釋回報不可見。此次查核沒有送單，未清除未確認委託 guard，也未重新啟動實單服務。補足資金或切換正確帳戶後，仍須核對既有委託狀態。拒單處理現在會將券商原因碼及訊息寫入 `order_rejected` 稽核紀錄和服務日誌，遮蔽登入ID及完整帳號；拒單仍停止、不重送。
+本機舊guard來自2026-10-12 09:17的一口新倉買單；當時唯讀回補證據保存於 runtime/read-only-order-check-20261012.json，OrderErr=Y、OrderNo=00000，券商原因為 [060] 保證金不足。舊程式將拒單保留為未確認委託，造成10/13、10/14、10/15啟動持續被擋。舊資料缺少完整ORK/SeqNo關聯，該筆已由使用者透過本人核對入口結案，歷史稽核紀錄保留。
 
-2026-10-09以只讀模式查詢指定帳戶，回覆 `001,查無資料,...`，確認當時庫存 0 口；同一連線於 3 秒後重查重現 1019，6 秒後再次查詢恢復為 0。2026-10-08 22:26:02 的訊號已接收，但第一次查庫存即遇到 1019，舊程式直接退出，尚未進入送單階段。舊日誌不足以判定當晚查詢忙碌的上游原因；此次重現驗證了暫時忙碌可恢復，未送出委託。
+2026-10-05兩個帳戶及10-12策略均曾實際呼叫相同 SendFutureProxyOrder API，收到券商保證金不足拒單。這證明曾送達券商並收到拒單，不能當成實際成交驗證。完整成交後的非空庫存格式仍待使用者在有足額保證金時聯調；程式遇到未支援格式會停止核對。
 
-2026-10-05已驗證登入、Proxy target=4、合約查詢，以及兩個帳戶的202610微台買進1口市價IOC實單測試。均收到 [060] 保證金不足拒單，回查沒有新增庫存。完整成交後的庫存格式與回報映射仍待聯調，拒單測試不代表完整成交流程已驗證。
+離線測試涵蓋先平後開、市價IOC、新平倉、可信訊號與去重、庫存查詢節奏／1019／逾時、可確認拒單恢復、未知結果保留guard、本人核對舊拒單、取消與證據不符、單次正式測試的互動及防重送。測試中的送單全部使用替身，不呼叫券商下單API。
 
-從專案根目錄執行既有測試：
-
-```powershell
-& 'C:\Users\USER\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m unittest discover -s backend-futures-py/h3-capital-flatten-reentry-strategy -p test_h_execution.py -v
-```
+~~~powershell
+& 'C:\Users\USER\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m unittest discover -s backend-futures-py/h3-capital-flatten-reentry-strategy -p 'test_*.py' -v
+~~~

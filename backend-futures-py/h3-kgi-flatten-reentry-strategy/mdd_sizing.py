@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlparse
 
-from shared_h import TradingError, parse_signal
+from shared_h import OrderRejected, TradingError, parse_signal
 
 POINT = Decimal('10')
 THRESHOLD = Decimal('0.03')
@@ -227,7 +227,13 @@ def execute_mdd(broker, policy, trigger, direction, notify=lambda message: None)
                            side='buy' if delta > 0 else 'sell', quantity=abs(delta))
             store.begin(payload)
             store.audit('prepared', payload)
-            result = broker.send_and_confirm(delta, phase, target)
+            try:
+                result = broker.send_and_confirm(delta, phase, target)
+            except OrderRejected as exc:
+                store.resolve_rejected(payload, exc.evidence)
+                notify('【凱基 H3 回撤加口｜整筆拒單】\n' + str(exc) +
+                       '\n零成交且庫存一致；本訊號不重送，繼續等待新訊號。\n' + summary(policy))
+                raise
             if result != target or not broker.last_fill:
                 raise TradingError('成交庫存或價格未完整確認；保留 guard，不重送')
             was_boosted = policy.state()['boosted']
@@ -244,6 +250,78 @@ def execute_mdd(broker, policy, trigger, direction, notify=lambda message: None)
         for message in messages:
             notify(message)
     return previous
+
+
+def startup_simulation_buy_one(broker, policy, *, simulation, notify=lambda message: None):
+    """One explicit startup test per simulation account, never production or retries."""
+    if simulation is not True or getattr(broker, 'simulation', None) is not True:
+        raise TradingError('啟動買進1口測試僅限 KGI_SIMULATION=true；正式環境禁止執行')
+    store = policy.store
+    if store.pending():
+        raise TradingError('有未確認委託，不執行啟動測試')
+    store.db.execute('''CREATE TABLE IF NOT EXISTS kgi_startup_simulation_test
+                        (id INTEGER PRIMARY KEY CHECK(id=1), status TEXT NOT NULL)''')
+    store.db.commit()
+    row = store.db.execute('SELECT status FROM kgi_startup_simulation_test WHERE id=1').fetchone()
+    if row:
+        if row[0] != 'confirmed':
+            raise TradingError('啟動測試已有嘗試紀錄，請核對成交；不自動重送')
+        store.audit('startup_simulation_buy_one_skipped', {'reason': 'already_confirmed'})
+        return False
+    policy.validate_position(broker.position())
+    if policy.state()['open_trade'] is not None or policy.quantity() != 1:
+        raise TradingError('啟動測試須空手且處於1口階段；不平舊倉、不調整既有口數')
+    # Reserve before execution; a failure/crash never turns a restart into a retry.
+    with store.db:
+        store.db.execute("INSERT INTO kgi_startup_simulation_test VALUES (1,'attempted')")
+    target = execute_mdd(broker, policy, 'startup-simulation-buy-one-v1', 1,
+                         lambda message: notify('【僅模擬環境｜啟動買進1口測試】\n' + message))
+    if target != 1:
+        raise TradingError('啟動模擬測試成交口數不符')
+    with store.db:
+        store.db.execute("UPDATE kgi_startup_simulation_test SET status='confirmed' WHERE id=1")
+    store.audit('startup_simulation_buy_one_confirmed', {'quantity': 1, 'price_type': 'MKT', 'time_in_force': 'IOC'})
+    return True
+
+
+def manual_production_buy_one(broker, policy, *, simulation, confirm, notify=lambda message: None):
+    """Human-operated one-time production entry; never an unattended startup default."""
+    if simulation is not False or getattr(broker, 'simulation', None) is not False:
+        raise TradingError('手動正式測試須確認登入正式環境；不可套用到模擬環境')
+    store = policy.store
+    if store.pending():
+        raise TradingError('有未確認委託，請先核對，不送正式測試單')
+    store.db.execute('''CREATE TABLE IF NOT EXISTS kgi_manual_production_test
+                        (id INTEGER PRIMARY KEY CHECK(id=1), status TEXT NOT NULL)''')
+    store.db.commit()
+    row = store.db.execute('SELECT status FROM kgi_manual_production_test WHERE id=1').fetchone()
+    if row:
+        if row[0] != 'confirmed':
+            raise TradingError('正式測試已有嘗試紀錄，請核對券商回報；不自動重送')
+        answer = confirm('正式測試先前已完成，本次不重送。若要繼續H3監控，請輸入 START KGI H：')
+        if answer.strip() != 'START KGI H':
+            raise TradingError('使用者取消啟動，未送出新委託')
+        store.audit('manual_production_buy_one_skipped', {'reason': 'already_confirmed'})
+        return False
+    policy.validate_position(broker.position())
+    if policy.state()['open_trade'] is not None or policy.quantity() != 1:
+        raise TradingError('正式單次測試只接受空手及1口階段，不平舊倉或加至既有部位')
+    suffix = str(broker.account)[-4:]
+    expected = f'BUY 1 {policy.symbol} MKT IOC {suffix}'
+    answer = confirm(f'【正式委託】帳號末碼{suffix}，買進1口微型台指{policy.symbol}，市價MKT／IOC。'
+                     f'成交後會繼續H3自動監控。確認由本人送單請輸入：{expected}\n> ')
+    if answer.strip() != expected:
+        raise TradingError('使用者未確認正式委託；未送單')
+    with store.db:
+        store.db.execute("INSERT INTO kgi_manual_production_test VALUES (1,'attempted')")
+    target = execute_mdd(broker, policy, 'manual-production-buy-one-v1', 1,
+                         lambda message: notify('【本人確認｜正式單次測試】\n' + message))
+    if target != 1:
+        raise TradingError('正式測試成交口數不符')
+    with store.db:
+        store.db.execute("UPDATE kgi_manual_production_test SET status='confirmed' WHERE id=1")
+    store.audit('manual_production_buy_one_confirmed', {'quantity': 1, 'price_type': 'MKT', 'time_in_force': 'IOC'})
+    return True
 
 
 def watch(config, store, broker=None, *, poll=0.5):
@@ -284,7 +362,11 @@ def watch(config, store, broker=None, *, poll=0.5):
                 key, direction, _ = signal
                 if broker:
                     store.audit('signal', {'key': key, 'direction': direction})
-                    target = execute_mdd(broker, policy, key, direction, notify)
+                    try:
+                        target = execute_mdd(broker, policy, key, direction, notify)
+                    except OrderRejected as exc:
+                        print(f'{key}：{exc}；繼續等待新H3訊號。', flush=True)
+                        continue
                     print(f'{key}：已確認先平倉再進場 {target:+d} 口', flush=True)
                 else:
                     store.audit('paper_signal', dict(key=key, direction=direction, entry_quantity=policy.quantity(),

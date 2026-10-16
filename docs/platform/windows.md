@@ -21,10 +21,16 @@ run-windows-services.cmd
 它會依序：
 
 1. 執行 `git pull --ff-only` 拉取目前分支更新；失敗時停止啟動流程，不重啟服務。
-2. 檢查必要檔案與 Docker。
+2. 檢查群益H3、凱基H3的本地設定、必要檔案與 Docker。
 3. 必要時啟動 Docker Desktop並等待引擎就緒。
 4. 必要時重新 build，啟動共用訊號服務，以及 `ef-hysteresis-again-strategy`（API_KEY）與 `ef-morning-weekend-hedge-strategy`（API_KEY2）。舊模擬策略與 TOTAL 影子策略會停止。
 5. 在 Windows Terminal 開各服務的 log 分頁；沒有 Windows Terminal 時改開 PowerShell。
+6. 以Windows原生Python啟動群益H3與凱基H3，另開 H3 Capital LIVE、H3 KGI LIVE 日誌分頁。
+
+兩個原生H3服務使用各自目錄的 .env、SDK、庫存及交易狀態。凱基正式環境設定為 KGI_SIMULATION=false；群益使用 CAPITAL_ACCOUNT_SELECT 指定帳戶。統一啟動呼叫兩邊一般 Start，等待可信的新H3訊號；不執行 TestBuyOne 或 StartupProductionBuyOne，不補啟動前訊號。原生服務有程序鎖與既有PID核對，重複執行不另開第二個下單程序。
+
+已確認的整筆拒單在零成交、庫存一致及回報可關聯時會結案並繼續監控，同一訊號不重送。未知結果、部分成交、斷線或庫存不明仍停止核對，日誌會留下原因。關閉日誌分頁不會停止策略。
+
 
 `ef-hysteresis-again-strategy` 使用 `API_KEY` / `SECRET_KEY` 的 Shioaji 正式帳戶；
 `ef-morning-weekend-hedge-strategy` 使用第二組 `API_KEY2` / `SECRET_KEY2`，
@@ -51,7 +57,7 @@ run-windows-services.cmd
 stop-windows-services.cmd
 ```
 
-關閉 log 視窗不會停止 Docker 服務，必須使用停止腳本。
+停止總腳本會一併停止Docker、群益H3及凱基H3；不自動平倉或撤單。關閉log視窗不會停止交易服務。
 
 ## 單獨初始化 Telegram
 

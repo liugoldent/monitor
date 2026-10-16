@@ -8,7 +8,8 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
 from shared_h import Store, TradingError
-from mdd_sizing import Discord, MddPolicy, execute_mdd, execution_fill, read_webhook, watch
+from mdd_sizing import (Discord, MddPolicy, execute_mdd, execution_fill, manual_production_buy_one, read_webhook,
+                        startup_simulation_buy_one, watch)
 
 
 class FakeBroker:
@@ -237,6 +238,148 @@ class MddTests(unittest.TestCase):
         self.assertEqual(len(rows),1)
         self.assertEqual(json.loads(rows[0][0])['key'],'-1:101')
         self.assertEqual(self.policy.state()['equity'],'0')
+
+
+class StartupSimulationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.store=Store(Path(self.temp.name)/'simulation.sqlite')
+        self.policy=MddPolicy(self.store,'TMFJ6',one_way_cost='0')
+        self.broker=FakeBroker([50000])
+        self.broker.simulation=True
+
+    def tearDown(self):
+        self.store.db.close()
+        self.temp.cleanup()
+
+    def test_both_configuration_and_broker_must_be_simulation(self):
+        for config_value,broker_value in [(False,False),(False,True),(True,False),(True,None),(1,True)]:
+            with self.subTest(config=config_value,broker=broker_value):
+                self.broker.simulation=broker_value
+                with self.assertRaises(TradingError):
+                    startup_simulation_buy_one(self.broker,self.policy,simulation=config_value)
+                self.assertEqual(self.broker.calls,[])
+
+    def test_buys_exactly_one_and_persists_one_time_marker_across_restart(self):
+        messages=[]
+        self.assertTrue(startup_simulation_buy_one(self.broker,self.policy,simulation=True,notify=messages.append))
+        self.assertEqual(self.broker.calls,[(1,'entry',1)])
+        self.assertEqual(self.policy.state()['open_trade']['quantity'],1)
+        self.assertTrue(any('僅模擬環境' in m for m in messages))
+        restarted=MddPolicy(self.store,'TMFJ6',one_way_cost='0')
+        self.assertFalse(startup_simulation_buy_one(self.broker,restarted,simulation=True))
+        self.assertEqual(len(self.broker.calls),1)
+
+    def test_does_not_flatten_or_add_to_existing_position(self):
+        execute_mdd(self.broker,self.policy,'prior',1)
+        with self.assertRaises(TradingError):
+            startup_simulation_buy_one(self.broker,self.policy,simulation=True)
+        self.assertEqual(self.broker.calls,[(1,'entry',1)])
+
+    def test_untracked_inventory_blocks_test_without_any_order(self):
+        self.broker.current=-1
+        with self.assertRaises(TradingError):
+            startup_simulation_buy_one(self.broker,self.policy,simulation=True)
+        self.assertEqual(self.broker.calls,[])
+
+    def test_failed_order_preserves_guard_and_is_never_resubmitted(self):
+        self.broker.fail_phase='entry'
+        with self.assertRaises(TradingError):
+            startup_simulation_buy_one(self.broker,self.policy,simulation=True)
+        self.assertIsNotNone(self.store.pending())
+        with self.assertRaises(TradingError):
+            startup_simulation_buy_one(self.broker,self.policy,simulation=True)
+        self.assertEqual(len(self.broker.calls),1)
+
+    def test_reserved_attempt_without_guard_is_also_not_retried(self):
+        self.broker.position=Mock(side_effect=[0,TradingError('preflight unavailable')])
+        with self.assertRaises(TradingError):
+            startup_simulation_buy_one(self.broker,self.policy,simulation=True)
+        self.assertIsNone(self.store.pending())
+        self.assertEqual(self.broker.calls,[])
+        with self.assertRaisesRegex(TradingError,'已有嘗試'):
+            startup_simulation_buy_one(self.broker,self.policy,simulation=True)
+        self.assertEqual(self.broker.calls,[])
+
+
+
+class ManualProductionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.store=Store(Path(self.temp.name)/'production.sqlite')
+        self.policy=MddPolicy(self.store,'TMFJ6',one_way_cost='0')
+        self.broker=FakeBroker([50000])
+        self.broker.simulation=False
+        self.broker.account='TEST2248'
+        self.confirm=Mock(return_value='BUY 1 TMFJ6 MKT IOC 2248')
+
+    def tearDown(self):
+        self.store.db.close()
+        self.temp.cleanup()
+
+    def run_manual(self, simulation=False):
+        return manual_production_buy_one(self.broker,self.policy,simulation=simulation,confirm=self.confirm)
+
+    def test_requires_production_configuration_and_broker(self):
+        for config,actual in [(True,False),(False,True),(False,None),(0,False)]:
+            with self.subTest(config=config,actual=actual):
+                self.broker.simulation=actual
+                with self.assertRaises(TradingError):self.run_manual(config)
+        self.confirm.assert_not_called()
+        self.assertEqual(self.broker.calls,[])
+
+    def test_wrong_confirmation_or_eof_never_submits_or_reserves_attempt(self):
+        for answer in ('','yes','BUY 1 TMFK6 MKT IOC 2248','BUY 1 TMFJ6 MKT IOC 9999'):
+            self.confirm.return_value=answer
+            with self.assertRaises(TradingError):self.run_manual()
+        self.confirm.side_effect=EOFError
+        with self.assertRaises(EOFError):self.run_manual()
+        self.assertEqual(self.broker.calls,[])
+        self.assertIsNone(self.store.db.execute('SELECT status FROM kgi_manual_production_test').fetchone())
+
+    def test_human_confirmation_buys_one_and_restart_never_repeats(self):
+        self.assertTrue(self.run_manual())
+        self.assertIn('BUY 1 TMFJ6 MKT IOC 2248',self.confirm.call_args.args[0])
+        self.assertEqual(self.broker.calls,[(1,'entry',1)])
+        self.assertEqual(self.policy.state()['open_trade']['quantity'],1)
+        self.assertEqual(self.store.db.execute('SELECT status FROM kgi_manual_production_test').fetchone()[0],'confirmed')
+        self.store.db.close()
+        self.store=Store(Path(self.temp.name)/'production.sqlite')
+        self.policy=MddPolicy(self.store,'TMFJ6',one_way_cost='0')
+        self.confirm.return_value='START KGI H'
+        self.assertFalse(self.run_manual())
+        self.assertEqual(len(self.broker.calls),1)
+        self.confirm.return_value=''
+        with self.assertRaises(TradingError):self.run_manual()
+        self.assertEqual(len(self.broker.calls),1)
+
+    def test_existing_position_is_not_flattened_or_added(self):
+        execute_mdd(self.broker,self.policy,'prior',1)
+        with self.assertRaises(TradingError):self.run_manual()
+        self.confirm.assert_not_called()
+        self.assertEqual(self.broker.calls,[(1,'entry',1)])
+
+    def test_untracked_inventory_blocks_before_confirmation(self):
+        self.broker.current=-1
+        with self.assertRaises(TradingError):self.run_manual()
+        self.confirm.assert_not_called()
+        self.assertEqual(self.broker.calls,[])
+
+    def test_failed_order_keeps_guard_and_cannot_retry(self):
+        self.broker.fail_phase='entry'
+        with self.assertRaises(TradingError):self.run_manual()
+        self.assertIsNotNone(self.store.pending())
+        with self.assertRaises(TradingError):self.run_manual()
+        self.assertEqual(self.broker.calls,[(1,'entry',1)])
+        self.confirm.assert_called_once()
+
+    def test_interruption_after_attempt_reservation_is_not_retried(self):
+        self.broker.position=Mock(side_effect=[0,TradingError('query unavailable')])
+        with self.assertRaises(TradingError):self.run_manual()
+        self.assertIsNone(self.store.pending())
+        with self.assertRaisesRegex(TradingError,'已有嘗試'):self.run_manual()
+        self.assertEqual(self.broker.calls,[])
+        self.confirm.assert_called_once()
 
 
 if __name__=='__main__':unittest.main()

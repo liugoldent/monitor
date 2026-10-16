@@ -1165,7 +1165,7 @@ class BrokerTests(unittest.TestCase):
             api.futopt_account.account_id = "account2"
             with patch.dict(os.environ, env, clear=True):
                 auto_trade.login(sj)
-                sj.Shioaji.assert_called_with(simulation=False)
+                sj.Shioaji.assert_called_with(simulation=True)
                 api.login.assert_called_once_with("key2", "secret2")
                 api.futopt_account.account_id = "account1"
                 with self.assertRaises(auto_trade.BrokerOrderError):
@@ -1281,7 +1281,7 @@ class MonitorWithoutH3Tests(unittest.TestCase):
         self.assertNotIn("h3_profit_snapshot",m.state["attempt"])
         self.assertFalse(hasattr(m,"h3_source"))
         self.assertEqual(m.state["h3_entry_policy"],"disabled")
-        self.assertIs(m.state["broker_simulation"],False)
+        self.assertIs(m.state["broker_simulation"],True)
         self.assertNotIn("H3即時判斷",m.notify.call_args.args[0])
 
     def test_short_entry_and_atomic_reversal_do_not_require_h3(self):

@@ -32,6 +32,7 @@ services:
     volumes:
       - ./backend-futures-py/telegram_signal_relay.py:/app/backend-futures-py/telegram_signal_relay.py:ro
       - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
+      - ./backend-futures-py/h3_entry_watch.py:/app/backend-futures-py/h3_entry_watch.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/telegram-relay-runtime:/app/backend-futures-py/telegram-relay-runtime
       - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records

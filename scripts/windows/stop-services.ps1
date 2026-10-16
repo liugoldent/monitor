@@ -4,6 +4,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 & (Join-Path $PSScriptRoot 'capital-h3-service.ps1') -Action Stop
+& (Join-Path $PSScriptRoot 'kgi-h3-service.ps1') -Action Stop
 $services = @(
     'telegram-signal-relay',
     'monitor-mxf',

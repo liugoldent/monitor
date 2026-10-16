@@ -16,6 +16,13 @@ class TradingError(RuntimeError):
     pass
 
 
+class OrderRejected(TradingError):
+    """A conclusively rejected new order, reconciled against fresh inventory."""
+    def __init__(self, message, evidence):
+        super().__init__(message)
+        self.evidence = evidence
+
+
 @dataclass(frozen=True)
 class Contract:
     quote_code: str
@@ -96,6 +103,17 @@ class Store:
             self.db.execute('DELETE FROM guard WHERE id=1')
 
 
+    def resolve_rejected(self, expected, evidence):
+        # Resolution and its evidence must commit together. Never erase history.
+        with self.db:
+            if self.pending() != expected:
+                raise TradingError('待核對委託已變動，不解除阻擋')
+            self.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
+                (datetime.now(timezone.utc).isoformat(), 'order_resolved_rejected',
+                 json.dumps(dict(pending=expected, evidence=evidence), ensure_ascii=False)))
+            self.db.execute('DELETE FROM guard WHERE id=1')
+
+
 def parse_inventory(result, account, login_id, contract):
     if result.StatusCode == 1 and result.RawData == f'001,查無資料,{account}':
         return 0
@@ -104,6 +122,8 @@ def parse_inventory(result, account, login_id, contract):
     raw = result.RawData
     if not isinstance(raw, str):
         raise TradingError('庫存原始回傳格式錯誤')
+    if not raw.strip().strip('#'):
+        raise TradingError('庫存成功回覆內容為空，不能視為空手')
     positions = []
     for record in raw.rstrip('#').split('#'):
         if not record.strip():
@@ -131,7 +151,7 @@ def parse_inventory(result, account, login_id, contract):
     return sum(side * qty for side, qty in positions)
 
 
-def execute_h(broker, direction, store, trigger, *, entry_quantity=1):
+def execute_h(broker, direction, store, trigger, *, entry_quantity=1, confirmed=None):
     if direction not in (-1, 1):
         raise TradingError('訊號方向錯誤')
     if type(entry_quantity) is not int or entry_quantity < 1:
@@ -147,9 +167,16 @@ def execute_h(broker, direction, store, trigger, *, entry_quantity=1):
                        side='buy' if delta > 0 else 'sell', quantity=abs(delta))
         store.begin(payload)  # Must be durable before calling the broker.
         store.audit('prepared', payload)
-        result = broker.send_and_confirm(delta, phase, target)
+        try:
+            result = broker.send_and_confirm(delta, phase, target)
+        except OrderRejected as exc:
+            store.resolve_rejected(payload, exc.evidence)
+            raise
         if result != target:
             raise TradingError('成交後庫存不符；停止，不重送')
-        store.audit('confirmed', payload)
-        store.complete()
+        if confirmed is not None:
+            confirmed(payload)  # Account state and guard removal share one commit.
+        else:
+            store.audit('confirmed', payload)
+            store.complete()
     return direction * entry_quantity

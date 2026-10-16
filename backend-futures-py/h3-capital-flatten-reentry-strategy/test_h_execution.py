@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from h_core import Contract, Store, TradingError, execute_h, parse_inventory, parse_signal
+from h_core import Contract, OrderRejected, Store, TradingError, execute_h, parse_inventory, parse_signal
 from capital_broker import CapitalBroker, build_order
 
 C = Contract('MICRO10', 'ORDER_MICRO', '202610', 'TMF202610', 'TMF')
@@ -121,7 +121,8 @@ class ExecutionTests(unittest.TestCase):
         return parse_inventory(SimpleNamespace(StatusCode=status, RawData=raw), 'ACC', 'USER', C)
 
     def test_inventory_empty_and_net_quantity(self):
-        self.assertEqual(self.inventory(), 0)
+        with self.assertRaisesRegex(TradingError, "內容為空"):
+            self.inventory()
         self.assertEqual(self.inventory('001,查無資料,ACC', status=1), 0)
         with self.assertRaises(TradingError):
             self.inventory('001,查無資料,OTHER', status=1)
@@ -236,6 +237,7 @@ class InventoryQueryTests(unittest.TestCase):
     def test_other_errors_and_invalid_inventory_are_not_retried(self):
         for result in (self.result(999), self.result(0, 'bad'),
                        self.result(1, '001,查無資料,OTHER')):
+            self.broker._next_inventory_query = 0
             with self.subTest(result=result), self.query([result]) as query, \
                     patch('capital_broker.time.sleep') as sleep, \
                     self.assertRaises(TradingError):
@@ -270,13 +272,17 @@ class BrokerRejectionTests(unittest.TestCase):
         self.store.db.close()
         self.temp.cleanup()
 
-    def assert_rejected_once(self, submit, reason):
+    def assert_rejected_once(self, submit, reason, *, resolved=False):
         with patch('capital_broker.SK.SendFutureProxyOrder', side_effect=submit) as send:
             with self.assertRaisesRegex(TradingError, reason):
                 execute_h(self.broker, 1, self.store, 'signal')
-            self.assertIsNotNone(self.store.pending())
-            with self.assertRaisesRegex(TradingError, '上筆委託未確認'):
-                execute_h(self.broker, 1, self.store, 'next-signal')
+            if resolved:
+                self.assertIsNone(self.store.pending())
+                self.assertEqual(self.store.db.execute("SELECT count(*) FROM audit WHERE event='order_resolved_rejected'").fetchone()[0], 1)
+            else:
+                self.assertIsNotNone(self.store.pending())
+                with self.assertRaisesRegex(TradingError, '上筆委託未確認'):
+                    execute_h(self.broker, 1, self.store, 'next-signal')
             send.assert_called_once()
         detail = json.loads(self.store.db.execute(
             "SELECT detail FROM audit WHERE event='order_rejected'").fetchone()[0])
@@ -289,14 +295,15 @@ class BrokerRejectionTests(unittest.TestCase):
     def rejected_report(self, key='SKAPI_TEST'):
         return {'KeyNo': key, 'SeqNo': key, 'Type': 'N', 'OrderErr': 'Y',
                 'Qty': '1', 'BuySell': 'BNI10', 'ErrorMsg': 'USER ACC [060] 保證金不足',
-                'Broker': 'A', 'CustNo': 'CC', 'Date': '20261005', 'Time': '18:47:24'}
+                'Broker': 'A', 'CustNo': 'CC', 'Date': '20261005', 'Time': '18:47:24',
+                'ComId1': C.order_code, 'YearMonth1': C.settle_ym}
 
-    def test_correlated_margin_rejection_preserves_reason_and_guard(self):
+    def test_keyed_margin_rejection_reconciles_zero_position_and_keeps_evidence(self):
         def submit(*_args):
             self.broker.proxy_reports.append((1, 0, 'SKAPI_TEST USER ACC [060] 保證金不足'))
             self.broker.reports.append(self.rejected_report())
             return 0, 'SKAPI_TEST'
-        self.assert_rejected_once(submit, '060')
+        self.assert_rejected_once(submit, '060', resolved=True)
 
     def test_nonzero_proxy_failure_preserves_message_and_guard(self):
         def submit(*_args):
@@ -321,7 +328,7 @@ class BrokerRejectionTests(unittest.TestCase):
             # and no SeqNo in the Proxy response. Keep the guard in this case.
             self.broker.reports.append(self.rejected_report('2315616462211'))
         with patch('capital_broker.time.sleep', side_effect=deliver_report) as sleep:
-            self.assert_rejected_once(submit, '060')
+            self.assert_rejected_once(submit, '060', resolved=True)
         sleep.assert_called_once_with(.05)
         rows = self.store.db.execute(
             "SELECT event,detail FROM audit WHERE event IN ('proxy_report','order_report') ORDER BY id").fetchall()
@@ -334,6 +341,19 @@ class BrokerRejectionTests(unittest.TestCase):
         self.assertNotIn('CustNo', detail['report'])
         self.assertNotIn('USER', str(rows))
         self.assertNotIn('ACC', str(rows))
+
+    def test_margin_rejection_with_inventory_change_does_not_resolve_guard(self):
+        def submit(*_):
+            self.broker.proxy_reports.append((1, 0, 'SKAPI_TEST [060] 保證金不足'))
+            self.broker.reports.append(self.rejected_report())
+            return 0, 'SKAPI_TEST'
+        self.broker.position.side_effect = [0, 0, 1]
+        with patch('capital_broker.SK.SendFutureProxyOrder', side_effect=submit) as send:
+            with self.assertRaisesRegex(TradingError, '拒單後庫存'):
+                execute_h(self.broker, 1, self.store, 'signal')
+            send.assert_called_once()
+        self.assertIsNotNone(self.store.pending())
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM audit WHERE event='order_resolved_rejected'").fetchone()[0], 0)
 
     def test_proxy_rejection_without_order_report_waits_at_most_thirty_seconds(self):
         clock = [0.0]
@@ -351,6 +371,38 @@ class BrokerRejectionTests(unittest.TestCase):
             "SELECT count(*) FROM audit WHERE event='proxy_report'").fetchone()[0], 1)
         self.assertEqual(self.store.db.execute(
             "SELECT count(*) FROM audit WHERE event='order_report_timeout'").fetchone()[0], 1)
+
+    def test_full_rejected_close_resolves_guard_and_never_opens_next_leg(self):
+        self.broker.position.return_value = 1
+        def submit(*_):
+            self.broker.proxy_reports.append((1, 0, 'SKAPI_TEST [060] 保證金不足'))
+            report = self.rejected_report()
+            report['BuySell'] = 'SNI10'
+            self.broker.reports.append(report)
+            return 0, 'SKAPI_TEST'
+        with patch('capital_broker.SK.SendFutureProxyOrder', side_effect=submit) as send:
+            with self.assertRaises(OrderRejected):
+                execute_h(self.broker, -1, self.store, 'signal')
+            send.assert_called_once()
+        self.assertIsNone(self.store.pending())
+        proof = json.loads(self.store.db.execute("SELECT detail FROM audit WHERE event='order_resolved_rejected'").fetchone()[0])
+        self.assertEqual(proof['evidence']['position'], 1)
+        self.assertEqual(proof['pending']['phase'], 'flatten')
+
+    def test_other_order_with_same_orkey_prefix_cannot_resolve_this_guard(self):
+        clock = [0.0]
+        def submit(*_):
+            self.broker.proxy_reports.append((1, 0, 'SKAPI_TEST_OTHER [060] 保證金不足'))
+            self.broker.reports.append(self.rejected_report('OTHER_SEQUENCE'))
+            return 0, 'SKAPI_TEST'
+        with patch('capital_broker.time.monotonic', lambda: clock[0]), \
+                patch('capital_broker.time.sleep', lambda seconds: clock.__setitem__(0, clock[0]+seconds)), \
+                patch('capital_broker.SK.SendFutureProxyOrder', side_effect=submit) as send:
+            with self.assertRaisesRegex(TradingError, '30 秒內未核對'):
+                execute_h(self.broker, 1, self.store, 'signal')
+            send.assert_called_once()
+        self.assertIsNotNone(self.store.pending())
+        self.assertEqual(self.store.db.execute("SELECT count(*) FROM audit WHERE event='order_resolved_rejected'").fetchone()[0], 0)
 
     def test_success_still_requires_correlated_fill_and_verified_position(self):
         self.broker.position.side_effect = [0, 0, 1]

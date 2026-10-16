@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([ValidateSet('Start', 'Stop', 'Check')][string]$Action = 'Check')
+param(
+    [ValidateSet('Start', 'Stop', 'Check', 'Diagnose', 'ReviewPending', 'TestBuyOne')][string]$Action = 'Check',
+    [string]$RejectionEvidence
+)
 $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $strategyDir = Join-Path $projectDir 'backend-futures-py\h3-capital-flatten-reentry-strategy'
@@ -27,6 +30,28 @@ if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) { throw 'H3 Capita
 & $pythonPath $scriptPath --check-config
 if ($LASTEXITCODE -ne 0) { throw 'H3 Capital configuration validation failed.' }
 if ($Action -eq 'Check') { return }
+if ($Action -in @('Diagnose', 'ReviewPending', 'TestBuyOne')) {
+    if ($ownedProcess) { throw 'Stop the existing H3 Capital service before using an operator tool.' }
+    $operatorArgs = @()
+    if ($Action -eq 'Diagnose') { $operatorArgs = @('--diagnose') }
+    if ($Action -eq 'ReviewPending') {
+        if (-not $RejectionEvidence) { throw 'ReviewPending requires -RejectionEvidence with the read-only rejection JSON path.' }
+        $operatorArgs = @('--review-pending', '--rejection-evidence', (Resolve-Path -LiteralPath $RejectionEvidence).Path)
+    }
+    if ($Action -eq 'TestBuyOne') {
+        $operatorArgs = @('--test-buy-one')
+        if ($RejectionEvidence) {
+            $operatorArgs += @('--rejection-evidence', (Resolve-Path -LiteralPath $RejectionEvidence).Path)
+        }
+    }
+    $operatorPreviousUtf8 = $env:PYTHONUTF8
+    try {
+        $env:PYTHONUTF8 = '1'
+        & $pythonPath -u $scriptPath @operatorArgs
+        if ($LASTEXITCODE -ne 0) { throw 'H3 Capital operator tool stopped; review the reason above. Orders are never automatically retried.' }
+    } finally { $env:PYTHONUTF8 = $operatorPreviousUtf8 }
+    return
+}
 if ($ownedProcess) {
     Write-Host "H3 Capital service is already running (PID $($ownedProcess.ProcessId))."
     return

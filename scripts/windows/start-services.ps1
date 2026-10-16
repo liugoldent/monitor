@@ -7,8 +7,10 @@ $backendDir = Join-Path $projectDir 'backend-futures-py'
 $rootEnvPath = Join-Path $projectDir '.env'
 $watchScript = Join-Path $PSScriptRoot 'watch-service.ps1'
 $capitalServiceScript = Join-Path $PSScriptRoot 'capital-h3-service.ps1'
+$kgiServiceScript = Join-Path $PSScriptRoot 'kgi-h3-service.ps1'
 # Validate native Windows DLL service before changing any running services.
 & $capitalServiceScript -Action Check
+& $kgiServiceScript -Action Check
 $services = @(
     'telegram-signal-relay',
     'monitor-mxf',
@@ -250,10 +252,17 @@ foreach ($item in $logWindows) {
 }
 
 & $capitalServiceScript -Action Start
+& $kgiServiceScript -Action Start
 $capitalWatchScript = Join-Path $PSScriptRoot 'watch-capital-h3.ps1'
 if ($terminal) {
     & $terminal.Source --window monitor-services new-tab --title 'H3 Capital LIVE' powershell.exe -NoLogo -NoExit -ExecutionPolicy Bypass -File $capitalWatchScript
 } else {
     Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $capitalWatchScript))
 }
-Write-Host 'Windows services are running, including native H3 Capital. Closing log tabs does not stop trading services.' -ForegroundColor Green
+$kgiWatchScript = Join-Path $PSScriptRoot 'watch-kgi-h3.ps1'
+if ($terminal) {
+    & $terminal.Source --window monitor-services new-tab --title 'H3 KGI LIVE' powershell.exe -NoLogo -NoExit -ExecutionPolicy Bypass -File $kgiWatchScript
+} else {
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $kgiWatchScript))
+}
+Write-Host 'Windows services launched, including native H3 Capital and KGI. Closing log tabs does not stop trading services.' -ForegroundColor Green
