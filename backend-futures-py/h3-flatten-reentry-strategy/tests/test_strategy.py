@@ -123,7 +123,6 @@ class Tests(unittest.TestCase):
 
     def test_bs_direction_uses_shared_parser_and_account_unit(self):
         self.assertIs(parse_signal, parse_h_direction)
-        self.assertIs(monitor.parse_h_event_direction, parse_h_event_direction)
         os.environ["H_UNIT"] = "2"
         for text, direction in (("(B=0 S=8)", -1), ("(B=9 S=0)", 1)):
             with self.subTest(text=text):
@@ -132,15 +131,6 @@ class Tests(unittest.TestCase):
                 self.assertEqual([(o.action, o.quantity) for o in api.orders],
                                  [("Sell", 3), ("Buy" if direction > 0 else "Sell", 2)])
 
-    def test_bs_event_reaches_account_execution(self):
-        event = dict(event="received", route="h", sender_username="taiwan_mxf_bot",
-                     chat_id=123, message_id=456, received_at="2026-10-07T20:27:33+08:00",
-                     text="自動交易\n浩克3V3 交易訊號通知 (B=0 S=1)\nFrom:")
-        with tempfile.TemporaryDirectory() as folder, \
-             patch.object(monitor, "STATE", Path(folder) / "state.json"), \
-             patch.object(auto_trade, "execute_signal", return_value=NS(actual_position=-1)) as execute:
-            monitor.process_event(event, {}, Mock())
-            self.assertEqual(execute.call_args.args, (-1,))
 
     def test_flat_account_only_enters(self):
         api = Broker(0)
@@ -163,124 +153,11 @@ class Tests(unittest.TestCase):
             self.execute(api, -1)
         self.assertEqual(api.orders, [])
 
-    def test_duplicate_message_and_delivery_records_do_not_order(self):
-        event = dict(event="received", route="h", sender_username="taiwan_mxf_bot", chat_id=123, message_id=456,
-                     text="浩克3V3訊號通知\n小型台指近一訊號部位為: 空1口")
-        state = {}
-        with tempfile.TemporaryDirectory() as folder:
-            with patch.object(monitor, "STATE", Path(folder) / "state.json"), \
-                 patch.object(monitor, "ORDERS", Path(folder) / "orders.csv"), \
-                 patch.object(auto_trade, "execute_signal", return_value=NS(actual_position=-1)) as execute:
-                monitor.process_event(dict(event, event="discord_delivery"), state, Mock())
-                monitor.process_event(event, state, Mock())
-                monitor.process_event(event, state, Mock())
-                self.assertEqual(execute.call_count, 1)
 
-    def test_untrusted_or_missing_sender_cannot_order_or_change_state(self):
-        event = dict(event="received", route="h", chat_id=123, message_id=1,
-                     text="浩克3V3訊號通知\n多1口\nFrom: taiwan_mxf_bot")
-        with patch.object(auto_trade, "execute_signal") as execute, \
-             patch.object(monitor, "persist") as persist:
-            for sender in (None, "other_bot", "taiwan_mxf_bot_fake", "", 123):
-                with self.subTest(sender=sender):
-                    state = {}
-                    monitor.process_event(dict(event, sender_username=sender), state, Mock())
-                    self.assertEqual(state, {})
-            monitor.process_event(event, {}, Mock())
-            execute.assert_not_called()
-            persist.assert_not_called()
 
-    def test_allowed_sender_username_is_case_insensitive(self):
-        event = dict(event="received", route="h", chat_id=123, message_id=1,
-                     sender_username="Taiwan_MXF_Bot", text="浩克3V3訊號通知\n多1口")
-        with tempfile.TemporaryDirectory() as folder, \
-             patch.object(monitor, "STATE", Path(folder) / "state.json"), \
-             patch.object(auto_trade, "execute_signal", return_value=NS(actual_position=1)) as execute:
-            monitor.process_event(event, {}, Mock())
-            execute.assert_called_once()
 
-    def test_arrival_time_deduplication_boundaries_and_reversals(self):
-        event = dict(event="received", route="h", sender_username="taiwan_mxf_bot", chat_id=123,
-                     text="浩克3V3訊號通知\n小型台指近一訊號部位為: 多1口")
-        for arrivals, directions, expected in (
-            ([0, 9], [1, 1], 1),
-            ([0, 10], [1, 1], 1),
-            ([0, 11], [1, 1], 2),
-            ([0, 9, 11], [1, 1, 1], 2),
-            ([0, 1, 2], [1, -1, 1], 3),
-        ):
-            with self.subTest(arrivals=arrivals, directions=directions), \
-                 tempfile.TemporaryDirectory() as folder, \
-                 patch.object(monitor, "STATE", Path(folder) / "state.json"), \
-                 patch.object(monitor, "ORDERS", Path(folder) / "orders.csv"), \
-                 patch.object(auto_trade, "execute_signal", return_value=NS(actual_position=1)) as execute:
-                state = {}
-                for index, (second, direction) in enumerate(zip(arrivals, directions)):
-                    monitor.process_event(dict(event, message_id=index,
-                        text=event["text"].replace("多", "空") if direction == -1 else event["text"],
-                        received_at=f"2026-10-04T13:00:{second:02d}+08:00"), state, Mock())
-                self.assertEqual(execute.call_count, expected)
-                self.assertEqual(len(state["seen"]), len(arrivals))
 
-    def test_failed_signal_duplicate_is_filtered_after_state_reload(self):
-        event = dict(event="received", route="h", sender_username="taiwan_mxf_bot", chat_id=123, message_id=1,
-                     received_at="2026-10-04T13:00:00+08:00",
-                     text="浩克3V3訊號通知\n空1口")
-        with tempfile.TemporaryDirectory() as folder, \
-             patch.object(monitor, "STATE", Path(folder) / "state.json"), \
-             patch.object(monitor, "ORDERS", Path(folder) / "orders.csv"), \
-             patch.object(auto_trade, "execute_signal", side_effect=RuntimeError) as execute:
-            monitor.process_event(event, {}, Mock())
-            state = json.loads(monitor.STATE.read_text(encoding="utf-8"))
-            monitor.process_event(dict(event, message_id=2,
-                received_at="2026-10-04T13:00:05+08:00"), state, Mock())
-            self.assertEqual(execute.call_count, 1)
-            self.assertEqual(state["last_signal"]["status"], "failed_no_retry")
-            self.assertIn("duplicate_filtered", monitor.ORDERS.read_text(encoding="utf-8"))
 
-    def test_startup_skips_history_and_saved_pending_but_accepts_new_signal(self):
-        event = dict(event="received", route="h", sender_username="taiwan_mxf_bot", chat_id=123, message_id=1,
-                     text="浩克3V3訊號通知\n多1口")
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder)
-            (base / ".env").write_text("", encoding="utf-8")
-            source = base / "signals.jsonl"
-            source.write_text(json.dumps(event) + "\n", encoding="utf-8")
-            state_path = base / "state.json"
-            state_path.write_text(json.dumps({"last_signal": {
-                "key": "old", "direction": -1, "status": "pending"}}), encoding="utf-8")
-            watchdog = Mock()
-            watchdog.status.return_value = (False, False)
-            watchdog.consume_recovery.return_value = False
-            def append_new_signal(_):
-                with source.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(dict(event, message_id=2)) + "\n")
-            with patch.object(monitor, "BACKEND", base), \
-                 patch.object(monitor, "BASE", base), \
-                 patch.object(monitor, "SOURCE", source), \
-                 patch.object(monitor, "STATE", state_path), \
-                 patch.object(monitor, "FileLock", return_value=Mock(__enter__=Mock(), __exit__=Mock(return_value=False))), \
-                 patch.object(monitor, "Notifications"), \
-                 patch.object(monitor, "BrokerReconnectWatchdog", return_value=watchdog), \
-                 patch.object(auto_trade, "initialize_broker_session", return_value=Mock()), \
-                 patch.object(auto_trade.shared, "check_startup_broker", return_value=3), \
-                 patch.object(auto_trade, "execute_signal") as execute, \
-                 patch.object(monitor, "process_event") as process, \
-                 patch.object(monitor.time, "sleep"):
-                sleeps = 0
-                def sleep(_):
-                    nonlocal sleeps
-                    sleeps += 1
-                    if sleeps == 1:
-                        append_new_signal(_)
-                    else:
-                        raise KeyboardInterrupt
-                monitor.time.sleep.side_effect = sleep
-                with self.assertRaises(KeyboardInterrupt):
-                    monitor.main()
-                execute.assert_not_called()
-                process.assert_called_once()
-                self.assertEqual(process.call_args.args[0]["message_id"], 2)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Shared H3 recovery policy for Capital and KGI. No SDK imports or startup orders."""
+"""Shared H3 recovery policy for Capital, KGI and Shioaji. No SDK imports or startup orders."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

@@ -216,6 +216,61 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
         opening.flush.assert_called_once()
 
 
+class MxfValueGuerrillaAlertTests(unittest.TestCase):
+    def test_2000_crossings_equalities_staying_outside_and_recross(self):
+        for sign in (1, -1):
+            alerts = monitor.MxfValueGuerrillaAlerts()
+            now = monitor.datetime.now(monitor.TZ)
+            for value in (1999, 2000, 2000):
+                alerts.observe_snapshot({'mtx_bvav': sign * value}, now)
+            self.assertFalse(alerts.pending)
+            for value in (2001, 2200, 1990, 2001):
+                alerts.observe_snapshot({'mtx_bvav': sign * value, 'time': 'sample'}, now)
+            self.assertEqual(len(alerts.pending), 2)
+            self.assertTrue(all('mxf_value' in m and '2000' in m and 'sample' in m for m in alerts.pending))
+
+    def test_startup_outside_notifies_once_and_invalid_data_does_not_rearm(self):
+        alerts = monitor.MxfValueGuerrillaAlerts()
+        now = monitor.datetime.now(monitor.TZ)
+        for value in (2100, None, 'bad', float('nan'), float('inf'), 2200):
+            alerts.observe_snapshot({'mtx_bvav': value}, now)
+        self.assertEqual(len(alerts.pending), 1)
+        self.assertIn('目前超過 +2000', alerts.pending[0])
+        alerts.observe_snapshot({'mtx_bvav': -2100}, now)
+        self.assertEqual(len(alerts.pending), 2)
+        self.assertIn('向下跌破 -2000', alerts.pending[-1])
+
+    def test_uses_actual_mxf_value_field_and_retries_notification(self):
+        alerts = monitor.MxfValueGuerrillaAlerts()
+        now = monitor.datetime.now(monitor.TZ)
+        alerts.observe_snapshot({'high': 9000, 'tx_bvav': 9000}, now)
+        self.assertFalse(alerts.pending)
+        alerts.observe_snapshot({'mtx_bvav': '2,001'}, now)
+        with patch.object(monitor, 'send_discord_message', side_effect=RuntimeError('secret')), patch('builtins.print'):
+            alerts.flush()
+        self.assertEqual(len(alerts.pending), 1)
+        with patch.object(monitor, 'send_discord_message') as sender, patch('builtins.print'):
+            alerts.flush()
+            alerts.flush()
+        sender.assert_called_once()
+
+    def test_monitor_observes_csv_sample_and_flushes_even_when_mongodb_fails(self):
+        sample = {'mtx_bvav': 2100}
+        with patch.object(monitor, 'check_service_alive_alert'), \
+             patch.object(monitor, 'is_market_open', return_value=True), \
+             patch.object(monitor, 'fetch_tradeinfo', return_value={'data': []}), \
+             patch.object(monitor, 'append_tradeinfo_csv', return_value=sample), \
+             patch.object(monitor, 'insert_tradeinfo', side_effect=RuntimeError('offline')), \
+             patch.object(monitor, 'poll_goodway_indicators'), \
+             patch.object(monitor, 'MXF_VALUE_GUERRILLA_ALERTS') as alerts, \
+             patch.object(monitor, 'sleep_until_next_minute', side_effect=KeyboardInterrupt), \
+             patch('builtins.print'):
+            with self.assertRaises(KeyboardInterrupt):
+                monitor.main()
+        self.assertEqual(alerts.observe_snapshot.call_args.args[0], sample)
+        alerts.flush.assert_called_once()
+
+
 class GoodwayOpeningAlertTests(unittest.TestCase):
     def setUp(self):
         self.alerts = monitor.GoodwayOpeningAlerts()

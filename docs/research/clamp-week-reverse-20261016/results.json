@@ -1,0 +1,775 @@
+{
+  "period": [
+    "2026-10-12 00:00:00",
+    "2026-10-16 22:09:00"
+  ],
+  "one_way_cost_points": 2.4,
+  "contract": "one unit; MXF1! proxy, not confirmed TMF fills; same exit clock, opposite target",
+  "published_target_fill": "first minute open after sent notification timestamp; start flat; include only recorded targets",
+  "native_fill": "existing backtest: next minute after received_at; exact 01:00 flat; start flat",
+  "limitations": [
+    "week contains rule/version and live/simulation-label changes",
+    "published-target book fixes historical decisions, including their actual-inventory-dependent gates",
+    "order submissions and target notices are not confirmed execution records",
+    "counterfactual opposite book retains published target/exit path, does not re-run broker-dependent gating"
+  ],
+  "versions": [
+    {
+      "at": "2026-10-12 08:32:44.685033",
+      "version": "json-positions-v9-cutoff22-cooldown15-long-exit",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-12 21:53:11.786533",
+      "version": "json-positions-v9-cutoff22-cooldown15-long-exit",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-12 21:56:06.181191",
+      "version": "json-positions-v9-cutoff22-cooldown15-long-exit",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-13 08:20:46.204398",
+      "version": "json-positions-v9-cutoff22-cooldown15-long-exit",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-14 08:27:23.391914",
+      "version": "json-positions-v9-cutoff22-cooldown15-long-exit",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-14 11:32:02.950793",
+      "version": "json-positions-v10-cutoff22-cooldown15-short-exit-long",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-15 04:37:12.412522",
+      "version": "json-positions-v10-cutoff22-cooldown15-short-exit-long",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-15 08:23:54.412507",
+      "version": "json-positions-v10-cutoff22-cooldown15-short-exit-long",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-15 15:37:32.642057",
+      "version": "json-positions-v11-h3-profit-direction-cutoff22-cooldown15",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-15 15:41:08.562553",
+      "version": "json-positions-v11-h3-profit-direction-cutoff22-cooldown15",
+      "mode": "simulation"
+    },
+    {
+      "at": "2026-10-15 18:55:24.754901",
+      "version": "json-positions-v12-no-h3-cutoff22-cooldown15-short-exit-long",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-16 07:23:06.349804",
+      "version": "json-positions-v13-continuous-cooldown15-short-exit-long",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-16 07:44:15.117649",
+      "version": "json-positions-v12-no-h3-cutoff22-cooldown15-short-exit-long",
+      "mode": "live_label"
+    },
+    {
+      "at": "2026-10-16 07:52:01.113859",
+      "version": "json-positions-v12-no-h3-cutoff22-cooldown15-short-exit-long",
+      "mode": "simulation"
+    },
+    {
+      "at": "2026-10-16 08:49:39.428294",
+      "version": "json-positions-v12-no-h3-cutoff22-cooldown15-short-exit-long",
+      "mode": "live_label"
+    }
+  ],
+  "source_sha256": {
+    "backend-futures-py\\tv_doc\\webhook_data_1min.csv": "e52f4596e4ad23611506861a1ca852b3aa33b0c3af1b81acecf5dd6dbb3b6122",
+    "backend-futures-py\\tv_doc\\six_strategy_signal_events.csv": "db48a7c03c0e35822bae76c235714b13a83b4a5784f6299d6b01f769e9c75a8b",
+    "backend-futures-py\\ef-morning-weekend-hedge-strategy\\records\\notifications.jsonl": "b71abc5275e7b18604a0ead6ea1cc3a7e377b6fd5c10fedfa65993a240f943c1"
+  },
+  "books": {
+    "recorded_published_targets": {
+      "original": {
+        "closed_trades": 8,
+        "gross_profit_points": 425.0,
+        "gross_loss_points": 1664.0,
+        "realized_gross_points": -1239.0,
+        "gross_profit_factor": 0.25540865384615385,
+        "realized_net_points": -1277.4,
+        "net_total_points": -1277.4,
+        "unrealized_points": 0.0,
+        "expectancy_net_points": -159.675,
+        "gross_failure_rate": 0.75,
+        "net_win_rate": 0.25,
+        "one_way_turnover": 16,
+        "ending_position": 0,
+        "max_drawdown_net_points": 1667.6,
+        "daily_net_points": {
+          "2026-10-12": 100.2,
+          "2026-10-13": -188.8,
+          "2026-10-14": 315.2,
+          "2026-10-15": -1028.3999999999999,
+          "2026-10-16": -475.60000000000014
+        },
+        "trades": [
+          {
+            "entry": "2026-10-12 09:35:00",
+            "exit": "2026-10-12 16:06:00",
+            "side": 1,
+            "gross_points": 105.0,
+            "net_points": 100.2,
+            "entry_price": 49255.0,
+            "exit_price": 49360.0
+          },
+          {
+            "entry": "2026-10-13 12:08:00",
+            "exit": "2026-10-13 15:41:00",
+            "side": 1,
+            "gross_points": -184.0,
+            "net_points": -188.8,
+            "entry_price": 48655.0,
+            "exit_price": 48471.0
+          },
+          {
+            "entry": "2026-10-14 13:16:00",
+            "exit": "2026-10-14 20:36:00",
+            "side": -1,
+            "gross_points": 320.0,
+            "net_points": 315.2,
+            "entry_price": 48896.0,
+            "exit_price": 48576.0
+          },
+          {
+            "entry": "2026-10-15 09:39:00",
+            "exit": "2026-10-15 11:31:00",
+            "side": 1,
+            "gross_points": -495.0,
+            "net_points": -499.8,
+            "entry_price": 47598.0,
+            "exit_price": 47103.0
+          },
+          {
+            "entry": "2026-10-15 12:20:00",
+            "exit": "2026-10-15 16:18:00",
+            "side": 1,
+            "gross_points": -499.0,
+            "net_points": -503.8,
+            "entry_price": 47193.0,
+            "exit_price": 46694.0
+          },
+          {
+            "entry": "2026-10-15 19:38:00",
+            "exit": "2026-10-15 19:46:00",
+            "side": 1,
+            "gross_points": -20.0,
+            "net_points": -24.8,
+            "entry_price": 47139.0,
+            "exit_price": 47119.0
+          },
+          {
+            "entry": "2026-10-16 13:31:00",
+            "exit": "2026-10-16 17:39:00",
+            "side": -1,
+            "gross_points": -101.0,
+            "net_points": -105.8,
+            "entry_price": 47203.0,
+            "exit_price": 47304.0
+          },
+          {
+            "entry": "2026-10-16 20:06:00",
+            "exit": "2026-10-16 21:37:00",
+            "side": 1,
+            "gross_points": -365.0,
+            "net_points": -369.8,
+            "entry_price": 47279.0,
+            "exit_price": 46914.0
+          }
+        ]
+      },
+      "reverse": {
+        "closed_trades": 8,
+        "gross_profit_points": 1664.0,
+        "gross_loss_points": 425.0,
+        "realized_gross_points": 1239.0,
+        "gross_profit_factor": 3.915294117647059,
+        "realized_net_points": 1200.6,
+        "net_total_points": 1200.6,
+        "unrealized_points": 0.0,
+        "expectancy_net_points": 150.075,
+        "gross_failure_rate": 0.25,
+        "net_win_rate": 0.75,
+        "one_way_turnover": 16,
+        "ending_position": 0,
+        "max_drawdown_net_points": 443.0,
+        "daily_net_points": {
+          "2026-10-12": -109.8,
+          "2026-10-13": 179.2,
+          "2026-10-14": -324.8,
+          "2026-10-15": 999.6,
+          "2026-10-16": 456.39999999999986
+        },
+        "trades": [
+          {
+            "entry": "2026-10-12 09:35:00",
+            "exit": "2026-10-12 16:06:00",
+            "side": -1,
+            "gross_points": -105.0,
+            "net_points": -109.8,
+            "entry_price": 49255.0,
+            "exit_price": 49360.0
+          },
+          {
+            "entry": "2026-10-13 12:08:00",
+            "exit": "2026-10-13 15:41:00",
+            "side": -1,
+            "gross_points": 184.0,
+            "net_points": 179.2,
+            "entry_price": 48655.0,
+            "exit_price": 48471.0
+          },
+          {
+            "entry": "2026-10-14 13:16:00",
+            "exit": "2026-10-14 20:36:00",
+            "side": 1,
+            "gross_points": -320.0,
+            "net_points": -324.8,
+            "entry_price": 48896.0,
+            "exit_price": 48576.0
+          },
+          {
+            "entry": "2026-10-15 09:39:00",
+            "exit": "2026-10-15 11:31:00",
+            "side": -1,
+            "gross_points": 495.0,
+            "net_points": 490.2,
+            "entry_price": 47598.0,
+            "exit_price": 47103.0
+          },
+          {
+            "entry": "2026-10-15 12:20:00",
+            "exit": "2026-10-15 16:18:00",
+            "side": -1,
+            "gross_points": 499.0,
+            "net_points": 494.2,
+            "entry_price": 47193.0,
+            "exit_price": 46694.0
+          },
+          {
+            "entry": "2026-10-15 19:38:00",
+            "exit": "2026-10-15 19:46:00",
+            "side": -1,
+            "gross_points": 20.0,
+            "net_points": 15.2,
+            "entry_price": 47139.0,
+            "exit_price": 47119.0
+          },
+          {
+            "entry": "2026-10-16 13:31:00",
+            "exit": "2026-10-16 17:39:00",
+            "side": 1,
+            "gross_points": 101.0,
+            "net_points": 96.2,
+            "entry_price": 47203.0,
+            "exit_price": 47304.0
+          },
+          {
+            "entry": "2026-10-16 20:06:00",
+            "exit": "2026-10-16 21:37:00",
+            "side": -1,
+            "gross_points": 365.0,
+            "net_points": 360.2,
+            "entry_price": 47279.0,
+            "exit_price": 46914.0
+          }
+        ]
+      },
+      "by_original_direction": {
+        "original_long": {
+          "trades": 6,
+          "original_net_points": -1486.8,
+          "reverse_net_points": 1429.2,
+          "reverse_net_expectancy_points": 238.20000000000002,
+          "reverse_wins": 5
+        },
+        "original_short": {
+          "trades": 2,
+          "original_net_points": 209.4,
+          "reverse_net_points": -228.6,
+          "reverse_net_expectancy_points": -114.3,
+          "reverse_wins": 1
+        }
+      },
+      "target_events": 68
+    },
+    "current_v12_whole_week": {
+      "original": {
+        "closed_trades": 9,
+        "gross_profit_points": 668.0,
+        "gross_loss_points": 1460.0,
+        "realized_gross_points": -792.0,
+        "gross_profit_factor": 0.4575342465753425,
+        "realized_net_points": -835.2,
+        "net_total_points": -835.2,
+        "unrealized_points": 0.0,
+        "expectancy_net_points": -92.80000000000001,
+        "gross_failure_rate": 0.4444444444444444,
+        "net_win_rate": 0.5555555555555556,
+        "one_way_turnover": 18,
+        "ending_position": 0,
+        "max_drawdown_net_points": 1373.0,
+        "daily_net_points": {
+          "2026-10-12": 109.4,
+          "2026-10-13": 49.19999999999999,
+          "2026-10-14": 315.20000000000005,
+          "2026-10-15": -833.4000000000001,
+          "2026-10-16": -475.6
+        },
+        "trades": [
+          {
+            "entry": "2026-10-12 09:35:00",
+            "exit": "2026-10-12 16:06:00",
+            "side": 1,
+            "gross_points": 105.0,
+            "net_points": 100.2,
+            "entry_price": 49255.0,
+            "exit_price": 49360.0
+          },
+          {
+            "entry": "2026-10-12 21:36:00",
+            "exit": "2026-10-12 21:46:00",
+            "side": 1,
+            "gross_points": 14.0,
+            "net_points": 9.2,
+            "entry_price": 49136.0,
+            "exit_price": 49150.0
+          },
+          {
+            "entry": "2026-10-13 08:47:00",
+            "exit": "2026-10-13 15:41:00",
+            "side": 1,
+            "gross_points": 54.0,
+            "net_points": 49.2,
+            "entry_price": 48417.0,
+            "exit_price": 48471.0
+          },
+          {
+            "entry": "2026-10-14 13:16:00",
+            "exit": "2026-10-14 20:36:00",
+            "side": -1,
+            "gross_points": 320.0,
+            "net_points": 315.2,
+            "entry_price": 48896.0,
+            "exit_price": 48576.0
+          },
+          {
+            "entry": "2026-10-15 09:39:00",
+            "exit": "2026-10-15 11:31:00",
+            "side": 1,
+            "gross_points": -495.0,
+            "net_points": -499.8,
+            "entry_price": 47598.0,
+            "exit_price": 47103.0
+          },
+          {
+            "entry": "2026-10-15 12:20:00",
+            "exit": "2026-10-15 16:18:00",
+            "side": 1,
+            "gross_points": -499.0,
+            "net_points": -503.8,
+            "entry_price": 47193.0,
+            "exit_price": 46694.0
+          },
+          {
+            "entry": "2026-10-15 16:43:00",
+            "exit": "2026-10-15 19:46:00",
+            "side": 1,
+            "gross_points": 175.0,
+            "net_points": 170.2,
+            "entry_price": 46944.0,
+            "exit_price": 47119.0
+          },
+          {
+            "entry": "2026-10-16 13:31:00",
+            "exit": "2026-10-16 17:39:00",
+            "side": -1,
+            "gross_points": -101.0,
+            "net_points": -105.8,
+            "entry_price": 47203.0,
+            "exit_price": 47304.0
+          },
+          {
+            "entry": "2026-10-16 20:06:00",
+            "exit": "2026-10-16 21:37:00",
+            "side": 1,
+            "gross_points": -365.0,
+            "net_points": -369.8,
+            "entry_price": 47279.0,
+            "exit_price": 46914.0
+          }
+        ]
+      },
+      "reverse": {
+        "closed_trades": 9,
+        "gross_profit_points": 1460.0,
+        "gross_loss_points": 668.0,
+        "realized_gross_points": 792.0,
+        "gross_profit_factor": 2.18562874251497,
+        "realized_net_points": 748.8,
+        "net_total_points": 748.8,
+        "unrealized_points": 0.0,
+        "expectancy_net_points": 83.19999999999999,
+        "gross_failure_rate": 0.5555555555555556,
+        "net_win_rate": 0.4444444444444444,
+        "one_way_turnover": 18,
+        "ending_position": 0,
+        "max_drawdown_net_points": 623.2,
+        "daily_net_points": {
+          "2026-10-12": -128.6,
+          "2026-10-13": -58.80000000000001,
+          "2026-10-14": -324.80000000000007,
+          "2026-10-15": 804.6,
+          "2026-10-16": 456.4
+        },
+        "trades": [
+          {
+            "entry": "2026-10-12 09:35:00",
+            "exit": "2026-10-12 16:06:00",
+            "side": -1,
+            "gross_points": -105.0,
+            "net_points": -109.8,
+            "entry_price": 49255.0,
+            "exit_price": 49360.0
+          },
+          {
+            "entry": "2026-10-12 21:36:00",
+            "exit": "2026-10-12 21:46:00",
+            "side": -1,
+            "gross_points": -14.0,
+            "net_points": -18.8,
+            "entry_price": 49136.0,
+            "exit_price": 49150.0
+          },
+          {
+            "entry": "2026-10-13 08:47:00",
+            "exit": "2026-10-13 15:41:00",
+            "side": -1,
+            "gross_points": -54.0,
+            "net_points": -58.8,
+            "entry_price": 48417.0,
+            "exit_price": 48471.0
+          },
+          {
+            "entry": "2026-10-14 13:16:00",
+            "exit": "2026-10-14 20:36:00",
+            "side": 1,
+            "gross_points": -320.0,
+            "net_points": -324.8,
+            "entry_price": 48896.0,
+            "exit_price": 48576.0
+          },
+          {
+            "entry": "2026-10-15 09:39:00",
+            "exit": "2026-10-15 11:31:00",
+            "side": -1,
+            "gross_points": 495.0,
+            "net_points": 490.2,
+            "entry_price": 47598.0,
+            "exit_price": 47103.0
+          },
+          {
+            "entry": "2026-10-15 12:20:00",
+            "exit": "2026-10-15 16:18:00",
+            "side": -1,
+            "gross_points": 499.0,
+            "net_points": 494.2,
+            "entry_price": 47193.0,
+            "exit_price": 46694.0
+          },
+          {
+            "entry": "2026-10-15 16:43:00",
+            "exit": "2026-10-15 19:46:00",
+            "side": -1,
+            "gross_points": -175.0,
+            "net_points": -179.8,
+            "entry_price": 46944.0,
+            "exit_price": 47119.0
+          },
+          {
+            "entry": "2026-10-16 13:31:00",
+            "exit": "2026-10-16 17:39:00",
+            "side": 1,
+            "gross_points": 101.0,
+            "net_points": 96.2,
+            "entry_price": 47203.0,
+            "exit_price": 47304.0
+          },
+          {
+            "entry": "2026-10-16 20:06:00",
+            "exit": "2026-10-16 21:37:00",
+            "side": -1,
+            "gross_points": 365.0,
+            "net_points": 360.2,
+            "entry_price": 47279.0,
+            "exit_price": 46914.0
+          }
+        ]
+      },
+      "by_original_direction": {
+        "original_long": {
+          "trades": 7,
+          "original_net_points": -1044.6,
+          "reverse_net_points": 977.4,
+          "reverse_net_expectancy_points": 139.62857142857143,
+          "reverse_wins": 3
+        },
+        "original_short": {
+          "trades": 2,
+          "original_net_points": 209.4,
+          "reverse_net_points": -228.6,
+          "reverse_net_expectancy_points": -114.3,
+          "reverse_wins": 1
+        }
+      },
+      "target_events": 18
+    },
+    "legacy_v9_whole_week": {
+      "original": {
+        "closed_trades": 9,
+        "gross_profit_points": 1054.0,
+        "gross_loss_points": 1644.0,
+        "realized_gross_points": -590.0,
+        "gross_profit_factor": 0.6411192214111923,
+        "realized_net_points": -633.2,
+        "net_total_points": -633.2,
+        "unrealized_points": 0.0,
+        "expectancy_net_points": -70.35555555555555,
+        "gross_failure_rate": 0.5555555555555556,
+        "net_win_rate": 0.4444444444444444,
+        "one_way_turnover": 18,
+        "ending_position": 0,
+        "max_drawdown_net_points": 1491.0,
+        "daily_net_points": {
+          "2026-10-12": 109.4,
+          "2026-10-13": -188.8,
+          "2026-10-14": 705.6,
+          "2026-10-15": -783.8000000000001,
+          "2026-10-16": -475.6
+        },
+        "trades": [
+          {
+            "entry": "2026-10-12 09:35:00",
+            "exit": "2026-10-12 16:06:00",
+            "side": 1,
+            "gross_points": 105.0,
+            "net_points": 100.2,
+            "entry_price": 49255.0,
+            "exit_price": 49360.0
+          },
+          {
+            "entry": "2026-10-12 21:36:00",
+            "exit": "2026-10-12 21:46:00",
+            "side": 1,
+            "gross_points": 14.0,
+            "net_points": 9.2,
+            "entry_price": 49136.0,
+            "exit_price": 49150.0
+          },
+          {
+            "entry": "2026-10-13 12:08:00",
+            "exit": "2026-10-13 15:41:00",
+            "side": 1,
+            "gross_points": -184.0,
+            "net_points": -188.8,
+            "entry_price": 48655.0,
+            "exit_price": 48471.0
+          },
+          {
+            "entry": "2026-10-14 13:16:00",
+            "exit": "2026-10-15 01:00:00",
+            "side": -1,
+            "gross_points": 760.0,
+            "net_points": 755.2,
+            "entry_price": 48896.0,
+            "exit_price": 48136.0
+          },
+          {
+            "entry": "2026-10-15 09:39:00",
+            "exit": "2026-10-15 11:31:00",
+            "side": 1,
+            "gross_points": -495.0,
+            "net_points": -499.8,
+            "entry_price": 47598.0,
+            "exit_price": 47103.0
+          },
+          {
+            "entry": "2026-10-15 12:20:00",
+            "exit": "2026-10-15 16:18:00",
+            "side": 1,
+            "gross_points": -499.0,
+            "net_points": -503.8,
+            "entry_price": 47193.0,
+            "exit_price": 46694.0
+          },
+          {
+            "entry": "2026-10-15 16:43:00",
+            "exit": "2026-10-15 19:46:00",
+            "side": 1,
+            "gross_points": 175.0,
+            "net_points": 170.2,
+            "entry_price": 46944.0,
+            "exit_price": 47119.0
+          },
+          {
+            "entry": "2026-10-16 13:31:00",
+            "exit": "2026-10-16 17:39:00",
+            "side": -1,
+            "gross_points": -101.0,
+            "net_points": -105.8,
+            "entry_price": 47203.0,
+            "exit_price": 47304.0
+          },
+          {
+            "entry": "2026-10-16 20:06:00",
+            "exit": "2026-10-16 21:37:00",
+            "side": 1,
+            "gross_points": -365.0,
+            "net_points": -369.8,
+            "entry_price": 47279.0,
+            "exit_price": 46914.0
+          }
+        ]
+      },
+      "reverse": {
+        "closed_trades": 9,
+        "gross_profit_points": 1644.0,
+        "gross_loss_points": 1054.0,
+        "realized_gross_points": 590.0,
+        "gross_profit_factor": 1.5597722960151803,
+        "realized_net_points": 546.8,
+        "net_total_points": 546.8,
+        "unrealized_points": 0.0,
+        "expectancy_net_points": 60.75555555555555,
+        "gross_failure_rate": 0.4444444444444444,
+        "net_win_rate": 0.5555555555555556,
+        "one_way_turnover": 18,
+        "ending_position": 0,
+        "max_drawdown_net_points": 990.8,
+        "daily_net_points": {
+          "2026-10-12": -128.6,
+          "2026-10-13": 179.2,
+          "2026-10-14": -710.4,
+          "2026-10-15": 750.1999999999999,
+          "2026-10-16": 456.4
+        },
+        "trades": [
+          {
+            "entry": "2026-10-12 09:35:00",
+            "exit": "2026-10-12 16:06:00",
+            "side": -1,
+            "gross_points": -105.0,
+            "net_points": -109.8,
+            "entry_price": 49255.0,
+            "exit_price": 49360.0
+          },
+          {
+            "entry": "2026-10-12 21:36:00",
+            "exit": "2026-10-12 21:46:00",
+            "side": -1,
+            "gross_points": -14.0,
+            "net_points": -18.8,
+            "entry_price": 49136.0,
+            "exit_price": 49150.0
+          },
+          {
+            "entry": "2026-10-13 12:08:00",
+            "exit": "2026-10-13 15:41:00",
+            "side": -1,
+            "gross_points": 184.0,
+            "net_points": 179.2,
+            "entry_price": 48655.0,
+            "exit_price": 48471.0
+          },
+          {
+            "entry": "2026-10-14 13:16:00",
+            "exit": "2026-10-15 01:00:00",
+            "side": 1,
+            "gross_points": -760.0,
+            "net_points": -764.8,
+            "entry_price": 48896.0,
+            "exit_price": 48136.0
+          },
+          {
+            "entry": "2026-10-15 09:39:00",
+            "exit": "2026-10-15 11:31:00",
+            "side": -1,
+            "gross_points": 495.0,
+            "net_points": 490.2,
+            "entry_price": 47598.0,
+            "exit_price": 47103.0
+          },
+          {
+            "entry": "2026-10-15 12:20:00",
+            "exit": "2026-10-15 16:18:00",
+            "side": -1,
+            "gross_points": 499.0,
+            "net_points": 494.2,
+            "entry_price": 47193.0,
+            "exit_price": 46694.0
+          },
+          {
+            "entry": "2026-10-15 16:43:00",
+            "exit": "2026-10-15 19:46:00",
+            "side": -1,
+            "gross_points": -175.0,
+            "net_points": -179.8,
+            "entry_price": 46944.0,
+            "exit_price": 47119.0
+          },
+          {
+            "entry": "2026-10-16 13:31:00",
+            "exit": "2026-10-16 17:39:00",
+            "side": 1,
+            "gross_points": 101.0,
+            "net_points": 96.2,
+            "entry_price": 47203.0,
+            "exit_price": 47304.0
+          },
+          {
+            "entry": "2026-10-16 20:06:00",
+            "exit": "2026-10-16 21:37:00",
+            "side": -1,
+            "gross_points": 365.0,
+            "net_points": 360.2,
+            "entry_price": 47279.0,
+            "exit_price": 46914.0
+          }
+        ]
+      },
+      "by_original_direction": {
+        "original_long": {
+          "trades": 7,
+          "original_net_points": -1282.6,
+          "reverse_net_points": 1215.4,
+          "reverse_net_expectancy_points": 173.62857142857143,
+          "reverse_wins": 4
+        },
+        "original_short": {
+          "trades": 2,
+          "original_net_points": 649.4,
+          "reverse_net_points": -668.6,
+          "reverse_net_expectancy_points": -334.3,
+          "reverse_wins": 1
+        }
+      },
+      "target_events": 18
+    }
+  }
+}

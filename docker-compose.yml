@@ -211,6 +211,13 @@ services:
     depends_on:
       - telegram-signal-relay
     volumes:
+      - ./backend-futures-py/h3-flatten-reentry-strategy/auto_trade.py:/app/backend-futures-py/h3-flatten-reentry-strategy/auto_trade.py:ro
+      - ./backend-futures-py/h3-flatten-reentry-strategy/recovery_broker.py:/app/backend-futures-py/h3-flatten-reentry-strategy/recovery_broker.py:ro
+      - ./backend-futures-py/h3-flatten-reentry-strategy/trade_records.py:/app/backend-futures-py/h3-flatten-reentry-strategy/trade_records.py:ro
+      - ./backend-futures-py/h3_recovery_sizing.py:/app/backend-futures-py/h3_recovery_sizing.py:ro
+      - ./backend-futures-py/h3_entry_watch.py:/app/backend-futures-py/h3_entry_watch.py:ro
+      - ./backend-futures-py/h3-capital-flatten-reentry-strategy/h_core.py:/app/backend-futures-py/h3-capital-flatten-reentry-strategy/h_core.py:ro
+      - ./backend-futures-py/telegram-relay-runtime:/app/backend-futures-py/telegram-relay-runtime:ro
       - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
       - ./backend-futures-py/h3-flatten-reentry-strategy/strategy.py:/app/backend-futures-py/h3-flatten-reentry-strategy/strategy.py:ro
       - ./backend-futures-py/h3-flatten-reentry-strategy/monitor_and_trade.py:/app/backend-futures-py/h3-flatten-reentry-strategy/monitor_and_trade.py:ro

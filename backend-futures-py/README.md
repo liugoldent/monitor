@@ -43,6 +43,20 @@ py -3 backend-futures-py/h3_entry_watch.py --seed C:/Users/USER/Downloads/h3.csv
 服務啟動不送單、不補歷史訊號；已啟動的1口階段持續跟隨，不會每次歸零就停跑。
 凱基原本實際帳戶回撤3%的加碼已由新規則取代；舊帳本保留供核對。
 
+## 2026-10-16：永豐 H3 與游擊隊2000通知
+
+永豐 `h3-flatten-reentry-strategy` 沿用 API_KEY3／SECRET_KEY3，與凱基、群益
+共用 `h3_recovery_sizing.py`：1口跟新訊號，先回前高，後續新一輪
+2.5%→≤1.25%才2口，回撤歸零恢復1口。帳本與委託 guard 各自獨立。
+詳見 [永豐 H3 設定](h3-flatten-reentry-strategy/README.md)。
+
+`monitor_mxf.py` 新增 `mxf_value.csv` 實際 `mtx_bvav` 游擊隊告警：
+大於+2000或小於-2000通知至 `DISCORD_MXF_ALERT_WEBHOOK_URL`。
+首次啟動已超標會提醒一次；維持同側超標不重複，回到門檻內後再突破會再提醒；
+等於±2000不通知。無效值不重置基準，通知失敗保留至下輪重試。
+原有 `goodway_chip960.high` 的±1000／±1500與開盤通知保留。
+這次僅新增偵測通知，不將H1口述條件接成下單規則。
+
 ## MXF／股威 API 總結（2026-10-13）
 
 ### 常態服務實際使用：每分鐘 13 次 GET

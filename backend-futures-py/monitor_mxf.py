@@ -52,6 +52,7 @@ GOODWAY_HISTORY_URL = "https://tvapi.futures-op.com/history"
 GOODWAY_SYMBOLS = ("MTX-1", "MTX-2")
 GOODWAY_POSITIVE_THRESHOLD = 1500
 GOODWAY_GUERRILLA_THRESHOLDS = (1000, 1500)
+MXF_VALUE_GUERRILLA_THRESHOLD = 2000
 GOODWAY_GUERRILLA_SYMBOLS = ("TX-1#goodway_chip960", "TX-2#goodway_chip960")
 GOODWAY_GROUPS = (
     ("掛單能量", "trade_info", ("TX-1", "TX-2", "MTX-1", "MTX-2"),
@@ -275,6 +276,34 @@ class GoodwayGuerrillaAlerts:
             print(f"📣 已送出游擊隊跨越通知: {message}", flush=True)
 
 
+class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
+    """Alert on the actual mxf_value mtx_bvav sample, not another indicator."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.last_value: float | None = None
+
+    def observe_snapshot(self, snapshot: dict | None, now: datetime) -> None:
+        value = _to_float((snapshot or {}).get("mtx_bvav"))
+        if value is None or not math.isfinite(value):
+            return
+        previous = self.last_value
+        self.last_value = value
+        threshold = MXF_VALUE_GUERRILLA_THRESHOLD
+        direction = None
+        if value > threshold and (previous is None or previous <= threshold):
+            direction = f"向上突破 +{threshold}" if previous is not None else f"目前超過 +{threshold}"
+        elif value < -threshold and (previous is None or previous >= -threshold):
+            direction = f"向下跌破 -{threshold}" if previous is not None else f"目前低於 -{threshold}"
+        if direction:
+            change = f"{previous:g} → {value:g}" if previous is not None else f"{value:g}"
+            self.pending.append(
+                f"📣 mxf_value 游擊隊 {direction}\n"
+                f"資料時間 {snapshot.get('time') or now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"游擊隊（mtx_bvav）：{change}"
+            )
+
+
 def read_opening_price_bar(bar_time: datetime) -> tuple[float, float] | None:
     """Read the matching MXF 1m close and MA, never a different minute's row."""
     if not WEBHOOK_DATA_1MIN_PATH.exists():
@@ -415,6 +444,7 @@ class GoodwayOpeningAlerts:
 
 
 GOODWAY_GUERRILLA_ALERTS = GoodwayGuerrillaAlerts()
+MXF_VALUE_GUERRILLA_ALERTS = MxfValueGuerrillaAlerts()
 GOODWAY_OPENING_ALERTS = GoodwayOpeningAlerts(GOODWAY_OPENING_STATE_PATH)
 
 
@@ -820,18 +850,21 @@ def main() -> None:
         if is_market_open(now):
             try:
                 payload = fetch_tradeinfo()
+                snapshot = append_tradeinfo_csv(payload, now)
+                MXF_VALUE_GUERRILLA_ALERTS.observe_snapshot(snapshot, now)
                 collection_name = get_collection_name(now)
                 insert_tradeinfo(payload, collection_name, now)
-                append_tradeinfo_csv(payload, now)
                 check_service_alive_alert(now)
             except Exception as exc:
                 print(f"❌ 打 API 或寫入失敗: {exc}")
             poll_goodway_indicators(datetime.now(TZ))
+        MXF_VALUE_GUERRILLA_ALERTS.flush()
         sleep_until_next_minute()
 
 
 if __name__ == "__main__":
     print('=== 坦克、炮灰、游擊手資料監控 ===')
+    print("mxf_value 游擊隊通知｜mtx_bvav > +2000 / < -2000｜首次已超標也通知；持續超標不重複", flush=True)
     print(
         "游擊隊跨越通知｜TX-1/TX-2#goodway_chip960.high"
         "｜突破 +1000/+1500 或跌破 -1000/-1500"

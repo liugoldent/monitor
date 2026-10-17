@@ -1,146 +1,92 @@
-"""Consume newly received raw Relay messages without replaying old signals."""
+"""Shioaji API_KEY3 runs KGI's shared H3 base1/recovery2 strategy."""
+from __future__ import annotations
+
+import argparse
 import json
 import os
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
-
+from types import SimpleNamespace
 from filelock import FileLock
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
 sys.path.insert(0, str(BACKEND))
-from ef_trade_runtime import Notifications, append_order, now_local, save_state
+sys.path.insert(0, str(BACKEND / 'h3-capital-flatten-reentry-strategy'))
+from h_core import Store, TradingError
+from h3_recovery_sizing import RULE_TEXT, validate_inputs, watch
+from ef_trade_runtime import Notifications
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
+from recovery_broker import ShioajiRecoveryBroker
 import auto_trade
-from h_signal import parse_h_event_direction
-from trade_records import entry_record, append_entry
 
-SOURCE = BACKEND / "telegram-relay-records/telegram_signal_events.jsonl"
-STATE = BASE / "runtime/state.json"
-ORDERS = BASE / "records/live_order_attempts.csv"
-ENTRIES = BASE / "records/entries.csv"
-DUPLICATE_WINDOW_SECONDS = 10
+SOURCE = BACKEND / 'telegram-relay-records/telegram_signal_events.jsonl'
+STATE = BASE / 'runtime/state.json'
 
 
-def persist(state):
-    if not save_state(STATE, state):
-        raise OSError("浩克策略狀態保存失敗")
-
-
-def process_event(event, state, notify):
-    direction = parse_h_event_direction(event)
-    if direction is None:
+def check_legacy_state():
+    if not STATE.exists():
         return
-    key = f"{event['chat_id']}:{event['message_id']}"
-    if key in state.get("seen", []):
+    state = json.loads(STATE.read_text(encoding='utf-8'))
+    if (state.get('guard', {}).get('pending') or state.get('current_entry')
+            or state.get('last_signal', {}).get('status') == 'pending'):
+        raise TradingError('永豐舊版有持倉或未確認委託，請先核對；不自動遷移或平倉')
+
+
+def read_config():
+    if auto_trade.position_unit() != 1:
+        raise TradingError('永豐 H3 固定1口起跑、上限2口；H_UNIT 須設為1')
+    config = dict(signal_source=SOURCE, contract=SimpleNamespace(symbol='TMFR1'))
+    if not SOURCE.is_file():
+        raise TradingError('找不到本機 Relay 訊號檔')
+    validate_inputs(config)
+    check_legacy_state()
+    if len(auto_trade.required('API_KEY3')) < 10:
+        raise TradingError('API_KEY3 格式無效（少於10字元），請更新 backend-futures-py/.env')
+    auto_trade.required('SECRET_KEY3')
+    return config
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--check-config', action='store_true', help='只檢查本地設定，不登入、不下單')
+    args = parser.parse_args(argv)
+    for line in (BACKEND / '.env').read_text(encoding='utf-8-sig').splitlines():
+        if line.strip() and not line.lstrip().startswith('#') and '=' in line:
+            key, value = line.split('=', 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    config = read_config()
+    if args.check_config:
+        print('API_KEY3 H3設定檢查通過；' + RULE_TEXT + '本次未登入、未送單。', flush=True)
         return
-    state.setdefault("seen", []).append(key)
-    state["seen"] = state["seen"][-10000:]
-    # Compare arrival times, not order completion times: execution can take >10s.
-    try:
-        received_at = datetime.fromisoformat(event["received_at"])
-        if received_at.tzinfo is None:
-            received_at = received_at.replace(tzinfo=now_local().tzinfo)
-        received_timestamp = received_at.timestamp()
-    except (KeyError, TypeError, ValueError):
-        received_timestamp = now_local().timestamp()
-    previous = state.get("last_signal", {})
-    duplicate = (previous.get("direction") == direction
-                 and previous.get("received_timestamp") is not None
-                 and 0 <= received_timestamp - previous["received_timestamp"]
-                 <= DUPLICATE_WINDOW_SECONDS)
-    if duplicate:
-        persist(state)  # Also consume the duplicate's distinct Telegram ID.
-        append_order(ORDERS, event="duplicate_filtered", trigger=key,
-                     detail="10秒內連續同方向訊號，跳過平倉及進場")
-        return
-    state["last_signal"] = {"key": key, "direction": direction, "status": "pending",
-                            "received_timestamp": received_timestamp}
-    persist(state)  # Consume before any order; restart never replays the signal.
-
-    def record(phase, result):
-        if phase == "flatten":
-            state.pop("current_entry", None)
-            persist(state)
-        if phase == "entry" and result.quantity:
-            entry = entry_record(result, key, now_local().isoformat())
-            append_entry(ENTRIES, entry)
-            state["current_entry"] = entry
-            persist(state)
-        append_order(ORDERS, event=phase, trigger=key,
-                     target_position=result.target_position,
-                     previous_position=result.previous_position,
-                     actual_position=result.actual_position, side=result.side or "",
-                     quantity=result.quantity, detail="庫存及委託已確認")
-
-    try:
-        result = auto_trade.execute_signal(direction, guard=state.setdefault("guard", {}),
-                                          persist=lambda: persist(state), record=record)
-    except Exception as exc:
-        state["last_signal"]["status"] = "failed_no_retry"
-        persist(state)
-        append_order(ORDERS, event="failed", trigger=key, detail=type(exc).__name__)
-        notify(f"🚨【浩克3｜API_KEY3】委託未完成：{type(exc).__name__}；本訊號不重送，請核對庫存及委託。")
-        return
-    state["last_signal"]["status"] = "confirmed"
-    persist(state)
-    entry = state.get("current_entry", {})
-    entry_info = (f"\n進場時間：{entry['entry_time']}\n進場點位：{entry['entry_price']}（第一口成交價）"
-                  if entry.get("fill_status") == "complete" else
-                  "\n進場時間／點位：券商成交明細未齊，待核對")
-    notify(f"✅【浩克3｜API_KEY3】先平倉再進場完成；TMF 部位 {result.actual_position:+d}口，H_UNIT={auto_trade.position_unit()}{entry_info}")
+    runtime = BASE / 'runtime'
+    runtime.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(runtime / 'monitor.lock'), timeout=0):
+        store = Store(runtime / 'recovery.sqlite')
+        notify = Notifications(lambda: os.getenv('DISCORD_H_STRATEGY_WEBHOOK_URL', ''),
+                               BASE / 'records/notifications.jsonl')
+        def labeled_notify(message):
+            notify('【永豐｜API_KEY3】\n' + message)
+        try:
+            if store.pending():
+                raise TradingError('永豐 H3 有未確認委託，請先核對；不重送')
+            api = auto_trade.initialize_broker_session()
+            watchdog = BrokerReconnectWatchdog(float(os.getenv('H3_REENTRY_RECONNECT_TIMEOUT_SECONDS', '120')))
+            api.set_event_callback(watchdog.on_event)
+            broker = ShioajiRecoveryBroker(api, auto_trade._sj, store, watchdog)
+            config['contract'] = SimpleNamespace(symbol=auto_trade.shared._contract(api).code)
+            watch(config, store, broker,
+                  poll=max(0.5, float(os.getenv('H3_REENTRY_POLL_SECONDS', '2'))),
+                  notify=labeled_notify)
+        except Exception as exc:
+            reason = str(exc) if type(exc) is TradingError else type(exc).__name__
+            store.audit('stopped', dict(error=type(exc).__name__, reason=reason,
+                                        pending_order=bool(store.pending())))
+            labeled_notify(f'【H3 異常停止】{reason}；請核對庫存及委託，不重送。')
+            raise
+        finally:
+            store.db.close()
 
 
-def main():
-    for line in (BACKEND / ".env").read_text(encoding="utf-8").splitlines():
-        if line.strip() and not line.lstrip().startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('\"').strip("'"))
-    auto_trade.position_unit()
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(BASE / "runtime/monitor.lock"), timeout=0):
-        state = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
-        notify = Notifications(lambda: os.getenv("DISCORD_H_STRATEGY_WEBHOOK_URL", ""),
-                               BASE / "records/notifications.jsonl")
-        api = auto_trade.initialize_broker_session()
-        inventory = auto_trade.shared.check_startup_broker(api)
-        watchdog = BrokerReconnectWatchdog(float(os.getenv("H3_REENTRY_RECONNECT_TIMEOUT_SECONDS", "120")))
-        api.set_event_callback(watchdog.on_event)
-        # Start at EOF on every start: no historical or downtime orders.
-        offset = SOURCE.stat().st_size if SOURCE.exists() else 0
-        identity = SOURCE.stat().st_ino if SOURCE.exists() else None
-        persist(state)
-        notify(f"✅【浩克3策略啟動｜API_KEY3】TMF 庫存 {inventory:+d}口；H_UNIT={auto_trade.position_unit()}。等待新訊號。")
-        poll = max(0.5, float(os.getenv("H3_REENTRY_POLL_SECONDS", "2")))
-        while True:
-            disconnected, expired = watchdog.status()
-            if expired:
-                raise RuntimeError("永豐重連逾時，交由 Docker 重啟")
-            recovered = watchdog.consume_recovery()
-            if SOURCE.exists():
-                stat = SOURCE.stat()
-                if stat.st_ino != identity or stat.st_size < offset:
-                    offset = 0
-                identity = stat.st_ino
-                if disconnected or recovered:
-                    offset = stat.st_size
-                else:
-                    with SOURCE.open("rb") as handle:
-                        handle.seek(offset)
-                        while True:
-                            line = handle.readline()
-                            if not line or not line.endswith(b"\n"):
-                                break
-                            offset = handle.tell()
-                            try:
-                                event = json.loads(line)
-                            except (ValueError, UnicodeError):
-                                continue
-                            process_event(event, state, notify)
-            time.sleep(poll)
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

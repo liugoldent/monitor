@@ -1,0 +1,3267 @@
+{
+  "E1_F3_hold-one_both_plain": [
+    {
+      "entry": "2026-07-15 22:53:00",
+      "exit": "2026-07-16 01:00:00",
+      "original_side": -1,
+      "entry_price": 45597.0,
+      "exit_price": 45394.0,
+      "original_gross_points": 203.0,
+      "reverse_net_points": -207.8
+    },
+    {
+      "entry": "2026-07-16 13:31:00",
+      "exit": "2026-07-16 13:36:00",
+      "original_side": 1,
+      "entry_price": 46205.0,
+      "exit_price": 45643.0,
+      "original_gross_points": -562.0,
+      "reverse_net_points": 557.2
+    },
+    {
+      "entry": "2026-07-21 20:46:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44595.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 351.0,
+      "reverse_net_points": -355.8
+    },
+    {
+      "entry": "2026-07-22 09:11:00",
+      "exit": "2026-07-22 09:29:00",
+      "original_side": 1,
+      "entry_price": 45252.0,
+      "exit_price": 45015.0,
+      "original_gross_points": -237.0,
+      "reverse_net_points": 232.2
+    },
+    {
+      "entry": "2026-07-31 19:49:00",
+      "exit": "2026-07-31 20:16:00",
+      "original_side": 1,
+      "entry_price": 43540.0,
+      "exit_price": 43311.0,
+      "original_gross_points": -229.0,
+      "reverse_net_points": 224.2
+    },
+    {
+      "entry": "2026-08-04 09:53:00",
+      "exit": "2026-08-04 10:17:00",
+      "original_side": 1,
+      "entry_price": 43625.0,
+      "exit_price": 43187.0,
+      "original_gross_points": -438.0,
+      "reverse_net_points": 433.2
+    },
+    {
+      "entry": "2026-08-04 21:53:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 44202.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 277.0,
+      "reverse_net_points": -281.8
+    },
+    {
+      "entry": "2026-08-11 11:31:00",
+      "exit": "2026-08-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 45126.0,
+      "exit_price": 45213.0,
+      "original_gross_points": 87.0,
+      "reverse_net_points": -91.8
+    },
+    {
+      "entry": "2026-08-12 10:51:00",
+      "exit": "2026-08-13 01:00:00",
+      "original_side": 1,
+      "entry_price": 45509.0,
+      "exit_price": 46103.0,
+      "original_gross_points": 594.0,
+      "reverse_net_points": -598.8
+    },
+    {
+      "entry": "2026-08-13 19:46:00",
+      "exit": "2026-08-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 46080.0,
+      "exit_price": 46498.0,
+      "original_gross_points": 418.0,
+      "reverse_net_points": -422.8
+    },
+    {
+      "entry": "2026-08-17 11:58:00",
+      "exit": "2026-08-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46035.0,
+      "exit_price": 46169.0,
+      "original_gross_points": 134.0,
+      "reverse_net_points": -138.8
+    },
+    {
+      "entry": "2026-08-18 10:15:00",
+      "exit": "2026-08-19 01:00:00",
+      "original_side": -1,
+      "entry_price": 45437.0,
+      "exit_price": 44670.0,
+      "original_gross_points": 767.0,
+      "reverse_net_points": -771.8
+    },
+    {
+      "entry": "2026-08-19 11:17:00",
+      "exit": "2026-08-19 13:01:00",
+      "original_side": 1,
+      "entry_price": 44828.0,
+      "exit_price": 44665.0,
+      "original_gross_points": -163.0,
+      "reverse_net_points": 158.2
+    },
+    {
+      "entry": "2026-08-21 15:19:00",
+      "exit": "2026-08-21 23:46:00",
+      "original_side": 1,
+      "entry_price": 45326.0,
+      "exit_price": 45195.0,
+      "original_gross_points": -131.0,
+      "reverse_net_points": 126.2
+    },
+    {
+      "entry": "2026-08-25 18:53:00",
+      "exit": "2026-08-26 01:00:00",
+      "original_side": 1,
+      "entry_price": 45270.0,
+      "exit_price": 45313.0,
+      "original_gross_points": 43.0,
+      "reverse_net_points": -47.8
+    },
+    {
+      "entry": "2026-08-26 08:46:00",
+      "exit": "2026-08-26 09:01:00",
+      "original_side": 1,
+      "entry_price": 45158.0,
+      "exit_price": 44988.0,
+      "original_gross_points": -170.0,
+      "reverse_net_points": 165.2
+    },
+    {
+      "entry": "2026-08-26 20:01:00",
+      "exit": "2026-08-26 22:23:00",
+      "original_side": 1,
+      "entry_price": 46034.0,
+      "exit_price": 45854.0,
+      "original_gross_points": -180.0,
+      "reverse_net_points": 175.2
+    },
+    {
+      "entry": "2026-08-27 11:23:00",
+      "exit": "2026-08-27 16:01:00",
+      "original_side": 1,
+      "entry_price": 46383.0,
+      "exit_price": 46139.0,
+      "original_gross_points": -244.0,
+      "reverse_net_points": 239.2
+    },
+    {
+      "entry": "2026-08-28 09:31:00",
+      "exit": "2026-08-29 01:00:00",
+      "original_side": 1,
+      "entry_price": 46359.0,
+      "exit_price": 46039.0,
+      "original_gross_points": -320.0,
+      "reverse_net_points": 315.2
+    },
+    {
+      "entry": "2026-09-01 11:01:00",
+      "exit": "2026-09-01 19:57:00",
+      "original_side": 1,
+      "entry_price": 46959.0,
+      "exit_price": 46775.0,
+      "original_gross_points": -184.0,
+      "reverse_net_points": 179.2
+    },
+    {
+      "entry": "2026-09-04 08:51:00",
+      "exit": "2026-09-04 21:01:00",
+      "original_side": 1,
+      "entry_price": 46542.0,
+      "exit_price": 46611.0,
+      "original_gross_points": 69.0,
+      "reverse_net_points": -73.8
+    },
+    {
+      "entry": "2026-09-05 00:17:00",
+      "exit": "2026-09-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 47191.0,
+      "exit_price": 47216.0,
+      "original_gross_points": 25.0,
+      "reverse_net_points": -29.8
+    },
+    {
+      "entry": "2026-09-07 10:01:00",
+      "exit": "2026-09-08 01:00:00",
+      "original_side": 1,
+      "entry_price": 47409.0,
+      "exit_price": 47350.0,
+      "original_gross_points": -59.0,
+      "reverse_net_points": 54.2
+    },
+    {
+      "entry": "2026-09-09 09:16:00",
+      "exit": "2026-09-09 17:34:00",
+      "original_side": 1,
+      "entry_price": 47376.0,
+      "exit_price": 47068.0,
+      "original_gross_points": -308.0,
+      "reverse_net_points": 303.2
+    },
+    {
+      "entry": "2026-09-11 22:23:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46514.0,
+      "exit_price": 46574.0,
+      "original_gross_points": 60.0,
+      "reverse_net_points": -64.8
+    },
+    {
+      "entry": "2026-09-15 08:46:00",
+      "exit": "2026-09-15 22:54:00",
+      "original_side": 1,
+      "entry_price": 45805.0,
+      "exit_price": 45536.0,
+      "original_gross_points": -269.0,
+      "reverse_net_points": 264.2
+    },
+    {
+      "entry": "2026-09-16 10:16:00",
+      "exit": "2026-09-16 13:08:00",
+      "original_side": 1,
+      "entry_price": 45917.0,
+      "exit_price": 45988.0,
+      "original_gross_points": 71.0,
+      "reverse_net_points": -75.8
+    },
+    {
+      "entry": "2026-09-17 09:24:00",
+      "exit": "2026-09-17 10:29:00",
+      "original_side": 1,
+      "entry_price": 46888.0,
+      "exit_price": 46499.0,
+      "original_gross_points": -389.0,
+      "reverse_net_points": 384.2
+    },
+    {
+      "entry": "2026-09-17 12:53:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46739.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 424.0,
+      "reverse_net_points": -428.8
+    },
+    {
+      "entry": "2026-09-18 08:51:00",
+      "exit": "2026-09-18 09:17:00",
+      "original_side": 1,
+      "entry_price": 47141.0,
+      "exit_price": 47046.0,
+      "original_gross_points": -95.0,
+      "reverse_net_points": 90.2
+    },
+    {
+      "entry": "2026-09-18 12:16:00",
+      "exit": "2026-09-18 20:08:00",
+      "original_side": 1,
+      "entry_price": 47333.0,
+      "exit_price": 47282.0,
+      "original_gross_points": -51.0,
+      "reverse_net_points": 46.2
+    },
+    {
+      "entry": "2026-09-21 13:30:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 47984.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 711.0,
+      "reverse_net_points": -715.8
+    },
+    {
+      "entry": "2026-09-22 08:46:00",
+      "exit": "2026-09-22 11:38:00",
+      "original_side": 1,
+      "entry_price": 48910.0,
+      "exit_price": 48425.0,
+      "original_gross_points": -485.0,
+      "reverse_net_points": 480.2
+    },
+    {
+      "entry": "2026-09-29 22:16:00",
+      "exit": "2026-09-30 01:00:00",
+      "original_side": 1,
+      "entry_price": 48385.0,
+      "exit_price": 48371.0,
+      "original_gross_points": -14.0,
+      "reverse_net_points": 9.2
+    },
+    {
+      "entry": "2026-10-01 13:06:00",
+      "exit": "2026-10-01 23:31:00",
+      "original_side": 1,
+      "entry_price": 48676.0,
+      "exit_price": 48308.0,
+      "original_gross_points": -368.0,
+      "reverse_net_points": 363.2
+    },
+    {
+      "entry": "2026-10-02 09:23:00",
+      "exit": "2026-10-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 48614.0,
+      "exit_price": 49333.0,
+      "original_gross_points": 719.0,
+      "reverse_net_points": -723.8
+    },
+    {
+      "entry": "2026-10-06 08:46:00",
+      "exit": "2026-10-06 18:01:00",
+      "original_side": 1,
+      "entry_price": 50129.0,
+      "exit_price": 50027.0,
+      "original_gross_points": -102.0,
+      "reverse_net_points": 97.2
+    },
+    {
+      "entry": "2026-10-12 11:50:00",
+      "exit": "2026-10-12 16:36:00",
+      "original_side": 1,
+      "entry_price": 49463.0,
+      "exit_price": 49333.0,
+      "original_gross_points": -130.0,
+      "reverse_net_points": 125.2
+    },
+    {
+      "entry": "2026-10-16 00:02:00",
+      "exit": "2026-10-16 01:00:00",
+      "original_side": 1,
+      "entry_price": 47337.0,
+      "exit_price": 47171.0,
+      "original_gross_points": -166.0,
+      "reverse_net_points": 161.2
+    },
+    {
+      "entry": "2026-10-16 13:31:00",
+      "exit": "2026-10-16 17:58:00",
+      "original_side": 1,
+      "entry_price": 47203.0,
+      "exit_price": 47111.0,
+      "original_gross_points": -92.0,
+      "reverse_net_points": 87.2
+    },
+    {
+      "entry": "2026-10-16 20:06:00",
+      "exit": "2026-10-16 22:01:00",
+      "original_side": 1,
+      "entry_price": 47279.0,
+      "exit_price": 46767.0,
+      "original_gross_points": -512.0,
+      "reverse_net_points": 507.2
+    }
+  ],
+  "E2_F3_hold-one_long_plain": [
+    {
+      "entry": "2026-07-21 20:46:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44595.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 351.0,
+      "reverse_net_points": -355.8
+    },
+    {
+      "entry": "2026-07-22 09:11:00",
+      "exit": "2026-07-22 09:29:00",
+      "original_side": 1,
+      "entry_price": 45252.0,
+      "exit_price": 45015.0,
+      "original_gross_points": -237.0,
+      "reverse_net_points": 232.2
+    },
+    {
+      "entry": "2026-07-31 19:49:00",
+      "exit": "2026-07-31 20:16:00",
+      "original_side": 1,
+      "entry_price": 43540.0,
+      "exit_price": 43311.0,
+      "original_gross_points": -229.0,
+      "reverse_net_points": 224.2
+    },
+    {
+      "entry": "2026-08-04 09:53:00",
+      "exit": "2026-08-04 10:17:00",
+      "original_side": 1,
+      "entry_price": 43625.0,
+      "exit_price": 43187.0,
+      "original_gross_points": -438.0,
+      "reverse_net_points": 433.2
+    },
+    {
+      "entry": "2026-08-04 21:53:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 44202.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 277.0,
+      "reverse_net_points": -281.8
+    },
+    {
+      "entry": "2026-08-11 11:53:00",
+      "exit": "2026-08-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 45086.0,
+      "exit_price": 45213.0,
+      "original_gross_points": 127.0,
+      "reverse_net_points": -131.8
+    },
+    {
+      "entry": "2026-08-12 10:51:00",
+      "exit": "2026-08-13 01:00:00",
+      "original_side": 1,
+      "entry_price": 45509.0,
+      "exit_price": 46103.0,
+      "original_gross_points": 594.0,
+      "reverse_net_points": -598.8
+    },
+    {
+      "entry": "2026-08-13 21:05:00",
+      "exit": "2026-08-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 46097.0,
+      "exit_price": 46498.0,
+      "original_gross_points": 401.0,
+      "reverse_net_points": -405.8
+    },
+    {
+      "entry": "2026-08-17 12:01:00",
+      "exit": "2026-08-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46061.0,
+      "exit_price": 46169.0,
+      "original_gross_points": 108.0,
+      "reverse_net_points": -112.8
+    },
+    {
+      "entry": "2026-08-19 11:17:00",
+      "exit": "2026-08-19 13:01:00",
+      "original_side": 1,
+      "entry_price": 44828.0,
+      "exit_price": 44665.0,
+      "original_gross_points": -163.0,
+      "reverse_net_points": 158.2
+    },
+    {
+      "entry": "2026-08-21 15:19:00",
+      "exit": "2026-08-21 23:46:00",
+      "original_side": 1,
+      "entry_price": 45326.0,
+      "exit_price": 45195.0,
+      "original_gross_points": -131.0,
+      "reverse_net_points": 126.2
+    },
+    {
+      "entry": "2026-08-25 18:53:00",
+      "exit": "2026-08-26 01:00:00",
+      "original_side": 1,
+      "entry_price": 45270.0,
+      "exit_price": 45313.0,
+      "original_gross_points": 43.0,
+      "reverse_net_points": -47.8
+    },
+    {
+      "entry": "2026-08-26 08:46:00",
+      "exit": "2026-08-26 09:01:00",
+      "original_side": 1,
+      "entry_price": 45158.0,
+      "exit_price": 44988.0,
+      "original_gross_points": -170.0,
+      "reverse_net_points": 165.2
+    },
+    {
+      "entry": "2026-08-26 20:01:00",
+      "exit": "2026-08-26 22:23:00",
+      "original_side": 1,
+      "entry_price": 46034.0,
+      "exit_price": 45854.0,
+      "original_gross_points": -180.0,
+      "reverse_net_points": 175.2
+    },
+    {
+      "entry": "2026-08-27 11:23:00",
+      "exit": "2026-08-27 16:01:00",
+      "original_side": 1,
+      "entry_price": 46383.0,
+      "exit_price": 46139.0,
+      "original_gross_points": -244.0,
+      "reverse_net_points": 239.2
+    },
+    {
+      "entry": "2026-08-28 09:31:00",
+      "exit": "2026-08-29 01:00:00",
+      "original_side": 1,
+      "entry_price": 46359.0,
+      "exit_price": 46039.0,
+      "original_gross_points": -320.0,
+      "reverse_net_points": 315.2
+    },
+    {
+      "entry": "2026-09-01 11:01:00",
+      "exit": "2026-09-01 19:57:00",
+      "original_side": 1,
+      "entry_price": 46959.0,
+      "exit_price": 46775.0,
+      "original_gross_points": -184.0,
+      "reverse_net_points": 179.2
+    },
+    {
+      "entry": "2026-09-04 08:51:00",
+      "exit": "2026-09-04 21:01:00",
+      "original_side": 1,
+      "entry_price": 46542.0,
+      "exit_price": 46611.0,
+      "original_gross_points": 69.0,
+      "reverse_net_points": -73.8
+    },
+    {
+      "entry": "2026-09-05 00:17:00",
+      "exit": "2026-09-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 47191.0,
+      "exit_price": 47216.0,
+      "original_gross_points": 25.0,
+      "reverse_net_points": -29.8
+    },
+    {
+      "entry": "2026-09-07 10:01:00",
+      "exit": "2026-09-08 01:00:00",
+      "original_side": 1,
+      "entry_price": 47409.0,
+      "exit_price": 47350.0,
+      "original_gross_points": -59.0,
+      "reverse_net_points": 54.2
+    },
+    {
+      "entry": "2026-09-09 09:16:00",
+      "exit": "2026-09-09 17:34:00",
+      "original_side": 1,
+      "entry_price": 47376.0,
+      "exit_price": 47068.0,
+      "original_gross_points": -308.0,
+      "reverse_net_points": 303.2
+    },
+    {
+      "entry": "2026-09-11 22:23:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46514.0,
+      "exit_price": 46574.0,
+      "original_gross_points": 60.0,
+      "reverse_net_points": -64.8
+    },
+    {
+      "entry": "2026-09-15 08:46:00",
+      "exit": "2026-09-15 22:54:00",
+      "original_side": 1,
+      "entry_price": 45805.0,
+      "exit_price": 45536.0,
+      "original_gross_points": -269.0,
+      "reverse_net_points": 264.2
+    },
+    {
+      "entry": "2026-09-16 10:16:00",
+      "exit": "2026-09-16 13:08:00",
+      "original_side": 1,
+      "entry_price": 45917.0,
+      "exit_price": 45988.0,
+      "original_gross_points": 71.0,
+      "reverse_net_points": -75.8
+    },
+    {
+      "entry": "2026-09-17 18:26:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46785.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 378.0,
+      "reverse_net_points": -382.8
+    },
+    {
+      "entry": "2026-09-18 08:51:00",
+      "exit": "2026-09-18 09:17:00",
+      "original_side": 1,
+      "entry_price": 47141.0,
+      "exit_price": 47046.0,
+      "original_gross_points": -95.0,
+      "reverse_net_points": 90.2
+    },
+    {
+      "entry": "2026-09-18 12:51:00",
+      "exit": "2026-09-18 20:08:00",
+      "original_side": 1,
+      "entry_price": 47417.0,
+      "exit_price": 47282.0,
+      "original_gross_points": -135.0,
+      "reverse_net_points": 130.2
+    },
+    {
+      "entry": "2026-09-21 13:32:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 48028.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 667.0,
+      "reverse_net_points": -671.8
+    },
+    {
+      "entry": "2026-09-22 08:46:00",
+      "exit": "2026-09-22 11:38:00",
+      "original_side": 1,
+      "entry_price": 48910.0,
+      "exit_price": 48425.0,
+      "original_gross_points": -485.0,
+      "reverse_net_points": 480.2
+    },
+    {
+      "entry": "2026-09-29 22:16:00",
+      "exit": "2026-09-30 01:00:00",
+      "original_side": 1,
+      "entry_price": 48385.0,
+      "exit_price": 48371.0,
+      "original_gross_points": -14.0,
+      "reverse_net_points": 9.2
+    },
+    {
+      "entry": "2026-10-01 13:06:00",
+      "exit": "2026-10-01 23:31:00",
+      "original_side": 1,
+      "entry_price": 48676.0,
+      "exit_price": 48308.0,
+      "original_gross_points": -368.0,
+      "reverse_net_points": 363.2
+    },
+    {
+      "entry": "2026-10-02 09:23:00",
+      "exit": "2026-10-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 48614.0,
+      "exit_price": 49333.0,
+      "original_gross_points": 719.0,
+      "reverse_net_points": -723.8
+    },
+    {
+      "entry": "2026-10-06 08:46:00",
+      "exit": "2026-10-06 18:01:00",
+      "original_side": 1,
+      "entry_price": 50129.0,
+      "exit_price": 50027.0,
+      "original_gross_points": -102.0,
+      "reverse_net_points": 97.2
+    },
+    {
+      "entry": "2026-10-16 20:06:00",
+      "exit": "2026-10-16 22:01:00",
+      "original_side": 1,
+      "entry_price": 47279.0,
+      "exit_price": 46767.0,
+      "original_gross_points": -512.0,
+      "reverse_net_points": 507.2
+    }
+  ],
+  "E1_F3_hold-entry_long_plain": [
+    {
+      "entry": "2026-07-16 13:31:00",
+      "exit": "2026-07-16 13:36:00",
+      "original_side": 1,
+      "entry_price": 46205.0,
+      "exit_price": 45643.0,
+      "original_gross_points": -562.0,
+      "reverse_net_points": 557.2
+    },
+    {
+      "entry": "2026-07-21 20:46:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44595.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 351.0,
+      "reverse_net_points": -355.8
+    },
+    {
+      "entry": "2026-07-22 09:11:00",
+      "exit": "2026-07-22 09:12:00",
+      "original_side": 1,
+      "entry_price": 45252.0,
+      "exit_price": 45195.0,
+      "original_gross_points": -57.0,
+      "reverse_net_points": 52.2
+    },
+    {
+      "entry": "2026-07-31 19:49:00",
+      "exit": "2026-07-31 20:08:00",
+      "original_side": 1,
+      "entry_price": 43540.0,
+      "exit_price": 43498.0,
+      "original_gross_points": -42.0,
+      "reverse_net_points": 37.2
+    },
+    {
+      "entry": "2026-08-04 09:53:00",
+      "exit": "2026-08-04 10:03:00",
+      "original_side": 1,
+      "entry_price": 43625.0,
+      "exit_price": 43527.0,
+      "original_gross_points": -98.0,
+      "reverse_net_points": 93.2
+    },
+    {
+      "entry": "2026-08-04 21:53:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 44202.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 277.0,
+      "reverse_net_points": -281.8
+    },
+    {
+      "entry": "2026-08-11 11:31:00",
+      "exit": "2026-08-11 16:22:00",
+      "original_side": 1,
+      "entry_price": 45126.0,
+      "exit_price": 44948.0,
+      "original_gross_points": -178.0,
+      "reverse_net_points": 173.2
+    },
+    {
+      "entry": "2026-08-11 17:38:00",
+      "exit": "2026-08-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 45098.0,
+      "exit_price": 45213.0,
+      "original_gross_points": 115.0,
+      "reverse_net_points": -119.8
+    },
+    {
+      "entry": "2026-08-12 10:51:00",
+      "exit": "2026-08-12 20:31:00",
+      "original_side": 1,
+      "entry_price": 45509.0,
+      "exit_price": 46005.0,
+      "original_gross_points": 496.0,
+      "reverse_net_points": -500.8
+    },
+    {
+      "entry": "2026-08-12 20:38:00",
+      "exit": "2026-08-12 22:56:00",
+      "original_side": 1,
+      "entry_price": 46050.0,
+      "exit_price": 46118.0,
+      "original_gross_points": 68.0,
+      "reverse_net_points": -72.8
+    },
+    {
+      "entry": "2026-08-13 19:46:00",
+      "exit": "2026-08-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 46080.0,
+      "exit_price": 46498.0,
+      "original_gross_points": 418.0,
+      "reverse_net_points": -422.8
+    },
+    {
+      "entry": "2026-08-17 11:58:00",
+      "exit": "2026-08-17 21:39:00",
+      "original_side": 1,
+      "entry_price": 46035.0,
+      "exit_price": 45855.0,
+      "original_gross_points": -180.0,
+      "reverse_net_points": 175.2
+    },
+    {
+      "entry": "2026-08-17 22:52:00",
+      "exit": "2026-08-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46205.0,
+      "exit_price": 46169.0,
+      "original_gross_points": -36.0,
+      "reverse_net_points": 31.2
+    },
+    {
+      "entry": "2026-08-19 11:17:00",
+      "exit": "2026-08-19 11:38:00",
+      "original_side": 1,
+      "entry_price": 44828.0,
+      "exit_price": 44855.0,
+      "original_gross_points": 27.0,
+      "reverse_net_points": -31.8
+    },
+    {
+      "entry": "2026-08-21 15:19:00",
+      "exit": "2026-08-21 18:39:00",
+      "original_side": 1,
+      "entry_price": 45326.0,
+      "exit_price": 45338.0,
+      "original_gross_points": 12.0,
+      "reverse_net_points": -16.8
+    },
+    {
+      "entry": "2026-08-25 18:53:00",
+      "exit": "2026-08-25 21:28:00",
+      "original_side": 1,
+      "entry_price": 45270.0,
+      "exit_price": 45186.0,
+      "original_gross_points": -84.0,
+      "reverse_net_points": 79.2
+    },
+    {
+      "entry": "2026-08-25 21:36:00",
+      "exit": "2026-08-26 01:00:00",
+      "original_side": 1,
+      "entry_price": 45339.0,
+      "exit_price": 45313.0,
+      "original_gross_points": -26.0,
+      "reverse_net_points": 21.2
+    },
+    {
+      "entry": "2026-08-26 08:46:00",
+      "exit": "2026-08-26 08:47:00",
+      "original_side": 1,
+      "entry_price": 45158.0,
+      "exit_price": 45187.0,
+      "original_gross_points": 29.0,
+      "reverse_net_points": -33.8
+    },
+    {
+      "entry": "2026-08-26 20:01:00",
+      "exit": "2026-08-26 20:53:00",
+      "original_side": 1,
+      "entry_price": 46034.0,
+      "exit_price": 45916.0,
+      "original_gross_points": -118.0,
+      "reverse_net_points": 113.2
+    },
+    {
+      "entry": "2026-08-27 11:23:00",
+      "exit": "2026-08-27 12:41:00",
+      "original_side": 1,
+      "entry_price": 46383.0,
+      "exit_price": 46141.0,
+      "original_gross_points": -242.0,
+      "reverse_net_points": 237.2
+    },
+    {
+      "entry": "2026-08-28 09:31:00",
+      "exit": "2026-08-28 10:00:00",
+      "original_side": 1,
+      "entry_price": 46359.0,
+      "exit_price": 46241.0,
+      "original_gross_points": -118.0,
+      "reverse_net_points": 113.2
+    },
+    {
+      "entry": "2026-08-28 10:11:00",
+      "exit": "2026-08-28 11:53:00",
+      "original_side": 1,
+      "entry_price": 46323.0,
+      "exit_price": 46366.0,
+      "original_gross_points": 43.0,
+      "reverse_net_points": -47.8
+    },
+    {
+      "entry": "2026-08-28 21:46:00",
+      "exit": "2026-08-28 22:13:00",
+      "original_side": 1,
+      "entry_price": 46490.0,
+      "exit_price": 46332.0,
+      "original_gross_points": -158.0,
+      "reverse_net_points": 153.2
+    },
+    {
+      "entry": "2026-09-01 11:01:00",
+      "exit": "2026-09-01 16:46:00",
+      "original_side": 1,
+      "entry_price": 46959.0,
+      "exit_price": 46852.0,
+      "original_gross_points": -107.0,
+      "reverse_net_points": 102.2
+    },
+    {
+      "entry": "2026-09-04 08:51:00",
+      "exit": "2026-09-04 09:18:00",
+      "original_side": 1,
+      "entry_price": 46542.0,
+      "exit_price": 46328.0,
+      "original_gross_points": -214.0,
+      "reverse_net_points": 209.2
+    },
+    {
+      "entry": "2026-09-04 13:09:00",
+      "exit": "2026-09-04 20:31:00",
+      "original_side": 1,
+      "entry_price": 46654.0,
+      "exit_price": 46708.0,
+      "original_gross_points": 54.0,
+      "reverse_net_points": -58.8
+    },
+    {
+      "entry": "2026-09-05 00:17:00",
+      "exit": "2026-09-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 47191.0,
+      "exit_price": 47216.0,
+      "original_gross_points": 25.0,
+      "reverse_net_points": -29.8
+    },
+    {
+      "entry": "2026-09-07 10:01:00",
+      "exit": "2026-09-07 20:38:00",
+      "original_side": 1,
+      "entry_price": 47409.0,
+      "exit_price": 47326.0,
+      "original_gross_points": -83.0,
+      "reverse_net_points": 78.2
+    },
+    {
+      "entry": "2026-09-09 09:16:00",
+      "exit": "2026-09-09 17:34:00",
+      "original_side": 1,
+      "entry_price": 47376.0,
+      "exit_price": 47068.0,
+      "original_gross_points": -308.0,
+      "reverse_net_points": 303.2
+    },
+    {
+      "entry": "2026-09-11 22:23:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46514.0,
+      "exit_price": 46574.0,
+      "original_gross_points": 60.0,
+      "reverse_net_points": -64.8
+    },
+    {
+      "entry": "2026-09-15 08:46:00",
+      "exit": "2026-09-15 17:53:00",
+      "original_side": 1,
+      "entry_price": 45805.0,
+      "exit_price": 45753.0,
+      "original_gross_points": -52.0,
+      "reverse_net_points": 47.2
+    },
+    {
+      "entry": "2026-09-16 10:16:00",
+      "exit": "2026-09-16 13:01:00",
+      "original_side": 1,
+      "entry_price": 45917.0,
+      "exit_price": 45955.0,
+      "original_gross_points": 38.0,
+      "reverse_net_points": -42.8
+    },
+    {
+      "entry": "2026-09-17 09:24:00",
+      "exit": "2026-09-17 10:25:00",
+      "original_side": 1,
+      "entry_price": 46888.0,
+      "exit_price": 46629.0,
+      "original_gross_points": -259.0,
+      "reverse_net_points": 254.2
+    },
+    {
+      "entry": "2026-09-17 12:53:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46739.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 424.0,
+      "reverse_net_points": -428.8
+    },
+    {
+      "entry": "2026-09-18 08:51:00",
+      "exit": "2026-09-18 09:17:00",
+      "original_side": 1,
+      "entry_price": 47141.0,
+      "exit_price": 47046.0,
+      "original_gross_points": -95.0,
+      "reverse_net_points": 90.2
+    },
+    {
+      "entry": "2026-09-18 12:16:00",
+      "exit": "2026-09-18 20:08:00",
+      "original_side": 1,
+      "entry_price": 47333.0,
+      "exit_price": 47282.0,
+      "original_gross_points": -51.0,
+      "reverse_net_points": 46.2
+    },
+    {
+      "entry": "2026-09-21 13:30:00",
+      "exit": "2026-09-21 21:33:00",
+      "original_side": 1,
+      "entry_price": 47984.0,
+      "exit_price": 48173.0,
+      "original_gross_points": 189.0,
+      "reverse_net_points": -193.8
+    },
+    {
+      "entry": "2026-09-21 21:41:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 48276.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 419.0,
+      "reverse_net_points": -423.8
+    },
+    {
+      "entry": "2026-09-22 08:46:00",
+      "exit": "2026-09-22 09:12:00",
+      "original_side": 1,
+      "entry_price": 48910.0,
+      "exit_price": 48620.0,
+      "original_gross_points": -290.0,
+      "reverse_net_points": 285.2
+    },
+    {
+      "entry": "2026-09-29 22:16:00",
+      "exit": "2026-09-30 00:47:00",
+      "original_side": 1,
+      "entry_price": 48385.0,
+      "exit_price": 48387.0,
+      "original_gross_points": 2.0,
+      "reverse_net_points": -6.8
+    },
+    {
+      "entry": "2026-10-01 13:06:00",
+      "exit": "2026-10-01 23:09:00",
+      "original_side": 1,
+      "entry_price": 48676.0,
+      "exit_price": 48240.0,
+      "original_gross_points": -436.0,
+      "reverse_net_points": 431.2
+    },
+    {
+      "entry": "2026-10-02 09:23:00",
+      "exit": "2026-10-02 23:17:00",
+      "original_side": 1,
+      "entry_price": 48614.0,
+      "exit_price": 49271.0,
+      "original_gross_points": 657.0,
+      "reverse_net_points": -661.8
+    },
+    {
+      "entry": "2026-10-06 08:46:00",
+      "exit": "2026-10-06 09:55:00",
+      "original_side": 1,
+      "entry_price": 50129.0,
+      "exit_price": 49797.0,
+      "original_gross_points": -332.0,
+      "reverse_net_points": 327.2
+    },
+    {
+      "entry": "2026-10-06 11:55:00",
+      "exit": "2026-10-06 18:01:00",
+      "original_side": 1,
+      "entry_price": 49934.0,
+      "exit_price": 50027.0,
+      "original_gross_points": 93.0,
+      "reverse_net_points": -97.8
+    },
+    {
+      "entry": "2026-10-12 11:50:00",
+      "exit": "2026-10-12 16:36:00",
+      "original_side": 1,
+      "entry_price": 49463.0,
+      "exit_price": 49333.0,
+      "original_gross_points": -130.0,
+      "reverse_net_points": 125.2
+    },
+    {
+      "entry": "2026-10-16 00:02:00",
+      "exit": "2026-10-16 01:00:00",
+      "original_side": 1,
+      "entry_price": 47337.0,
+      "exit_price": 47171.0,
+      "original_gross_points": -166.0,
+      "reverse_net_points": 161.2
+    },
+    {
+      "entry": "2026-10-16 13:31:00",
+      "exit": "2026-10-16 17:58:00",
+      "original_side": 1,
+      "entry_price": 47203.0,
+      "exit_price": 47111.0,
+      "original_gross_points": -92.0,
+      "reverse_net_points": 87.2
+    },
+    {
+      "entry": "2026-10-16 20:06:00",
+      "exit": "2026-10-16 21:38:00",
+      "original_side": 1,
+      "entry_price": 47279.0,
+      "exit_price": 46797.0,
+      "original_gross_points": -482.0,
+      "reverse_net_points": 477.2
+    }
+  ],
+  "CFCCPm": [
+    {
+      "entry": "2026-07-16 13:31:00",
+      "exit": "2026-07-16 13:36:00",
+      "original_side": 1,
+      "entry_price": 46205.0,
+      "exit_price": 45643.0,
+      "original_gross_points": -562.0,
+      "reverse_net_points": 557.2
+    },
+    {
+      "entry": "2026-07-20 17:32:00",
+      "exit": "2026-07-20 19:36:00",
+      "original_side": 1,
+      "entry_price": 43197.0,
+      "exit_price": 43545.0,
+      "original_gross_points": 348.0,
+      "reverse_net_points": -352.8
+    },
+    {
+      "entry": "2026-07-21 16:33:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44588.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 358.0,
+      "reverse_net_points": -362.8
+    },
+    {
+      "entry": "2026-07-23 17:04:00",
+      "exit": "2026-07-23 20:17:00",
+      "original_side": 1,
+      "entry_price": 44997.0,
+      "exit_price": 44547.0,
+      "original_gross_points": -450.0,
+      "reverse_net_points": 445.2
+    },
+    {
+      "entry": "2026-07-24 09:27:00",
+      "exit": "2026-07-24 10:21:00",
+      "original_side": 1,
+      "entry_price": 44441.0,
+      "exit_price": 44081.0,
+      "original_gross_points": -360.0,
+      "reverse_net_points": 355.2
+    },
+    {
+      "entry": "2026-07-24 17:31:00",
+      "exit": "2026-07-24 21:51:00",
+      "original_side": 1,
+      "entry_price": 44170.0,
+      "exit_price": 43745.0,
+      "original_gross_points": -425.0,
+      "reverse_net_points": 420.2
+    },
+    {
+      "entry": "2026-07-27 16:55:00",
+      "exit": "2026-07-27 21:29:00",
+      "original_side": 1,
+      "entry_price": 44180.0,
+      "exit_price": 44023.0,
+      "original_gross_points": -157.0,
+      "reverse_net_points": 152.2
+    },
+    {
+      "entry": "2026-07-27 21:29:00",
+      "exit": "2026-07-27 21:31:00",
+      "original_side": -1,
+      "entry_price": 44023.0,
+      "exit_price": 43996.0,
+      "original_gross_points": 27.0,
+      "reverse_net_points": -31.8
+    },
+    {
+      "entry": "2026-07-29 20:36:00",
+      "exit": "2026-07-30 00:24:00",
+      "original_side": -1,
+      "entry_price": 40694.0,
+      "exit_price": 40129.0,
+      "original_gross_points": 565.0,
+      "reverse_net_points": -569.8
+    },
+    {
+      "entry": "2026-07-30 21:47:00",
+      "exit": "2026-07-30 22:24:00",
+      "original_side": 1,
+      "entry_price": 41272.0,
+      "exit_price": 41637.0,
+      "original_gross_points": 365.0,
+      "reverse_net_points": -369.8
+    },
+    {
+      "entry": "2026-07-31 00:13:00",
+      "exit": "2026-07-31 01:00:00",
+      "original_side": 1,
+      "entry_price": 41807.0,
+      "exit_price": 41716.0,
+      "original_gross_points": -91.0,
+      "reverse_net_points": 86.2
+    },
+    {
+      "entry": "2026-07-31 12:41:00",
+      "exit": "2026-07-31 20:16:00",
+      "original_side": 1,
+      "entry_price": 43818.0,
+      "exit_price": 43311.0,
+      "original_gross_points": -507.0,
+      "reverse_net_points": 502.2
+    },
+    {
+      "entry": "2026-08-03 12:56:00",
+      "exit": "2026-08-03 15:01:00",
+      "original_side": -1,
+      "entry_price": 43367.0,
+      "exit_price": 43009.0,
+      "original_gross_points": 358.0,
+      "reverse_net_points": -362.8
+    },
+    {
+      "entry": "2026-08-03 23:54:00",
+      "exit": "2026-08-04 01:00:00",
+      "original_side": 1,
+      "entry_price": 42662.0,
+      "exit_price": 42626.0,
+      "original_gross_points": -36.0,
+      "reverse_net_points": 31.2
+    },
+    {
+      "entry": "2026-08-04 09:16:00",
+      "exit": "2026-08-04 09:31:00",
+      "original_side": -1,
+      "entry_price": 42802.0,
+      "exit_price": 43060.0,
+      "original_gross_points": -258.0,
+      "reverse_net_points": 253.2
+    },
+    {
+      "entry": "2026-08-04 18:45:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 43700.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 779.0,
+      "reverse_net_points": -783.8
+    },
+    {
+      "entry": "2026-08-05 21:44:00",
+      "exit": "2026-08-05 22:54:00",
+      "original_side": 1,
+      "entry_price": 44582.0,
+      "exit_price": 44120.0,
+      "original_gross_points": -462.0,
+      "reverse_net_points": 457.2
+    },
+    {
+      "entry": "2026-08-06 15:11:00",
+      "exit": "2026-08-06 19:06:00",
+      "original_side": -1,
+      "entry_price": 44274.0,
+      "exit_price": 43960.0,
+      "original_gross_points": 314.0,
+      "reverse_net_points": -318.8
+    },
+    {
+      "entry": "2026-08-11 11:25:00",
+      "exit": "2026-08-11 16:22:00",
+      "original_side": 1,
+      "entry_price": 45068.0,
+      "exit_price": 44948.0,
+      "original_gross_points": -120.0,
+      "reverse_net_points": 115.2
+    },
+    {
+      "entry": "2026-08-11 16:22:00",
+      "exit": "2026-08-11 17:38:00",
+      "original_side": -1,
+      "entry_price": 44948.0,
+      "exit_price": 45098.0,
+      "original_gross_points": -150.0,
+      "reverse_net_points": 145.2
+    },
+    {
+      "entry": "2026-08-11 17:38:00",
+      "exit": "2026-08-11 18:28:00",
+      "original_side": 1,
+      "entry_price": 45098.0,
+      "exit_price": 45309.0,
+      "original_gross_points": 211.0,
+      "reverse_net_points": -215.8
+    },
+    {
+      "entry": "2026-08-12 10:50:00",
+      "exit": "2026-08-13 01:00:00",
+      "original_side": 1,
+      "entry_price": 45543.0,
+      "exit_price": 46103.0,
+      "original_gross_points": 560.0,
+      "reverse_net_points": -564.8
+    },
+    {
+      "entry": "2026-08-13 21:05:00",
+      "exit": "2026-08-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 46097.0,
+      "exit_price": 46498.0,
+      "original_gross_points": 401.0,
+      "reverse_net_points": -405.8
+    },
+    {
+      "entry": "2026-08-17 11:58:00",
+      "exit": "2026-08-17 21:39:00",
+      "original_side": 1,
+      "entry_price": 46035.0,
+      "exit_price": 45855.0,
+      "original_gross_points": -180.0,
+      "reverse_net_points": 175.2
+    },
+    {
+      "entry": "2026-08-19 11:17:00",
+      "exit": "2026-08-19 13:01:00",
+      "original_side": 1,
+      "entry_price": 44828.0,
+      "exit_price": 44665.0,
+      "original_gross_points": -163.0,
+      "reverse_net_points": 158.2
+    },
+    {
+      "entry": "2026-08-21 15:19:00",
+      "exit": "2026-08-21 18:39:00",
+      "original_side": 1,
+      "entry_price": 45326.0,
+      "exit_price": 45338.0,
+      "original_gross_points": 12.0,
+      "reverse_net_points": -16.8
+    },
+    {
+      "entry": "2026-08-21 18:39:00",
+      "exit": "2026-08-21 21:38:00",
+      "original_side": -1,
+      "entry_price": 45338.0,
+      "exit_price": 45161.0,
+      "original_gross_points": 177.0,
+      "reverse_net_points": -181.8
+    },
+    {
+      "entry": "2026-08-24 19:36:00",
+      "exit": "2026-08-24 21:31:00",
+      "original_side": 1,
+      "entry_price": 44902.0,
+      "exit_price": 44674.0,
+      "original_gross_points": -228.0,
+      "reverse_net_points": 223.2
+    },
+    {
+      "entry": "2026-08-25 16:31:00",
+      "exit": "2026-08-25 21:28:00",
+      "original_side": 1,
+      "entry_price": 45158.0,
+      "exit_price": 45186.0,
+      "original_gross_points": 28.0,
+      "reverse_net_points": -32.8
+    },
+    {
+      "entry": "2026-08-25 21:28:00",
+      "exit": "2026-08-25 21:36:00",
+      "original_side": -1,
+      "entry_price": 45186.0,
+      "exit_price": 45339.0,
+      "original_gross_points": -153.0,
+      "reverse_net_points": 148.2
+    },
+    {
+      "entry": "2026-08-25 21:36:00",
+      "exit": "2026-08-25 22:24:00",
+      "original_side": 1,
+      "entry_price": 45339.0,
+      "exit_price": 45183.0,
+      "original_gross_points": -156.0,
+      "reverse_net_points": 151.2
+    },
+    {
+      "entry": "2026-08-27 12:41:00",
+      "exit": "2026-08-28 00:32:00",
+      "original_side": -1,
+      "entry_price": 46141.0,
+      "exit_price": 46413.0,
+      "original_gross_points": -272.0,
+      "reverse_net_points": 267.2
+    },
+    {
+      "entry": "2026-08-31 18:06:00",
+      "exit": "2026-09-01 01:00:00",
+      "original_side": -1,
+      "entry_price": 45973.0,
+      "exit_price": 45940.0,
+      "original_gross_points": 33.0,
+      "reverse_net_points": -37.8
+    },
+    {
+      "entry": "2026-09-01 11:01:00",
+      "exit": "2026-09-01 16:46:00",
+      "original_side": 1,
+      "entry_price": 46959.0,
+      "exit_price": 46852.0,
+      "original_gross_points": -107.0,
+      "reverse_net_points": 102.2
+    },
+    {
+      "entry": "2026-09-01 16:46:00",
+      "exit": "2026-09-02 01:00:00",
+      "original_side": -1,
+      "entry_price": 46852.0,
+      "exit_price": 46767.0,
+      "original_gross_points": 85.0,
+      "reverse_net_points": -89.8
+    },
+    {
+      "entry": "2026-09-02 21:33:00",
+      "exit": "2026-09-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 46210.0,
+      "exit_price": 46264.0,
+      "original_gross_points": 54.0,
+      "reverse_net_points": -58.8
+    },
+    {
+      "entry": "2026-09-04 08:51:00",
+      "exit": "2026-09-04 09:50:00",
+      "original_side": 1,
+      "entry_price": 46542.0,
+      "exit_price": 46081.0,
+      "original_gross_points": -461.0,
+      "reverse_net_points": 456.2
+    },
+    {
+      "entry": "2026-09-04 20:46:00",
+      "exit": "2026-09-04 21:43:00",
+      "original_side": -1,
+      "entry_price": 46624.0,
+      "exit_price": 46960.0,
+      "original_gross_points": -336.0,
+      "reverse_net_points": 331.2
+    },
+    {
+      "entry": "2026-09-05 00:17:00",
+      "exit": "2026-09-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 47191.0,
+      "exit_price": 47216.0,
+      "original_gross_points": 25.0,
+      "reverse_net_points": -29.8
+    },
+    {
+      "entry": "2026-09-08 20:53:00",
+      "exit": "2026-09-09 01:00:00",
+      "original_side": 1,
+      "entry_price": 46996.0,
+      "exit_price": 47120.0,
+      "original_gross_points": 124.0,
+      "reverse_net_points": -128.8
+    },
+    {
+      "entry": "2026-09-11 15:14:00",
+      "exit": "2026-09-11 19:37:00",
+      "original_side": 1,
+      "entry_price": 46344.0,
+      "exit_price": 46310.0,
+      "original_gross_points": -34.0,
+      "reverse_net_points": 29.2
+    },
+    {
+      "entry": "2026-09-11 23:23:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46590.0,
+      "exit_price": 46574.0,
+      "original_gross_points": -16.0,
+      "reverse_net_points": 11.2
+    },
+    {
+      "entry": "2026-09-16 08:53:00",
+      "exit": "2026-09-16 13:01:00",
+      "original_side": 1,
+      "entry_price": 45731.0,
+      "exit_price": 45955.0,
+      "original_gross_points": 224.0,
+      "reverse_net_points": -228.8
+    },
+    {
+      "entry": "2026-09-17 18:26:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46785.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 378.0,
+      "reverse_net_points": -382.8
+    },
+    {
+      "entry": "2026-09-18 08:51:00",
+      "exit": "2026-09-18 12:51:00",
+      "original_side": -1,
+      "entry_price": 47141.0,
+      "exit_price": 47417.0,
+      "original_gross_points": -276.0,
+      "reverse_net_points": 271.2
+    },
+    {
+      "entry": "2026-09-21 13:30:00",
+      "exit": "2026-09-21 21:23:00",
+      "original_side": 1,
+      "entry_price": 47984.0,
+      "exit_price": 48242.0,
+      "original_gross_points": 258.0,
+      "reverse_net_points": -262.8
+    },
+    {
+      "entry": "2026-09-21 22:01:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 48360.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 335.0,
+      "reverse_net_points": -339.8
+    },
+    {
+      "entry": "2026-09-29 17:55:00",
+      "exit": "2026-09-30 01:00:00",
+      "original_side": 1,
+      "entry_price": 48140.0,
+      "exit_price": 48371.0,
+      "original_gross_points": 231.0,
+      "reverse_net_points": -235.8
+    },
+    {
+      "entry": "2026-10-01 12:15:00",
+      "exit": "2026-10-01 23:09:00",
+      "original_side": 1,
+      "entry_price": 48438.0,
+      "exit_price": 48240.0,
+      "original_gross_points": -198.0,
+      "reverse_net_points": 193.2
+    },
+    {
+      "entry": "2026-10-02 08:55:00",
+      "exit": "2026-10-02 23:14:00",
+      "original_side": 1,
+      "entry_price": 48576.0,
+      "exit_price": 49319.0,
+      "original_gross_points": 743.0,
+      "reverse_net_points": -747.8
+    },
+    {
+      "entry": "2026-10-05 12:56:00",
+      "exit": "2026-10-05 15:52:00",
+      "original_side": -1,
+      "entry_price": 49876.0,
+      "exit_price": 50168.0,
+      "original_gross_points": -292.0,
+      "reverse_net_points": 287.2
+    },
+    {
+      "entry": "2026-10-06 18:01:00",
+      "exit": "2026-10-07 01:00:00",
+      "original_side": -1,
+      "entry_price": 50027.0,
+      "exit_price": 50049.0,
+      "original_gross_points": -22.0,
+      "reverse_net_points": 17.2
+    },
+    {
+      "entry": "2026-10-12 16:06:00",
+      "exit": "2026-10-12 21:36:00",
+      "original_side": -1,
+      "entry_price": 49360.0,
+      "exit_price": 49136.0,
+      "original_gross_points": 224.0,
+      "reverse_net_points": -228.8
+    },
+    {
+      "entry": "2026-10-13 15:41:00",
+      "exit": "2026-10-13 21:39:00",
+      "original_side": -1,
+      "entry_price": 48471.0,
+      "exit_price": 48700.0,
+      "original_gross_points": -229.0,
+      "reverse_net_points": 224.2
+    },
+    {
+      "entry": "2026-10-14 00:21:00",
+      "exit": "2026-10-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 48828.0,
+      "exit_price": 48764.0,
+      "original_gross_points": -64.0,
+      "reverse_net_points": 59.2
+    },
+    {
+      "entry": "2026-10-14 13:16:00",
+      "exit": "2026-10-14 20:36:00",
+      "original_side": -1,
+      "entry_price": 48896.0,
+      "exit_price": 48576.0,
+      "original_gross_points": 320.0,
+      "reverse_net_points": -324.8
+    },
+    {
+      "entry": "2026-10-15 20:36:00",
+      "exit": "2026-10-15 22:12:00",
+      "original_side": -1,
+      "entry_price": 47045.0,
+      "exit_price": 46890.0,
+      "original_gross_points": 155.0,
+      "reverse_net_points": -159.8
+    }
+  ],
+  "E1_F3_hold-one_long_plain": [
+    {
+      "entry": "2026-07-16 13:31:00",
+      "exit": "2026-07-16 13:36:00",
+      "original_side": 1,
+      "entry_price": 46205.0,
+      "exit_price": 45643.0,
+      "original_gross_points": -562.0,
+      "reverse_net_points": 557.2
+    },
+    {
+      "entry": "2026-07-21 20:46:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44595.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 351.0,
+      "reverse_net_points": -355.8
+    },
+    {
+      "entry": "2026-07-22 09:11:00",
+      "exit": "2026-07-22 09:29:00",
+      "original_side": 1,
+      "entry_price": 45252.0,
+      "exit_price": 45015.0,
+      "original_gross_points": -237.0,
+      "reverse_net_points": 232.2
+    },
+    {
+      "entry": "2026-07-31 19:49:00",
+      "exit": "2026-07-31 20:16:00",
+      "original_side": 1,
+      "entry_price": 43540.0,
+      "exit_price": 43311.0,
+      "original_gross_points": -229.0,
+      "reverse_net_points": 224.2
+    },
+    {
+      "entry": "2026-08-04 09:53:00",
+      "exit": "2026-08-04 10:17:00",
+      "original_side": 1,
+      "entry_price": 43625.0,
+      "exit_price": 43187.0,
+      "original_gross_points": -438.0,
+      "reverse_net_points": 433.2
+    },
+    {
+      "entry": "2026-08-04 21:53:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 44202.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 277.0,
+      "reverse_net_points": -281.8
+    },
+    {
+      "entry": "2026-08-11 11:31:00",
+      "exit": "2026-08-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 45126.0,
+      "exit_price": 45213.0,
+      "original_gross_points": 87.0,
+      "reverse_net_points": -91.8
+    },
+    {
+      "entry": "2026-08-12 10:51:00",
+      "exit": "2026-08-13 01:00:00",
+      "original_side": 1,
+      "entry_price": 45509.0,
+      "exit_price": 46103.0,
+      "original_gross_points": 594.0,
+      "reverse_net_points": -598.8
+    },
+    {
+      "entry": "2026-08-13 19:46:00",
+      "exit": "2026-08-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 46080.0,
+      "exit_price": 46498.0,
+      "original_gross_points": 418.0,
+      "reverse_net_points": -422.8
+    },
+    {
+      "entry": "2026-08-17 11:58:00",
+      "exit": "2026-08-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46035.0,
+      "exit_price": 46169.0,
+      "original_gross_points": 134.0,
+      "reverse_net_points": -138.8
+    },
+    {
+      "entry": "2026-08-19 11:17:00",
+      "exit": "2026-08-19 13:01:00",
+      "original_side": 1,
+      "entry_price": 44828.0,
+      "exit_price": 44665.0,
+      "original_gross_points": -163.0,
+      "reverse_net_points": 158.2
+    },
+    {
+      "entry": "2026-08-21 15:19:00",
+      "exit": "2026-08-21 23:46:00",
+      "original_side": 1,
+      "entry_price": 45326.0,
+      "exit_price": 45195.0,
+      "original_gross_points": -131.0,
+      "reverse_net_points": 126.2
+    },
+    {
+      "entry": "2026-08-25 18:53:00",
+      "exit": "2026-08-26 01:00:00",
+      "original_side": 1,
+      "entry_price": 45270.0,
+      "exit_price": 45313.0,
+      "original_gross_points": 43.0,
+      "reverse_net_points": -47.8
+    },
+    {
+      "entry": "2026-08-26 08:46:00",
+      "exit": "2026-08-26 09:01:00",
+      "original_side": 1,
+      "entry_price": 45158.0,
+      "exit_price": 44988.0,
+      "original_gross_points": -170.0,
+      "reverse_net_points": 165.2
+    },
+    {
+      "entry": "2026-08-26 20:01:00",
+      "exit": "2026-08-26 22:23:00",
+      "original_side": 1,
+      "entry_price": 46034.0,
+      "exit_price": 45854.0,
+      "original_gross_points": -180.0,
+      "reverse_net_points": 175.2
+    },
+    {
+      "entry": "2026-08-27 11:23:00",
+      "exit": "2026-08-27 16:01:00",
+      "original_side": 1,
+      "entry_price": 46383.0,
+      "exit_price": 46139.0,
+      "original_gross_points": -244.0,
+      "reverse_net_points": 239.2
+    },
+    {
+      "entry": "2026-08-28 09:31:00",
+      "exit": "2026-08-29 01:00:00",
+      "original_side": 1,
+      "entry_price": 46359.0,
+      "exit_price": 46039.0,
+      "original_gross_points": -320.0,
+      "reverse_net_points": 315.2
+    },
+    {
+      "entry": "2026-09-01 11:01:00",
+      "exit": "2026-09-01 19:57:00",
+      "original_side": 1,
+      "entry_price": 46959.0,
+      "exit_price": 46775.0,
+      "original_gross_points": -184.0,
+      "reverse_net_points": 179.2
+    },
+    {
+      "entry": "2026-09-04 08:51:00",
+      "exit": "2026-09-04 21:01:00",
+      "original_side": 1,
+      "entry_price": 46542.0,
+      "exit_price": 46611.0,
+      "original_gross_points": 69.0,
+      "reverse_net_points": -73.8
+    },
+    {
+      "entry": "2026-09-05 00:17:00",
+      "exit": "2026-09-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 47191.0,
+      "exit_price": 47216.0,
+      "original_gross_points": 25.0,
+      "reverse_net_points": -29.8
+    },
+    {
+      "entry": "2026-09-07 10:01:00",
+      "exit": "2026-09-08 01:00:00",
+      "original_side": 1,
+      "entry_price": 47409.0,
+      "exit_price": 47350.0,
+      "original_gross_points": -59.0,
+      "reverse_net_points": 54.2
+    },
+    {
+      "entry": "2026-09-09 09:16:00",
+      "exit": "2026-09-09 17:34:00",
+      "original_side": 1,
+      "entry_price": 47376.0,
+      "exit_price": 47068.0,
+      "original_gross_points": -308.0,
+      "reverse_net_points": 303.2
+    },
+    {
+      "entry": "2026-09-11 22:23:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46514.0,
+      "exit_price": 46574.0,
+      "original_gross_points": 60.0,
+      "reverse_net_points": -64.8
+    },
+    {
+      "entry": "2026-09-15 08:46:00",
+      "exit": "2026-09-15 22:54:00",
+      "original_side": 1,
+      "entry_price": 45805.0,
+      "exit_price": 45536.0,
+      "original_gross_points": -269.0,
+      "reverse_net_points": 264.2
+    },
+    {
+      "entry": "2026-09-16 10:16:00",
+      "exit": "2026-09-16 13:08:00",
+      "original_side": 1,
+      "entry_price": 45917.0,
+      "exit_price": 45988.0,
+      "original_gross_points": 71.0,
+      "reverse_net_points": -75.8
+    },
+    {
+      "entry": "2026-09-17 09:24:00",
+      "exit": "2026-09-17 10:29:00",
+      "original_side": 1,
+      "entry_price": 46888.0,
+      "exit_price": 46499.0,
+      "original_gross_points": -389.0,
+      "reverse_net_points": 384.2
+    },
+    {
+      "entry": "2026-09-17 12:53:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46739.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 424.0,
+      "reverse_net_points": -428.8
+    },
+    {
+      "entry": "2026-09-18 08:51:00",
+      "exit": "2026-09-18 09:17:00",
+      "original_side": 1,
+      "entry_price": 47141.0,
+      "exit_price": 47046.0,
+      "original_gross_points": -95.0,
+      "reverse_net_points": 90.2
+    },
+    {
+      "entry": "2026-09-18 12:16:00",
+      "exit": "2026-09-18 20:08:00",
+      "original_side": 1,
+      "entry_price": 47333.0,
+      "exit_price": 47282.0,
+      "original_gross_points": -51.0,
+      "reverse_net_points": 46.2
+    },
+    {
+      "entry": "2026-09-21 13:30:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 47984.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 711.0,
+      "reverse_net_points": -715.8
+    },
+    {
+      "entry": "2026-09-22 08:46:00",
+      "exit": "2026-09-22 11:38:00",
+      "original_side": 1,
+      "entry_price": 48910.0,
+      "exit_price": 48425.0,
+      "original_gross_points": -485.0,
+      "reverse_net_points": 480.2
+    },
+    {
+      "entry": "2026-09-29 22:16:00",
+      "exit": "2026-09-30 01:00:00",
+      "original_side": 1,
+      "entry_price": 48385.0,
+      "exit_price": 48371.0,
+      "original_gross_points": -14.0,
+      "reverse_net_points": 9.2
+    },
+    {
+      "entry": "2026-10-01 13:06:00",
+      "exit": "2026-10-01 23:31:00",
+      "original_side": 1,
+      "entry_price": 48676.0,
+      "exit_price": 48308.0,
+      "original_gross_points": -368.0,
+      "reverse_net_points": 363.2
+    },
+    {
+      "entry": "2026-10-02 09:23:00",
+      "exit": "2026-10-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 48614.0,
+      "exit_price": 49333.0,
+      "original_gross_points": 719.0,
+      "reverse_net_points": -723.8
+    },
+    {
+      "entry": "2026-10-06 08:46:00",
+      "exit": "2026-10-06 18:01:00",
+      "original_side": 1,
+      "entry_price": 50129.0,
+      "exit_price": 50027.0,
+      "original_gross_points": -102.0,
+      "reverse_net_points": 97.2
+    },
+    {
+      "entry": "2026-10-12 11:50:00",
+      "exit": "2026-10-12 16:36:00",
+      "original_side": 1,
+      "entry_price": 49463.0,
+      "exit_price": 49333.0,
+      "original_gross_points": -130.0,
+      "reverse_net_points": 125.2
+    },
+    {
+      "entry": "2026-10-16 00:02:00",
+      "exit": "2026-10-16 01:00:00",
+      "original_side": 1,
+      "entry_price": 47337.0,
+      "exit_price": 47171.0,
+      "original_gross_points": -166.0,
+      "reverse_net_points": 161.2
+    },
+    {
+      "entry": "2026-10-16 13:31:00",
+      "exit": "2026-10-16 17:58:00",
+      "original_side": 1,
+      "entry_price": 47203.0,
+      "exit_price": 47111.0,
+      "original_gross_points": -92.0,
+      "reverse_net_points": 87.2
+    },
+    {
+      "entry": "2026-10-16 20:06:00",
+      "exit": "2026-10-16 22:01:00",
+      "original_side": 1,
+      "entry_price": 47279.0,
+      "exit_price": 46767.0,
+      "original_gross_points": -512.0,
+      "reverse_net_points": 507.2
+    }
+  ],
+  "E2_F2_hold-one_both_again_veto": [
+    {
+      "entry": "2026-07-14 13:10:00",
+      "exit": "2026-07-14 18:22:00",
+      "original_side": 1,
+      "entry_price": 44722.0,
+      "exit_price": 45133.0,
+      "original_gross_points": 411.0,
+      "reverse_net_points": -415.8
+    },
+    {
+      "entry": "2026-07-15 11:31:00",
+      "exit": "2026-07-15 13:08:00",
+      "original_side": 1,
+      "entry_price": 46011.0,
+      "exit_price": 46082.0,
+      "original_gross_points": 71.0,
+      "reverse_net_points": -75.8
+    },
+    {
+      "entry": "2026-07-15 22:53:00",
+      "exit": "2026-07-16 01:00:00",
+      "original_side": -1,
+      "entry_price": 45597.0,
+      "exit_price": 45394.0,
+      "original_gross_points": 203.0,
+      "reverse_net_points": -207.8
+    },
+    {
+      "entry": "2026-07-17 12:16:00",
+      "exit": "2026-07-17 17:09:00",
+      "original_side": -1,
+      "entry_price": 43498.0,
+      "exit_price": 42498.0,
+      "original_gross_points": 1000.0,
+      "reverse_net_points": -1004.8
+    },
+    {
+      "entry": "2026-07-21 11:48:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44173.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 773.0,
+      "reverse_net_points": -777.8
+    },
+    {
+      "entry": "2026-07-30 22:16:00",
+      "exit": "2026-07-31 01:00:00",
+      "original_side": 1,
+      "entry_price": 41438.0,
+      "exit_price": 41716.0,
+      "original_gross_points": 278.0,
+      "reverse_net_points": -282.8
+    },
+    {
+      "entry": "2026-07-31 12:41:00",
+      "exit": "2026-07-31 20:08:00",
+      "original_side": 1,
+      "entry_price": 43818.0,
+      "exit_price": 43498.0,
+      "original_gross_points": -320.0,
+      "reverse_net_points": 315.2
+    },
+    {
+      "entry": "2026-08-04 09:00:00",
+      "exit": "2026-08-04 09:16:00",
+      "original_side": 1,
+      "entry_price": 42862.0,
+      "exit_price": 42802.0,
+      "original_gross_points": -60.0,
+      "reverse_net_points": 55.2
+    },
+    {
+      "entry": "2026-08-04 09:31:00",
+      "exit": "2026-08-04 10:17:00",
+      "original_side": 1,
+      "entry_price": 43060.0,
+      "exit_price": 43187.0,
+      "original_gross_points": 127.0,
+      "reverse_net_points": -131.8
+    },
+    {
+      "entry": "2026-08-04 18:45:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 43700.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 779.0,
+      "reverse_net_points": -783.8
+    },
+    {
+      "entry": "2026-08-05 11:39:00",
+      "exit": "2026-08-05 16:31:00",
+      "original_side": 1,
+      "entry_price": 44634.0,
+      "exit_price": 44189.0,
+      "original_gross_points": -445.0,
+      "reverse_net_points": 440.2
+    },
+    {
+      "entry": "2026-08-11 13:02:00",
+      "exit": "2026-08-11 16:22:00",
+      "original_side": 1,
+      "entry_price": 45171.0,
+      "exit_price": 44948.0,
+      "original_gross_points": -223.0,
+      "reverse_net_points": 218.2
+    },
+    {
+      "entry": "2026-08-11 18:26:00",
+      "exit": "2026-08-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 45230.0,
+      "exit_price": 45213.0,
+      "original_gross_points": -17.0,
+      "reverse_net_points": 12.2
+    },
+    {
+      "entry": "2026-08-12 15:01:00",
+      "exit": "2026-08-13 01:00:00",
+      "original_side": 1,
+      "entry_price": 45648.0,
+      "exit_price": 46103.0,
+      "original_gross_points": 455.0,
+      "reverse_net_points": -459.8
+    },
+    {
+      "entry": "2026-08-13 21:05:00",
+      "exit": "2026-08-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 46097.0,
+      "exit_price": 46498.0,
+      "original_gross_points": 401.0,
+      "reverse_net_points": -405.8
+    },
+    {
+      "entry": "2026-08-14 18:16:00",
+      "exit": "2026-08-14 22:08:00",
+      "original_side": -1,
+      "entry_price": 45935.0,
+      "exit_price": 45919.0,
+      "original_gross_points": 16.0,
+      "reverse_net_points": -20.8
+    },
+    {
+      "entry": "2026-08-17 23:01:00",
+      "exit": "2026-08-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46235.0,
+      "exit_price": 46169.0,
+      "original_gross_points": -66.0,
+      "reverse_net_points": 61.2
+    },
+    {
+      "entry": "2026-08-18 10:19:00",
+      "exit": "2026-08-18 23:47:00",
+      "original_side": -1,
+      "entry_price": 45398.0,
+      "exit_price": 44646.0,
+      "original_gross_points": 752.0,
+      "reverse_net_points": -756.8
+    },
+    {
+      "entry": "2026-08-19 11:17:00",
+      "exit": "2026-08-19 13:01:00",
+      "original_side": 1,
+      "entry_price": 44828.0,
+      "exit_price": 44665.0,
+      "original_gross_points": -163.0,
+      "reverse_net_points": 158.2
+    },
+    {
+      "entry": "2026-08-21 13:36:00",
+      "exit": "2026-08-21 18:39:00",
+      "original_side": 1,
+      "entry_price": 45150.0,
+      "exit_price": 45338.0,
+      "original_gross_points": 188.0,
+      "reverse_net_points": -192.8
+    },
+    {
+      "entry": "2026-08-21 21:38:00",
+      "exit": "2026-08-21 21:50:00",
+      "original_side": 1,
+      "entry_price": 45161.0,
+      "exit_price": 45266.0,
+      "original_gross_points": 105.0,
+      "reverse_net_points": -109.8
+    },
+    {
+      "entry": "2026-08-25 16:31:00",
+      "exit": "2026-08-25 21:28:00",
+      "original_side": 1,
+      "entry_price": 45158.0,
+      "exit_price": 45186.0,
+      "original_gross_points": 28.0,
+      "reverse_net_points": -32.8
+    },
+    {
+      "entry": "2026-08-25 21:36:00",
+      "exit": "2026-08-26 01:00:00",
+      "original_side": 1,
+      "entry_price": 45339.0,
+      "exit_price": 45313.0,
+      "original_gross_points": -26.0,
+      "reverse_net_points": 21.2
+    },
+    {
+      "entry": "2026-08-27 09:07:00",
+      "exit": "2026-08-27 12:41:00",
+      "original_side": 1,
+      "entry_price": 46341.0,
+      "exit_price": 46141.0,
+      "original_gross_points": -200.0,
+      "reverse_net_points": 195.2
+    },
+    {
+      "entry": "2026-08-31 15:01:00",
+      "exit": "2026-08-31 18:06:00",
+      "original_side": 1,
+      "entry_price": 46097.0,
+      "exit_price": 45973.0,
+      "original_gross_points": -124.0,
+      "reverse_net_points": 119.2
+    },
+    {
+      "entry": "2026-09-01 09:46:00",
+      "exit": "2026-09-01 16:46:00",
+      "original_side": 1,
+      "entry_price": 46890.0,
+      "exit_price": 46852.0,
+      "original_gross_points": -38.0,
+      "reverse_net_points": 33.2
+    },
+    {
+      "entry": "2026-09-02 13:23:00",
+      "exit": "2026-09-02 16:55:00",
+      "original_side": -1,
+      "entry_price": 46227.0,
+      "exit_price": 45862.0,
+      "original_gross_points": 365.0,
+      "reverse_net_points": -369.8
+    },
+    {
+      "entry": "2026-09-04 11:54:00",
+      "exit": "2026-09-04 20:30:00",
+      "original_side": 1,
+      "entry_price": 46333.0,
+      "exit_price": 46963.0,
+      "original_gross_points": 630.0,
+      "reverse_net_points": -634.8
+    },
+    {
+      "entry": "2026-09-04 21:48:00",
+      "exit": "2026-09-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 47078.0,
+      "exit_price": 47216.0,
+      "original_gross_points": 138.0,
+      "reverse_net_points": -142.8
+    },
+    {
+      "entry": "2026-09-08 15:01:00",
+      "exit": "2026-09-08 20:01:00",
+      "original_side": -1,
+      "entry_price": 46866.0,
+      "exit_price": 46911.0,
+      "original_gross_points": -45.0,
+      "reverse_net_points": 40.2
+    },
+    {
+      "entry": "2026-09-11 15:31:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46323.0,
+      "exit_price": 46574.0,
+      "original_gross_points": 251.0,
+      "reverse_net_points": -255.8
+    },
+    {
+      "entry": "2026-09-14 08:46:00",
+      "exit": "2026-09-14 08:46:00",
+      "original_side": 1,
+      "entry_price": 45565.0,
+      "exit_price": 45565.0,
+      "original_gross_points": 0.0,
+      "reverse_net_points": -4.8
+    },
+    {
+      "entry": "2026-09-14 22:22:00",
+      "exit": "2026-09-15 01:00:00",
+      "original_side": 1,
+      "entry_price": 45525.0,
+      "exit_price": 45701.0,
+      "original_gross_points": 176.0,
+      "reverse_net_points": -180.8
+    },
+    {
+      "entry": "2026-09-16 10:16:00",
+      "exit": "2026-09-16 13:08:00",
+      "original_side": 1,
+      "entry_price": 45917.0,
+      "exit_price": 45988.0,
+      "original_gross_points": 71.0,
+      "reverse_net_points": -75.8
+    },
+    {
+      "entry": "2026-09-17 18:26:00",
+      "exit": "2026-09-17 19:01:00",
+      "original_side": 1,
+      "entry_price": 46785.0,
+      "exit_price": 46827.0,
+      "original_gross_points": 42.0,
+      "reverse_net_points": -46.8
+    },
+    {
+      "entry": "2026-09-17 22:31:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 47087.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 76.0,
+      "reverse_net_points": -80.8
+    },
+    {
+      "entry": "2026-09-18 12:51:00",
+      "exit": "2026-09-18 18:51:00",
+      "original_side": 1,
+      "entry_price": 47417.0,
+      "exit_price": 47385.0,
+      "original_gross_points": -32.0,
+      "reverse_net_points": 27.2
+    },
+    {
+      "entry": "2026-09-21 13:32:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 48028.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 667.0,
+      "reverse_net_points": -671.8
+    },
+    {
+      "entry": "2026-09-23 00:08:00",
+      "exit": "2026-09-23 01:00:00",
+      "original_side": 1,
+      "entry_price": 48436.0,
+      "exit_price": 48482.0,
+      "original_gross_points": 46.0,
+      "reverse_net_points": -50.8
+    },
+    {
+      "entry": "2026-09-29 19:33:00",
+      "exit": "2026-09-30 01:00:00",
+      "original_side": 1,
+      "entry_price": 48308.0,
+      "exit_price": 48371.0,
+      "original_gross_points": 63.0,
+      "reverse_net_points": -67.8
+    },
+    {
+      "entry": "2026-09-30 11:29:00",
+      "exit": "2026-09-30 13:16:00",
+      "original_side": 1,
+      "entry_price": 48381.0,
+      "exit_price": 48238.0,
+      "original_gross_points": -143.0,
+      "reverse_net_points": 138.2
+    },
+    {
+      "entry": "2026-10-01 13:06:00",
+      "exit": "2026-10-01 19:16:00",
+      "original_side": 1,
+      "entry_price": 48676.0,
+      "exit_price": 48448.0,
+      "original_gross_points": -228.0,
+      "reverse_net_points": 223.2
+    },
+    {
+      "entry": "2026-10-02 10:46:00",
+      "exit": "2026-10-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 48779.0,
+      "exit_price": 49333.0,
+      "original_gross_points": 554.0,
+      "reverse_net_points": -558.8
+    },
+    {
+      "entry": "2026-10-05 08:46:00",
+      "exit": "2026-10-05 09:24:00",
+      "original_side": 1,
+      "entry_price": 49574.0,
+      "exit_price": 49718.0,
+      "original_gross_points": 144.0,
+      "reverse_net_points": -148.8
+    },
+    {
+      "entry": "2026-10-06 08:46:00",
+      "exit": "2026-10-06 09:55:00",
+      "original_side": 1,
+      "entry_price": 50129.0,
+      "exit_price": 49797.0,
+      "original_gross_points": -332.0,
+      "reverse_net_points": 327.2
+    },
+    {
+      "entry": "2026-10-06 11:55:00",
+      "exit": "2026-10-06 18:01:00",
+      "original_side": 1,
+      "entry_price": 49934.0,
+      "exit_price": 50027.0,
+      "original_gross_points": 93.0,
+      "reverse_net_points": -97.8
+    },
+    {
+      "entry": "2026-10-14 00:31:00",
+      "exit": "2026-10-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 48855.0,
+      "exit_price": 48764.0,
+      "original_gross_points": -91.0,
+      "reverse_net_points": 86.2
+    },
+    {
+      "entry": "2026-10-16 20:06:00",
+      "exit": "2026-10-16 21:56:00",
+      "original_side": 1,
+      "entry_price": 47279.0,
+      "exit_price": 46805.0,
+      "original_gross_points": -474.0,
+      "reverse_net_points": 469.2
+    }
+  ],
+  "CFCTX18m": [
+    {
+      "entry": "2026-07-16 13:31:00",
+      "exit": "2026-07-16 13:36:00",
+      "original_side": 1,
+      "entry_price": 46205.0,
+      "exit_price": 45643.0,
+      "original_gross_points": -562.0,
+      "reverse_net_points": 557.2
+    },
+    {
+      "entry": "2026-07-20 17:32:00",
+      "exit": "2026-07-20 19:36:00",
+      "original_side": 1,
+      "entry_price": 43197.0,
+      "exit_price": 43545.0,
+      "original_gross_points": 348.0,
+      "reverse_net_points": -352.8
+    },
+    {
+      "entry": "2026-07-21 16:33:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44588.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 358.0,
+      "reverse_net_points": -362.8
+    },
+    {
+      "entry": "2026-07-23 17:04:00",
+      "exit": "2026-07-23 20:27:00",
+      "original_side": 1,
+      "entry_price": 44997.0,
+      "exit_price": 44500.0,
+      "original_gross_points": -497.0,
+      "reverse_net_points": 492.2
+    },
+    {
+      "entry": "2026-07-24 09:36:00",
+      "exit": "2026-07-24 10:21:00",
+      "original_side": 1,
+      "entry_price": 44422.0,
+      "exit_price": 44081.0,
+      "original_gross_points": -341.0,
+      "reverse_net_points": 336.2
+    },
+    {
+      "entry": "2026-07-24 17:10:00",
+      "exit": "2026-07-24 21:51:00",
+      "original_side": 1,
+      "entry_price": 44217.0,
+      "exit_price": 43745.0,
+      "original_gross_points": -472.0,
+      "reverse_net_points": 467.2
+    },
+    {
+      "entry": "2026-07-27 16:55:00",
+      "exit": "2026-07-27 21:29:00",
+      "original_side": 1,
+      "entry_price": 44180.0,
+      "exit_price": 44023.0,
+      "original_gross_points": -157.0,
+      "reverse_net_points": 152.2
+    },
+    {
+      "entry": "2026-07-28 23:19:00",
+      "exit": "2026-07-29 01:00:00",
+      "original_side": 1,
+      "entry_price": 41759.0,
+      "exit_price": 42026.0,
+      "original_gross_points": 267.0,
+      "reverse_net_points": -271.8
+    },
+    {
+      "entry": "2026-07-29 08:59:00",
+      "exit": "2026-07-29 09:15:00",
+      "original_side": -1,
+      "entry_price": 41739.0,
+      "exit_price": 41040.0,
+      "original_gross_points": 699.0,
+      "reverse_net_points": -703.8
+    },
+    {
+      "entry": "2026-07-30 21:47:00",
+      "exit": "2026-07-30 22:24:00",
+      "original_side": 1,
+      "entry_price": 41272.0,
+      "exit_price": 41637.0,
+      "original_gross_points": 365.0,
+      "reverse_net_points": -369.8
+    },
+    {
+      "entry": "2026-07-31 00:12:00",
+      "exit": "2026-07-31 01:00:00",
+      "original_side": 1,
+      "entry_price": 41796.0,
+      "exit_price": 41716.0,
+      "original_gross_points": -80.0,
+      "reverse_net_points": 75.2
+    },
+    {
+      "entry": "2026-07-31 12:40:00",
+      "exit": "2026-07-31 20:16:00",
+      "original_side": 1,
+      "entry_price": 43796.0,
+      "exit_price": 43311.0,
+      "original_gross_points": -485.0,
+      "reverse_net_points": 480.2
+    },
+    {
+      "entry": "2026-07-31 20:16:00",
+      "exit": "2026-07-31 21:41:00",
+      "original_side": -1,
+      "entry_price": 43311.0,
+      "exit_price": 43015.0,
+      "original_gross_points": 296.0,
+      "reverse_net_points": -300.8
+    },
+    {
+      "entry": "2026-08-03 23:54:00",
+      "exit": "2026-08-04 01:00:00",
+      "original_side": 1,
+      "entry_price": 42662.0,
+      "exit_price": 42626.0,
+      "original_gross_points": -36.0,
+      "reverse_net_points": 31.2
+    },
+    {
+      "entry": "2026-08-04 18:45:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 43700.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 779.0,
+      "reverse_net_points": -783.8
+    },
+    {
+      "entry": "2026-08-05 21:44:00",
+      "exit": "2026-08-05 22:54:00",
+      "original_side": 1,
+      "entry_price": 44582.0,
+      "exit_price": 44120.0,
+      "original_gross_points": -462.0,
+      "reverse_net_points": 457.2
+    },
+    {
+      "entry": "2026-08-07 16:01:00",
+      "exit": "2026-08-07 20:31:00",
+      "original_side": 1,
+      "entry_price": 44488.0,
+      "exit_price": 44856.0,
+      "original_gross_points": 368.0,
+      "reverse_net_points": -372.8
+    },
+    {
+      "entry": "2026-08-11 08:51:00",
+      "exit": "2026-08-11 09:04:00",
+      "original_side": 1,
+      "entry_price": 44892.0,
+      "exit_price": 44683.0,
+      "original_gross_points": -209.0,
+      "reverse_net_points": 204.2
+    },
+    {
+      "entry": "2026-08-11 09:21:00",
+      "exit": "2026-08-11 09:40:00",
+      "original_side": 1,
+      "entry_price": 44855.0,
+      "exit_price": 44700.0,
+      "original_gross_points": -155.0,
+      "reverse_net_points": 150.2
+    },
+    {
+      "entry": "2026-08-11 11:25:00",
+      "exit": "2026-08-11 16:31:00",
+      "original_side": 1,
+      "entry_price": 45068.0,
+      "exit_price": 44965.0,
+      "original_gross_points": -103.0,
+      "reverse_net_points": 98.2
+    },
+    {
+      "entry": "2026-08-11 16:31:00",
+      "exit": "2026-08-11 18:26:00",
+      "original_side": -1,
+      "entry_price": 44965.0,
+      "exit_price": 45230.0,
+      "original_gross_points": -265.0,
+      "reverse_net_points": 260.2
+    },
+    {
+      "entry": "2026-08-12 10:50:00",
+      "exit": "2026-08-13 01:00:00",
+      "original_side": 1,
+      "entry_price": 45543.0,
+      "exit_price": 46103.0,
+      "original_gross_points": 560.0,
+      "reverse_net_points": -564.8
+    },
+    {
+      "entry": "2026-08-13 21:05:00",
+      "exit": "2026-08-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 46097.0,
+      "exit_price": 46498.0,
+      "original_gross_points": 401.0,
+      "reverse_net_points": -405.8
+    },
+    {
+      "entry": "2026-08-17 08:56:00",
+      "exit": "2026-08-17 21:39:00",
+      "original_side": 1,
+      "entry_price": 45935.0,
+      "exit_price": 45855.0,
+      "original_gross_points": -80.0,
+      "reverse_net_points": 75.2
+    },
+    {
+      "entry": "2026-08-19 11:17:00",
+      "exit": "2026-08-19 13:01:00",
+      "original_side": 1,
+      "entry_price": 44828.0,
+      "exit_price": 44665.0,
+      "original_gross_points": -163.0,
+      "reverse_net_points": 158.2
+    },
+    {
+      "entry": "2026-08-21 15:19:00",
+      "exit": "2026-08-21 21:35:00",
+      "original_side": 1,
+      "entry_price": 45326.0,
+      "exit_price": 45230.0,
+      "original_gross_points": -96.0,
+      "reverse_net_points": 91.2
+    },
+    {
+      "entry": "2026-08-24 19:36:00",
+      "exit": "2026-08-24 21:31:00",
+      "original_side": 1,
+      "entry_price": 44902.0,
+      "exit_price": 44674.0,
+      "original_gross_points": -228.0,
+      "reverse_net_points": 223.2
+    },
+    {
+      "entry": "2026-08-25 16:31:00",
+      "exit": "2026-08-26 01:00:00",
+      "original_side": 1,
+      "entry_price": 45158.0,
+      "exit_price": 45313.0,
+      "original_gross_points": 155.0,
+      "reverse_net_points": -159.8
+    },
+    {
+      "entry": "2026-08-26 20:31:00",
+      "exit": "2026-08-27 01:00:00",
+      "original_side": -1,
+      "entry_price": 46012.0,
+      "exit_price": 45818.0,
+      "original_gross_points": 194.0,
+      "reverse_net_points": -198.8
+    },
+    {
+      "entry": "2026-08-27 13:16:00",
+      "exit": "2026-08-27 23:55:00",
+      "original_side": -1,
+      "entry_price": 46084.0,
+      "exit_price": 46389.0,
+      "original_gross_points": -305.0,
+      "reverse_net_points": 300.2
+    },
+    {
+      "entry": "2026-08-31 21:31:00",
+      "exit": "2026-08-31 23:57:00",
+      "original_side": 1,
+      "entry_price": 46160.0,
+      "exit_price": 45899.0,
+      "original_gross_points": -261.0,
+      "reverse_net_points": 256.2
+    },
+    {
+      "entry": "2026-09-01 09:01:00",
+      "exit": "2026-09-01 16:19:00",
+      "original_side": 1,
+      "entry_price": 46314.0,
+      "exit_price": 46960.0,
+      "original_gross_points": 646.0,
+      "reverse_net_points": -650.8
+    },
+    {
+      "entry": "2026-09-01 23:39:00",
+      "exit": "2026-09-02 01:00:00",
+      "original_side": 1,
+      "entry_price": 46899.0,
+      "exit_price": 46767.0,
+      "original_gross_points": -132.0,
+      "reverse_net_points": 127.2
+    },
+    {
+      "entry": "2026-09-02 22:21:00",
+      "exit": "2026-09-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 46255.0,
+      "exit_price": 46264.0,
+      "original_gross_points": 9.0,
+      "reverse_net_points": -13.8
+    },
+    {
+      "entry": "2026-09-04 13:09:00",
+      "exit": "2026-09-04 21:01:00",
+      "original_side": 1,
+      "entry_price": 46654.0,
+      "exit_price": 46611.0,
+      "original_gross_points": -43.0,
+      "reverse_net_points": 38.2
+    },
+    {
+      "entry": "2026-09-04 21:01:00",
+      "exit": "2026-09-04 21:48:00",
+      "original_side": -1,
+      "entry_price": 46611.0,
+      "exit_price": 47078.0,
+      "original_gross_points": -467.0,
+      "reverse_net_points": 462.2
+    },
+    {
+      "entry": "2026-09-05 00:17:00",
+      "exit": "2026-09-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 47191.0,
+      "exit_price": 47216.0,
+      "original_gross_points": 25.0,
+      "reverse_net_points": -29.8
+    },
+    {
+      "entry": "2026-09-08 20:54:00",
+      "exit": "2026-09-09 01:00:00",
+      "original_side": 1,
+      "entry_price": 46972.0,
+      "exit_price": 47120.0,
+      "original_gross_points": 148.0,
+      "reverse_net_points": -152.8
+    },
+    {
+      "entry": "2026-09-11 15:14:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46344.0,
+      "exit_price": 46574.0,
+      "original_gross_points": 230.0,
+      "reverse_net_points": -234.8
+    },
+    {
+      "entry": "2026-09-15 00:45:00",
+      "exit": "2026-09-15 01:00:00",
+      "original_side": 1,
+      "entry_price": 45651.0,
+      "exit_price": 45701.0,
+      "original_gross_points": 50.0,
+      "reverse_net_points": -54.8
+    },
+    {
+      "entry": "2026-09-16 08:54:00",
+      "exit": "2026-09-16 12:41:00",
+      "original_side": 1,
+      "entry_price": 45739.0,
+      "exit_price": 45973.0,
+      "original_gross_points": 234.0,
+      "reverse_net_points": -238.8
+    },
+    {
+      "entry": "2026-09-17 18:26:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46785.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 378.0,
+      "reverse_net_points": -382.8
+    },
+    {
+      "entry": "2026-09-18 08:51:00",
+      "exit": "2026-09-18 12:51:00",
+      "original_side": -1,
+      "entry_price": 47141.0,
+      "exit_price": 47417.0,
+      "original_gross_points": -276.0,
+      "reverse_net_points": 271.2
+    },
+    {
+      "entry": "2026-09-18 18:51:00",
+      "exit": "2026-09-19 01:00:00",
+      "original_side": -1,
+      "entry_price": 47385.0,
+      "exit_price": 47301.0,
+      "original_gross_points": 84.0,
+      "reverse_net_points": -88.8
+    },
+    {
+      "entry": "2026-09-21 13:30:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 47984.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 711.0,
+      "reverse_net_points": -715.8
+    },
+    {
+      "entry": "2026-09-22 21:36:00",
+      "exit": "2026-09-23 01:00:00",
+      "original_side": 1,
+      "entry_price": 48371.0,
+      "exit_price": 48482.0,
+      "original_gross_points": 111.0,
+      "reverse_net_points": -115.8
+    },
+    {
+      "entry": "2026-09-29 17:01:00",
+      "exit": "2026-09-30 01:00:00",
+      "original_side": 1,
+      "entry_price": 48209.0,
+      "exit_price": 48371.0,
+      "original_gross_points": 162.0,
+      "reverse_net_points": -166.8
+    },
+    {
+      "entry": "2026-09-30 13:16:00",
+      "exit": "2026-09-30 20:32:00",
+      "original_side": -1,
+      "entry_price": 48238.0,
+      "exit_price": 48551.0,
+      "original_gross_points": -313.0,
+      "reverse_net_points": 308.2
+    },
+    {
+      "entry": "2026-10-01 09:31:00",
+      "exit": "2026-10-01 23:09:00",
+      "original_side": 1,
+      "entry_price": 48324.0,
+      "exit_price": 48240.0,
+      "original_gross_points": -84.0,
+      "reverse_net_points": 79.2
+    },
+    {
+      "entry": "2026-10-02 08:55:00",
+      "exit": "2026-10-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 48576.0,
+      "exit_price": 49333.0,
+      "original_gross_points": 757.0,
+      "reverse_net_points": -761.8
+    },
+    {
+      "entry": "2026-10-08 22:11:00",
+      "exit": "2026-10-09 00:53:00",
+      "original_side": 1,
+      "entry_price": 49087.0,
+      "exit_price": 48746.0,
+      "original_gross_points": -341.0,
+      "reverse_net_points": 336.2
+    },
+    {
+      "entry": "2026-10-12 16:36:00",
+      "exit": "2026-10-12 21:36:00",
+      "original_side": -1,
+      "entry_price": 49333.0,
+      "exit_price": 49136.0,
+      "original_gross_points": 197.0,
+      "reverse_net_points": -201.8
+    },
+    {
+      "entry": "2026-10-14 00:21:00",
+      "exit": "2026-10-14 01:00:00",
+      "original_side": 1,
+      "entry_price": 48828.0,
+      "exit_price": 48764.0,
+      "original_gross_points": -64.0,
+      "reverse_net_points": 59.2
+    },
+    {
+      "entry": "2026-10-14 20:31:00",
+      "exit": "2026-10-14 20:36:00",
+      "original_side": -1,
+      "entry_price": 48708.0,
+      "exit_price": 48576.0,
+      "original_gross_points": 132.0,
+      "reverse_net_points": -136.8
+    }
+  ],
+  "CFCTX22m": [
+    {
+      "entry": "2026-07-16 08:53:00",
+      "exit": "2026-07-16 13:37:00",
+      "original_side": 1,
+      "entry_price": 45584.0,
+      "exit_price": 45766.0,
+      "original_gross_points": 182.0,
+      "reverse_net_points": -186.8
+    },
+    {
+      "entry": "2026-07-17 20:49:00",
+      "exit": "2026-07-18 01:00:00",
+      "original_side": -1,
+      "entry_price": 42846.0,
+      "exit_price": 43672.0,
+      "original_gross_points": -826.0,
+      "reverse_net_points": 821.2
+    },
+    {
+      "entry": "2026-07-20 12:10:00",
+      "exit": "2026-07-20 15:35:00",
+      "original_side": -1,
+      "entry_price": 43039.0,
+      "exit_price": 43031.0,
+      "original_gross_points": 8.0,
+      "reverse_net_points": -12.8
+    },
+    {
+      "entry": "2026-07-21 20:46:00",
+      "exit": "2026-07-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 44595.0,
+      "exit_price": 44946.0,
+      "original_gross_points": 351.0,
+      "reverse_net_points": -355.8
+    },
+    {
+      "entry": "2026-07-24 17:58:00",
+      "exit": "2026-07-24 21:53:00",
+      "original_side": 1,
+      "entry_price": 44205.0,
+      "exit_price": 43609.0,
+      "original_gross_points": -596.0,
+      "reverse_net_points": 591.2
+    },
+    {
+      "entry": "2026-07-27 22:50:00",
+      "exit": "2026-07-28 01:00:00",
+      "original_side": 1,
+      "entry_price": 43030.0,
+      "exit_price": 42925.0,
+      "original_gross_points": -105.0,
+      "reverse_net_points": 100.2
+    },
+    {
+      "entry": "2026-07-28 23:32:00",
+      "exit": "2026-07-29 01:00:00",
+      "original_side": -1,
+      "entry_price": 41859.0,
+      "exit_price": 42026.0,
+      "original_gross_points": -167.0,
+      "reverse_net_points": 162.2
+    },
+    {
+      "entry": "2026-07-30 11:59:00",
+      "exit": "2026-07-30 18:27:00",
+      "original_side": -1,
+      "entry_price": 40470.0,
+      "exit_price": 40498.0,
+      "original_gross_points": -28.0,
+      "reverse_net_points": 23.2
+    },
+    {
+      "entry": "2026-07-31 19:49:00",
+      "exit": "2026-07-31 21:38:00",
+      "original_side": 1,
+      "entry_price": 43540.0,
+      "exit_price": 43149.0,
+      "original_gross_points": -391.0,
+      "reverse_net_points": 386.2
+    },
+    {
+      "entry": "2026-08-03 12:49:00",
+      "exit": "2026-08-03 15:23:00",
+      "original_side": 1,
+      "entry_price": 43470.0,
+      "exit_price": 42887.0,
+      "original_gross_points": -583.0,
+      "reverse_net_points": 578.2
+    },
+    {
+      "entry": "2026-08-04 09:00:00",
+      "exit": "2026-08-04 10:03:00",
+      "original_side": 1,
+      "entry_price": 42862.0,
+      "exit_price": 43527.0,
+      "original_gross_points": 665.0,
+      "reverse_net_points": -669.8
+    },
+    {
+      "entry": "2026-08-04 17:24:00",
+      "exit": "2026-08-05 01:00:00",
+      "original_side": 1,
+      "entry_price": 43380.0,
+      "exit_price": 44479.0,
+      "original_gross_points": 1099.0,
+      "reverse_net_points": -1103.8
+    },
+    {
+      "entry": "2026-08-05 11:39:00",
+      "exit": "2026-08-05 16:31:00",
+      "original_side": 1,
+      "entry_price": 44634.0,
+      "exit_price": 44189.0,
+      "original_gross_points": -445.0,
+      "reverse_net_points": 440.2
+    },
+    {
+      "entry": "2026-08-11 21:41:00",
+      "exit": "2026-08-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 45422.0,
+      "exit_price": 45213.0,
+      "original_gross_points": -209.0,
+      "reverse_net_points": 204.2
+    },
+    {
+      "entry": "2026-08-13 10:40:00",
+      "exit": "2026-08-13 23:35:00",
+      "original_side": 1,
+      "entry_price": 45956.0,
+      "exit_price": 46357.0,
+      "original_gross_points": 401.0,
+      "reverse_net_points": -405.8
+    },
+    {
+      "entry": "2026-08-17 13:39:00",
+      "exit": "2026-08-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 45905.0,
+      "exit_price": 46169.0,
+      "original_gross_points": 264.0,
+      "reverse_net_points": -268.8
+    },
+    {
+      "entry": "2026-08-20 00:39:00",
+      "exit": "2026-08-20 01:00:00",
+      "original_side": 1,
+      "entry_price": 44880.0,
+      "exit_price": 44821.0,
+      "original_gross_points": -59.0,
+      "reverse_net_points": 54.2
+    },
+    {
+      "entry": "2026-08-21 18:27:00",
+      "exit": "2026-08-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 45358.0,
+      "exit_price": 45110.0,
+      "original_gross_points": -248.0,
+      "reverse_net_points": 243.2
+    },
+    {
+      "entry": "2026-08-24 20:31:00",
+      "exit": "2026-08-25 01:00:00",
+      "original_side": 1,
+      "entry_price": 44900.0,
+      "exit_price": 44518.0,
+      "original_gross_points": -382.0,
+      "reverse_net_points": 377.2
+    },
+    {
+      "entry": "2026-08-26 00:08:00",
+      "exit": "2026-08-26 01:00:00",
+      "original_side": 1,
+      "entry_price": 45330.0,
+      "exit_price": 45313.0,
+      "original_gross_points": -17.0,
+      "reverse_net_points": 12.2
+    },
+    {
+      "entry": "2026-08-26 20:01:00",
+      "exit": "2026-08-27 01:00:00",
+      "original_side": 1,
+      "entry_price": 46034.0,
+      "exit_price": 45818.0,
+      "original_gross_points": -216.0,
+      "reverse_net_points": 211.2
+    },
+    {
+      "entry": "2026-08-28 10:11:00",
+      "exit": "2026-08-28 22:13:00",
+      "original_side": 1,
+      "entry_price": 46323.0,
+      "exit_price": 46332.0,
+      "original_gross_points": 9.0,
+      "reverse_net_points": -13.8
+    },
+    {
+      "entry": "2026-09-01 16:55:00",
+      "exit": "2026-09-02 01:00:00",
+      "original_side": 1,
+      "entry_price": 46859.0,
+      "exit_price": 46767.0,
+      "original_gross_points": -92.0,
+      "reverse_net_points": 87.2
+    },
+    {
+      "entry": "2026-09-02 23:10:00",
+      "exit": "2026-09-03 01:00:00",
+      "original_side": 1,
+      "entry_price": 46205.0,
+      "exit_price": 46264.0,
+      "original_gross_points": 59.0,
+      "reverse_net_points": -63.8
+    },
+    {
+      "entry": "2026-09-04 11:54:00",
+      "exit": "2026-09-04 20:31:00",
+      "original_side": 1,
+      "entry_price": 46333.0,
+      "exit_price": 46708.0,
+      "original_gross_points": 375.0,
+      "reverse_net_points": -379.8
+    },
+    {
+      "entry": "2026-09-09 15:23:00",
+      "exit": "2026-09-09 20:13:00",
+      "original_side": 1,
+      "entry_price": 47230.0,
+      "exit_price": 46812.0,
+      "original_gross_points": -418.0,
+      "reverse_net_points": 413.2
+    },
+    {
+      "entry": "2026-09-11 20:18:00",
+      "exit": "2026-09-12 01:00:00",
+      "original_side": 1,
+      "entry_price": 46321.0,
+      "exit_price": 46574.0,
+      "original_gross_points": 253.0,
+      "reverse_net_points": -257.8
+    },
+    {
+      "entry": "2026-09-15 11:31:00",
+      "exit": "2026-09-15 22:54:00",
+      "original_side": 1,
+      "entry_price": 45748.0,
+      "exit_price": 45536.0,
+      "original_gross_points": -212.0,
+      "reverse_net_points": 207.2
+    },
+    {
+      "entry": "2026-09-17 12:38:00",
+      "exit": "2026-09-18 01:00:00",
+      "original_side": 1,
+      "entry_price": 46737.0,
+      "exit_price": 47163.0,
+      "original_gross_points": 426.0,
+      "reverse_net_points": -430.8
+    },
+    {
+      "entry": "2026-09-21 21:41:00",
+      "exit": "2026-09-22 01:00:00",
+      "original_side": 1,
+      "entry_price": 48276.0,
+      "exit_price": 48695.0,
+      "original_gross_points": 419.0,
+      "reverse_net_points": -423.8
+    },
+    {
+      "entry": "2026-09-23 19:47:00",
+      "exit": "2026-09-24 01:00:00",
+      "original_side": 1,
+      "entry_price": 48204.0,
+      "exit_price": 47891.0,
+      "original_gross_points": -313.0,
+      "reverse_net_points": 308.2
+    },
+    {
+      "entry": "2026-09-29 09:24:00",
+      "exit": "2026-09-29 11:16:00",
+      "original_side": 1,
+      "entry_price": 48039.0,
+      "exit_price": 47721.0,
+      "original_gross_points": -318.0,
+      "reverse_net_points": 313.2
+    },
+    {
+      "entry": "2026-09-30 11:29:00",
+      "exit": "2026-10-01 01:00:00",
+      "original_side": 1,
+      "entry_price": 48381.0,
+      "exit_price": 48344.0,
+      "original_gross_points": -37.0,
+      "reverse_net_points": 32.2
+    },
+    {
+      "entry": "2026-10-01 18:16:00",
+      "exit": "2026-10-02 01:00:00",
+      "original_side": 1,
+      "entry_price": 48415.0,
+      "exit_price": 48304.0,
+      "original_gross_points": -111.0,
+      "reverse_net_points": 106.2
+    },
+    {
+      "entry": "2026-10-05 22:13:00",
+      "exit": "2026-10-06 01:00:00",
+      "original_side": 1,
+      "entry_price": 50080.0,
+      "exit_price": 50062.0,
+      "original_gross_points": -18.0,
+      "reverse_net_points": 13.2
+    },
+    {
+      "entry": "2026-10-08 21:33:00",
+      "exit": "2026-10-09 01:00:00",
+      "original_side": 1,
+      "entry_price": 49007.0,
+      "exit_price": 48677.0,
+      "original_gross_points": -330.0,
+      "reverse_net_points": 325.2
+    },
+    {
+      "entry": "2026-10-12 15:10:00",
+      "exit": "2026-10-12 22:24:00",
+      "original_side": 1,
+      "entry_price": 49359.0,
+      "exit_price": 48977.0,
+      "original_gross_points": -382.0,
+      "reverse_net_points": 377.2
+    },
+    {
+      "entry": "2026-10-13 19:54:00",
+      "exit": "2026-10-14 00:30:00",
+      "original_side": -1,
+      "entry_price": 48520.0,
+      "exit_price": 48828.0,
+      "original_gross_points": -308.0,
+      "reverse_net_points": 303.2
+    },
+    {
+      "entry": "2026-10-15 19:46:00",
+      "exit": "2026-10-15 22:58:00",
+      "original_side": -1,
+      "entry_price": 47119.0,
+      "exit_price": 47141.0,
+      "original_gross_points": -22.0,
+      "reverse_net_points": 17.2
+    },
+    {
+      "entry": "2026-10-16 17:39:00",
+      "exit": "2026-10-16 21:38:00",
+      "original_side": 1,
+      "entry_price": 47304.0,
+      "exit_price": 46797.0,
+      "original_gross_points": -507.0,
+      "reverse_net_points": 502.2
+    }
+  ]
+}
