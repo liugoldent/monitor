@@ -11,6 +11,7 @@ import time
 from datetime import datetime, time as dt_time, timedelta
 from zoneinfo import ZoneInfo
 from pymongo import MongoClient
+from goodway_guerrilla import fetch_goodway_history
 
 DISCORD_MXF_ALERT_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
 DISCORD_MXF_VALUE_WEBHOOK_ENV = "DISCORD_MXF_VALUE_WEBHOOK_URL"
@@ -51,25 +52,20 @@ API_URL = "https://market-data-api.futures-ai.com/chip960_tradeinfo/"
 GOODWAY_HISTORY_URL = "https://tvapi.futures-op.com/history"
 GOODWAY_SYMBOLS = ("MTX-1", "MTX-2")
 GOODWAY_POSITIVE_THRESHOLD = 1500
-GOODWAY_GUERRILLA_THRESHOLDS = (1000, 1500)
+GOODWAY_GUERRILLA_THRESHOLDS = (1000, 1100, 1200, 1300, 1400, 1500)
 MXF_VALUE_GUERRILLA_THRESHOLD = 2000
 GOODWAY_GUERRILLA_SYMBOLS = ("TX-1#goodway_chip960", "TX-2#goodway_chip960")
 GOODWAY_GROUPS = (
-    ("掛單能量", "trade_info", ("TX-1", "TX-2", "MTX-1", "MTX-2"),
-     ("大戶掛單", "市場掛單", "散戶成交", "原始close", "原始volume")),
-    ("主散方向", "bs_indicator_acc", ("TX-1", "TX-2", "MTX-1", "MTX-2"),
-     ("總和", "大戶", "散戶", "外盤量", "內盤量")),
-    ("台指籌碼（近次月前綴可能回傳同一合計）", "goodway_chip960", ("TX-1", "TX-2"),
-     ("坦克", "游擊隊", "炮灰", "原始close", "原始volume")),
-    ("股威力道來源（欄位對應依數值比對）", "goodway_sfChip960", ("TX-1", "TX-2"),
-     ("大台近月大戶掛單", "大台近月散戶成交", "大台次月大戶掛單", "大台次月散戶成交", "原始volume")),
+    ("游擊隊組成", "trade_info", ("MTX-1", "MTX-2"),
+     (("open", "游擊隊組成值"),)),
+    ("游擊隊指標（近次月前綴可能回傳同一合計）", "goodway_chip960", ("TX-1", "TX-2"),
+     (("high", "游擊隊"),)),
 )
 GOODWAY_HISTORY_SYMBOLS = tuple(
     f"{symbol}#{suffix}"
     for _, suffix, symbols, _ in GOODWAY_GROUPS
     for symbol in symbols
 )
-GOODWAY_FIELDS = ("open", "high", "low", "close", "volume")
 DB_NAME = "mxf_futures"
 TZ = ZoneInfo("Asia/Taipei")
 CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "mxf_value.csv"
@@ -80,38 +76,6 @@ def fetch_tradeinfo() -> object:
     response = requests.get(API_URL, timeout=20)
     response.raise_for_status()
     return response.json()
-
-
-def fetch_goodway_history(symbol: str, now: datetime) -> dict[int, dict]:
-    # Fetch a short window so nearby requests can be aligned if their latest
-    # bars arrive at different times. API bar timestamps are milliseconds.
-    response = requests.get(
-        GOODWAY_HISTORY_URL,
-        params={
-            "symbol": symbol,
-            "resolution": "1",
-            "from": int(now.timestamp()) - 15 * 60,
-            "to": int(now.timestamp()),
-            "ws": "true",
-            "metaData": "true",
-            "agent": "daddy960",
-            "product": "web_goodway",
-        },
-        timeout=(3, 8),
-    )
-    response.raise_for_status()
-    payload = response.json()
-    bars = payload.get("bars") if isinstance(payload, dict) else None
-    if not isinstance(bars, list):
-        raise ValueError(f"{symbol}: history 回應沒有 bars")
-    return {
-        bar["time"]: bar
-        for bar in bars
-        if isinstance(bar, dict)
-        and isinstance(bar.get("time"), (int, float))
-        and math.isfinite(bar["time"])
-        and 0 <= bar["time"] <= now.timestamp() * 1000
-    }
 
 
 def build_goodway_components(histories: dict[str, dict[int, dict]]) -> dict:
@@ -142,8 +106,8 @@ def build_goodway_components(histories: dict[str, dict[int, dict]]) -> dict:
 def fetch_goodway_indicators(now: datetime) -> tuple[dict, dict]:
     histories = {}
     errors = {}
-    # Limit concurrent requests and keep the other rows if one API fails.
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    # Fetch only guerrilla sources, sequentially, and preserve partial results.
+    with ThreadPoolExecutor(max_workers=1) as executor:
         futures = {
             executor.submit(fetch_goodway_history, symbol, now): symbol
             for symbol in GOODWAY_HISTORY_SYMBOLS
@@ -167,7 +131,7 @@ def _format_goodway_value(value: object) -> str:
 
 def print_goodway_indicators(histories: dict, errors: dict, now: datetime) -> None:
     lines = [
-        f"{now:%Y-%m-%d %H:%M:%S} 股威指標完整對照｜TX=大台、MTX=小台、-1=近月、-2=次月",
+        f"{now:%Y-%m-%d %H:%M:%S} 股威游擊隊數值｜TX=大台、MTX=小台、-1=近月、-2=次月",
         "  每列採該 API 最新資料時間；[>1500] 表示正數大於 1500。",
     ]
     for group, suffix, symbols, labels in GOODWAY_GROUPS:
@@ -183,7 +147,7 @@ def print_goodway_indicators(histories: dict, errors: dict, now: datetime) -> No
             age = max(0, int((now - bar_time).total_seconds()))
             freshness = f"｜資料落後 {age} 秒" if age > 120 else ""
             fields = []
-            for field, label in zip(GOODWAY_FIELDS, labels):
+            for field, label in labels:
                 fields.append(f"{field}({label})={_format_goodway_value(bar.get(field))}")
             lines.append(
                 f"    {ticker}｜資料時間 {bar_time:%Y-%m-%d %H:%M:%S}{freshness}｜"
@@ -282,6 +246,7 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
     def __init__(self) -> None:
         super().__init__()
         self.last_value: float | None = None
+        self.last_nonzero_value: float | None = None
 
     def observe_snapshot(self, snapshot: dict | None, now: datetime) -> None:
         value = _to_float((snapshot or {}).get("mtx_bvav"))
@@ -289,6 +254,16 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
             return
         previous = self.last_value
         self.last_value = value
+        nonzero = self.last_nonzero_value
+        if value != 0:
+            self.last_nonzero_value = value
+            if nonzero is not None and (nonzero > 0) != (value > 0):
+                direction = "負轉正（向上穿越 0）" if value > 0 else "正轉負（向下穿越 0）"
+                self.pending.append(
+                    f"📣 mxf_value 游擊隊 {direction}\n"
+                    f"資料時間 {snapshot.get('time') or now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"游擊隊（mtx_bvav）：{nonzero:g} → {value:g}"
+                )
         threshold = MXF_VALUE_GUERRILLA_THRESHOLD
         direction = None
         if value > threshold and (previous is None or previous <= threshold):
@@ -493,8 +468,6 @@ def insert_tradeinfo(payload: object, collection_name: str, now: datetime) -> No
         print(
             f"{fetch_time} ✅ 成功插入 1 筆資料到集合 {collection_name}"
             f"｜游擊 {_format_display_int(doc.get('mtx_bvav'))}"
-            f"｜坦克 {_format_display_int(doc.get('tx_bvav'))}"
-            f"｜炮灰 {_format_display_int(doc.get('mtx_tbta'))}"
         )
     else:
         collection.insert_many(docs)
@@ -863,11 +836,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print('=== 坦克、炮灰、游擊手資料監控 ===')
-    print("mxf_value 游擊隊通知｜mtx_bvav > +2000 / < -2000｜首次已超標也通知；持續超標不重複", flush=True)
+    print('=== 游擊隊資料監控 ===')
+    print("mxf_value 游擊隊通知｜正負穿越 0 軸；等於 0 等待方向確認｜mtx_bvav > +2000 / < -2000｜首次已超標也通知；持續超標不重複", flush=True)
     print(
         "游擊隊跨越通知｜TX-1/TX-2#goodway_chip960.high"
-        "｜突破 +1000/+1500 或跌破 -1000/-1500"
+        "｜突破 +1000/+1100/+1200/+1300/+1400/+1500"
+        " 或跌破 -1000/-1100/-1200/-1300/-1400/-1500"
         f"｜Discord {'已設定' if WEBHOOK_URL else '未設定'}｜沿用每分鐘輪詢",
         flush=True,
     )

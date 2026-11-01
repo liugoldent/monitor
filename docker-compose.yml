@@ -12,6 +12,38 @@ x-runtime-safety: &runtime-safety
       max-file: "3"
 
 services:
+  h3-signal-router:
+    <<: *runtime-safety
+    image: *app-image
+    container_name: monitor-h3-signal-router
+    cpus: "0.25"
+    mem_limit: 128m
+    memswap_limit: 128m
+    network_mode: none
+    command: ["python", "/app/backend-futures-py/h3_signal_router.py"]
+    working_dir: /app/backend-futures-py
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+      CONCORD_H3_DB_PATH: /external/concord/H124353542.tde
+      H3_SIGNAL_POLL_SECONDS: "0.25"
+    volumes:
+      - ./backend-futures-py/h3_signal_router.py:/app/backend-futures-py/h3_signal_router.py:ro
+      - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
+      - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records
+      - type: bind
+        source: ${CONCORD_H3_DATA_DIR:-C:/Concords/Concords-iQT/Dat}
+        target: /external/concord
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,time,datetime; h=json.load(open('/app/backend-futures-py/telegram-relay-records/h3_signal_health.json')); assert time.time()-datetime.datetime.fromisoformat(h['checked_at']).timestamp()<10 and len(h['errors'])<2"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   telegram-signal-relay:
     <<: *runtime-safety
     build: *app-build
@@ -56,6 +88,7 @@ services:
       PYTHONUNBUFFERED: "1"
     volumes:
       - ./backend-futures-py/monitor_mxf.py:/app/backend-futures-py/monitor_mxf.py:ro
+      - ./backend-futures-py/goodway_guerrilla.py:/app/backend-futures-py/goodway_guerrilla.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 
@@ -113,6 +146,7 @@ services:
 
   ef-morning-weekend-hedge-strategy:
     <<: *runtime-safety
+    profiles: ["ef-simulation"]
     build: *app-build
     image: *app-image
     container_name: monitor-ef-morning-weekend-hedge-strategy
@@ -145,6 +179,7 @@ services:
 
   ef-hysteresis-again-strategy:
     <<: *runtime-safety
+    profiles: ["ef-simulation"]
     build: *app-build
     image: *app-image
     container_name: monitor-ef-hysteresis-again-strategy
@@ -194,7 +229,7 @@ services:
 
   h3-flatten-reentry-strategy:
     <<: *runtime-safety
-    profiles: ["live"]
+    restart: always
     build: *app-build
     image: *app-image
     container_name: monitor-h3-flatten-reentry-strategy
@@ -202,15 +237,22 @@ services:
     mem_limit: 768m
     mem_reservation: 256m
     memswap_limit: 768m
-    command: ["python", "/app/backend-futures-py/h3-flatten-reentry-strategy/monitor_and_trade.py"]
-    working_dir: /app/backend-futures-py/h3-flatten-reentry-strategy
+    command: ["python", "/app/backend-futures-py/h3-follow-add-strategy/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/h3-follow-add-strategy
     environment:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
       CA_PATH: /app/backend-futures-py/Sinopac.pfx
     depends_on:
-      - telegram-signal-relay
+      h3-signal-router:
+        condition: service_healthy
+      webhook-server:
+        condition: service_started
     volumes:
+      - ./backend-futures-py/h3-follow-add-strategy:/app/backend-futures-py/h3-follow-add-strategy
+      - ./backend-futures-py/shioaji_tmf_target.py:/app/backend-futures-py/shioaji_tmf_target.py:ro
+      - ./backend-futures-py/goodway_guerrilla.py:/app/backend-futures-py/goodway_guerrilla.py:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro
       - ./backend-futures-py/h3-flatten-reentry-strategy/auto_trade.py:/app/backend-futures-py/h3-flatten-reentry-strategy/auto_trade.py:ro
       - ./backend-futures-py/h3-flatten-reentry-strategy/recovery_broker.py:/app/backend-futures-py/h3-flatten-reentry-strategy/recovery_broker.py:ro
       - ./backend-futures-py/h3-flatten-reentry-strategy/trade_records.py:/app/backend-futures-py/h3-flatten-reentry-strategy/trade_records.py:ro
@@ -227,9 +269,46 @@ services:
       - ./backend-futures-py/h3-flatten-reentry-strategy/records:/app/backend-futures-py/h3-flatten-reentry-strategy/records
       - ./backend-futures-py/h3-flatten-reentry-strategy/runtime:/app/backend-futures-py/h3-flatten-reentry-strategy/runtime
 
+  h3-profit-protection-strategy:
+    <<: *runtime-safety
+    profiles: ["h3-protection"]
+    build: *app-build
+    image: *app-image
+    container_name: monitor-h3-profit-protection-strategy
+    cpus: "0.40"
+    mem_limit: 768m
+    mem_reservation: 256m
+    memswap_limit: 768m
+    command: ["python", "/app/backend-futures-py/h3-profit-protection-strategy/protection_monitor.py"]
+    # Shioaji writes its relative log/cache files here; strategy source stays read-only.
+    working_dir: /app/backend-futures-py/h3-profit-protection-strategy/runtime
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+      CA_PATH2: /app/backend-futures-py/Sinopac.pfx
+    depends_on:
+      h3-signal-router:
+        condition: service_healthy
+      webhook-server:
+        condition: service_started
+    volumes:
+      - ./backend-futures-py/h3-profit-protection-strategy:/app/backend-futures-py/h3-profit-protection-strategy:ro
+      - ./backend-futures-py/h3-profit-protection-strategy/runtime:/app/backend-futures-py/h3-profit-protection-strategy/runtime
+      - ./backend-futures-py/h3-profit-protection-strategy/records:/app/backend-futures-py/h3-profit-protection-strategy/records
+      - ./backend-futures-py/h3-follow-add-strategy:/app/backend-futures-py/h3-follow-add-strategy:ro
+      - ./backend-futures-py/h3-flatten-reentry-strategy/recovery_broker.py:/app/backend-futures-py/h3-flatten-reentry-strategy/recovery_broker.py:ro
+      - ./backend-futures-py/h3-flatten-reentry-strategy/trade_records.py:/app/backend-futures-py/h3-flatten-reentry-strategy/trade_records.py:ro
+      - ./backend-futures-py/h3-capital-flatten-reentry-strategy/h_core.py:/app/backend-futures-py/h3-capital-flatten-reentry-strategy/h_core.py:ro
+      - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
+      - ./backend-futures-py/shioaji_tmf_target.py:/app/backend-futures-py/shioaji_tmf_target.py:ro
+      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
+      - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro
+      - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records:ro
+      - ./backend-futures-py/ef-morning-weekend-hedge-strategy/runtime:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/runtime
+
   cloudflared:
     <<: *runtime-safety
-    profiles: ["tunnel"]
     image: cloudflare/cloudflared:latest
     container_name: monitor-cloudflared
     cpus: "0.15"

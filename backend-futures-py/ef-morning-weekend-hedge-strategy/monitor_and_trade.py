@@ -648,7 +648,7 @@ def main():
     args = parser.parse_args()
     env_path = BACKEND / ".env"
     load_env(env_path)
-    # This entry point runs account 2 in live mode.
+    # Execute through the broker adapter; BROKER_SIMULATION selects its simulator.
     live = True
     (BASE / "runtime").mkdir(parents=True, exist_ok=True)
     # Shared lock across shadow/live prevents mode changes while another monitor runs.

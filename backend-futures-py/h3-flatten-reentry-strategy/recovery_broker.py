@@ -15,7 +15,9 @@ from trade_records import append_entry, entry_record
 
 
 class ShioajiRecoveryBroker:
-    def __init__(self, api, sj, store, watchdog, *, records=BASE / 'records'):
+    account_label = 'API_KEY3'
+
+    def __init__(self, api, sj, store, watchdog, *, records=BASE / 'records', allow_pending=False):
         self.api, self.sj, self.store, self.watchdog = api, sj, store, watchdog
         self.records = Path(records)
         self.entry_quantity = 1
@@ -24,8 +26,8 @@ class ShioajiRecoveryBroker:
         store.db.commit()
         row = store.db.execute('SELECT payload FROM shioaji_order_state WHERE id=1').fetchone()
         self.guard = json.loads(row[0]) if row else {}
-        if self.guard.get('pending'):
-            raise TradingError('永豐 API_KEY3 有未確認委託，請核對；不重送')
+        if self.guard.get('pending') and not allow_pending:
+            raise TradingError(f'永豐 {self.account_label} 有未確認委託，請核對；不重送')
 
     def persist(self):
         with self.store.db:

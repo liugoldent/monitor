@@ -1,6 +1,6 @@
 """Receive H/EF Telegram signals, persist the raw event, and relay it to Discord.
 
-H3 notices include a read-only entry observation; this service never places orders.
+H3 notices describe the guerrilla rules; this service never confirms or places orders.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from telethon import TelegramClient, events
 
 from h_signal import is_h_signal, parse_h_direction, parse_h_event_direction
 from h_signal import normalize_h_record_message as _normalize_h_record_message
-from h3_entry_watch import build_notice as build_h3_entry_notice
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -53,7 +52,6 @@ SESSION_PATH = Path(
         str(BASE_DIR / "telegram-relay-runtime" / "session_h_ef_relay"),
     )
 )
-H3_ENTRY_SEED_PATH = BASE_DIR / "telegram-relay-runtime" / "h3_recovery_seed_v2.json"
 TZ = ZoneInfo("Asia/Taipei")
 
 H_WEBHOOK_ENV = "DISCORD_H_TRADE_WEBHOOK_URL"
@@ -694,6 +692,24 @@ def send_to_discord(webhook_url: str, route: str, text: str) -> tuple[bool, str]
     )
 
 
+def build_h3_strategy_notice(direction: int, *, new_transition: bool = True) -> str:
+    if direction not in (-1, 1):
+        raise ValueError('H3 direction is invalid')
+    label = '多' if direction == 1 else '空'
+    status = (f'收到H3{label}向訊號。' if new_transition else
+              f'收到H3同向或重複訊號（{label}）；不因此增加口數或重置本輪加碼紀錄。')
+    return (
+        '【H3游擊策略｜訊號接收】\n'
+        f'狀態：{status}\n'
+        '進出場：新H3跟隨1口；反向先全平再進1口；空手訊號全平。\n'
+        '加碼：第一口當下浮盈≥500點，且股威TX近月或次月游擊high穿越：\n'
+        '多單：低於−1250 → 高於−1250；空單：高於＋1250 → 低於＋1250。\n'
+        '每輪僅加1口，總共最多2口；穿越當下須同時達到浮盈門檻。\n'
+        '本通知只表示接收訊號，不代表交易服務已啟動、已成交或已符合加碼條件；'
+        '實際執行以API_KEY策略成交及庫存核對通知為準。'
+    )
+
+
 def send_startup_notifications() -> None:
     started_at = _now_text()
     for route, webhook_url in WEBHOOKS.items():
@@ -701,8 +717,10 @@ def send_startup_notifications() -> None:
             "✅【服務啟動｜Telegram H/EF Relay】\n"
             f"時間：{started_at}\n"
             f"接收路由：{route.upper()}\n"
-            "模式：接收、記錄並轉送；H3 附單口回撤觀察，不下單。"
+            "模式：接收、記錄並轉送，不下單；Relay啟動不代表API_KEY交易策略已啟動。"
         )
+        if route == 'h':
+            content += '\nH3採第一口跟單、浮盈≥500點＋游擊穿越加碼，每輪最多2口。'
         delivered, detail = send_discord_notice(webhook_url, content)
         append_event(
             {
@@ -787,17 +805,16 @@ async def telegram_message_handler(event) -> None:
         try:
             observation = (
                 await asyncio.to_thread(
-                    build_h3_entry_notice,
-                    H3_ENTRY_SEED_PATH, EVENT_LOG_PATH, WEBHOOK_DATA_1MIN_PATH,
-                    received_at, f"{event.chat_id}:{event.id}", parse_h_direction(text),
+                    build_h3_strategy_notice,
+                    parse_h_direction(text),
                     new_transition=h_new_transition,
                 )
                 if recorded and parse_h_event_direction({**base_record, "event": "received"}) is not None
-                else "【H3 單口回撤觀察】本次訊號記錄或來源待核對，暫不判定進場條件。"
+                else "【H3游擊策略｜訊號待核對】本次訊號記錄或來源待核對；僅轉送原文，不代表已成交或符合加碼條件。"
             )
         except Exception:
             # Keep delivering the original signal even if the observer fails.
-            observation = "【H3 單口回撤觀察】計算暫時失敗，暫不判定進場條件。"
+            observation = "【H3游擊策略｜通知待核對】附註產生失敗；僅轉送原文，不代表已成交或符合加碼條件。"
         discord_content = f"{text}\n\n{observation}"
     delivered, detail = await asyncio.to_thread(
         send_to_discord,

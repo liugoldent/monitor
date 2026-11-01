@@ -135,16 +135,36 @@ def _net_position(positions: list) -> int:
     return total
 
 
-def _contract(api: Any) -> Any:
+def _contract(api: Any, contract_code: str | None = None) -> Any:
+    if contract_code is not None:
+        matches = [c for c in api.Contracts.Futures.TMF
+                   if _position_code(c) == contract_code and contract_code not in {"TMFR1", "TMFR2"}]
+        if len(matches) != 1:
+            raise BrokerOrderError("指定微台月份合約未確認，停止送單")
+        return matches[0]
     contract = api.Contracts.Futures.TMF.TMFR1
     if contract is None:
         raise RuntimeError("Shioaji 找不到微型台指近一合約 TMFR1")
     return contract
 
 
-def validate_tmf_account(api: Any, positions: list | None = None) -> None:
+def tmf_contract_code(api: Any) -> str:
+    """Resolve the continuous-month alias to its actual inventory contract."""
+    contract = _contract(api)
+    code = _position_code(contract)
+    if code == "TMFR1":
+        code = str(_position_value(contract, "target_code", "") or "").strip().upper()
+    if not code.startswith("TMF") or code in {"TMFR1", "TMFR2"}:
+        raise BrokerOrderError("微台近一實際合約代碼未確認，停止核對")
+    return code
+
+
+def validate_tmf_account(api: Any, positions: list | None = None, *, contract_code: str | None = None) -> None:
     """Reject ambiguous inventory/orders before either EF account reconciles."""
-    contract_code = _contract(api).code
+    if contract_code is None:
+        contract_code = tmf_contract_code(api)
+    else:
+        _contract(api, contract_code)
     trades = api.list_trades()
     if not isinstance(trades, list):
         raise BrokerOrderError("委託查詢未回傳有效清單")
@@ -226,11 +246,14 @@ def _trade_id(trade: Any) -> str:
                _position_value(_position_value(trade, "status"), "id", "") or "")
 
 
-def _resolve_pending(api: Any, guard: dict, persist: Callable[[], None]) -> None:
+def _resolve_pending(api: Any, guard: dict, persist: Callable[[], None], *,
+                     contract_code: str | None = None) -> None:
     """Require terminal order evidence AND inventory reflecting its fills."""
     pending = guard.get("pending")
     if not pending:
         return
+    if contract_code is None:
+        contract_code = pending.get("contract_code")
     trades = api.list_trades()
     if not isinstance(trades, list):
         raise BrokerOrderError("前筆委託查詢失敗，實際部位尚未確認")
@@ -239,6 +262,10 @@ def _resolve_pending(api: Any, guard: dict, persist: Callable[[], None]) -> None
     if len(matches) != 1:
         raise BrokerOrderError("前筆委託結果不明，無法唯一核對委託；本筆不送單，需人工核對")
     trade = matches[0]
+    if contract_code is not None and (
+            pending.get("contract_code", contract_code) != contract_code
+            or _position_code(_position_value(trade, "contract")) != contract_code):
+        raise BrokerOrderError("前筆委託合約與指定月份不符，本筆不送單")
     _refresh_status(api, trade=trade)
     status = _status_text(trade).lower()
     if status not in {"filled", "cancelled", "failed", "inactive"}:
@@ -248,7 +275,7 @@ def _resolve_pending(api: Any, guard: dict, persist: Callable[[], None]) -> None
         raise BrokerOrderError("前筆成交口數未確認，本筆不送單")
     expected = pending["previous_position"] + (1 if pending["side"] == "buy" else -1) * filled
     positions = _read_positions(api)
-    validate_tmf_account(api, positions)
+    validate_tmf_account(api, positions, contract_code=contract_code)
     if _net_position(positions) != expected:
         raise BrokerOrderError("前筆成交與券商庫存尚未一致，本筆不送單")
     guard["last_resolved"] = dict(pending, status=status, filled_quantity=filled,
@@ -277,7 +304,9 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
                             before_order: Callable[[], None] | None = None,
                             strict_tmf: bool = False, guard: dict | None = None,
                             persist_guard: Callable[[], None] | None = None,
-                            submission_only: bool = False) -> OrderResult:
+                            submission_only: bool = False,
+                            contract_code: str | None = None,
+                            intent_id: str | None = None) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
@@ -295,10 +324,11 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
         _refresh_status(api)
         guard = guard if guard is not None else {}
         persist_guard = persist_guard or (lambda: None)
-        _resolve_pending(api, guard, persist_guard)
+        route = dict(contract_code=contract_code) if contract_code is not None else {}
+        _resolve_pending(api, guard, persist_guard, **route)
         positions = _read_positions(api)
         if strict_tmf:
-            validate_tmf_account(api, positions)
+            validate_tmf_account(api, positions, **route)
 
         previous = _net_position(positions)
         delta = target_position - previous
@@ -308,11 +338,15 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
         side = "buy" if delta > 0 else "sell"
         quantity = abs(delta)
         order = _build_order(api, sj, side, quantity)
-        contract = _contract(api)
+        contract = _contract(api, contract_code) if contract_code is not None else _contract(api)
         if before_order is not None:
             before_order()
         guard["pending"] = dict(previous_position=previous, target_position=target_position,
                                 side=side, quantity=quantity, trade_id="")
+        if contract_code is not None:
+            guard["pending"]["contract_code"] = contract_code
+        if intent_id is not None:
+            guard["pending"]["intent_id"] = intent_id
         persist_guard()  # Durable intent before a request can reach the broker.
         if before_order is not None:
             try:
@@ -321,7 +355,7 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
                 guard.pop("pending")  # The broker has not been called.
                 persist_guard()
                 raise
-        print(f"委託內容 TMFR1 {side} {quantity}口 MKT IOC Auto", flush=True)
+        print(f"委託內容 {contract_code or 'TMFR1'} {side} {quantity}口 MKT IOC Auto", flush=True)
         trade = api.place_order(contract, order, timeout=0 if submission_only else ORDER_TIMEOUT_MS)
         print(f"委託回傳狀態：{_status_text(trade)}（非成交確認）", flush=True)
         if trade is None:
@@ -342,7 +376,7 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
             return OrderResult(previous, target_position, None, side, quantity, trade, confirmed=False)
 
         actual = _verify_target_position(api, target_position, trade)
-        _resolve_pending(api, guard, persist_guard)
+        _resolve_pending(api, guard, persist_guard, **route)
         return OrderResult(previous, target_position, actual, side, quantity, trade)
     finally:
         if owns_api and api is not None:

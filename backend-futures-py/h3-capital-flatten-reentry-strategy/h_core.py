@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from h_signal import parse_h_event_direction
+from h_signal import parse_h_event_direction, is_dual_source_event
 
 
 class TradingError(RuntimeError):
@@ -44,7 +44,8 @@ def parse_signal(event, now=None, max_age=30):
     direction = parse_h_event_direction(event)
     if direction is None:
         return None
-    if not all(isinstance(event.get(k), int) and not isinstance(event[k], bool)
+    dual = is_dual_source_event(event)
+    if not dual and not all(isinstance(event.get(k), int) and not isinstance(event[k], bool)
                for k in ('chat_id', 'message_id')):
         return None
     try:
@@ -59,7 +60,8 @@ def parse_signal(event, now=None, max_age=30):
     age = (now or datetime.now(timezone.utc)).timestamp() - timestamp
     if not 0 <= age <= max_age:
         return None
-    return f"{event['chat_id']}:{event['message_id']}", direction, timestamp
+    key = event['signal_key'] if dual else f"{event['chat_id']}:{event['message_id']}"
+    return key, direction, timestamp
 
 
 class Store:

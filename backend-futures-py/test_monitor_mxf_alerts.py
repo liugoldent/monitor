@@ -60,7 +60,7 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
                 alerts.observe(history(sign * value))
             self.assertEqual(len(alerts.pending), 1)
 
-    def test_jump_crosses_both_levels_and_merges_identical_contracts_at_each_level(self):
+    def test_jump_crosses_all_six_levels_and_merges_identical_contracts_at_each_level(self):
         for sign in (1, -1):
             alerts = monitor.GoodwayGuerrillaAlerts()
             for minute, value in enumerate((900, 1600)):
@@ -69,10 +69,11 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
                     **history(sign * value, stamp, NEAR),
                     **history(sign * value, stamp, NEXT),
                 })
-            self.assertEqual(len(alerts.pending), 2)
+            self.assertEqual(len(alerts.pending), 6)
             messages = list(alerts.pending)
-            self.assertIn("1000", messages[0])
-            self.assertIn("1500", messages[1])
+            for threshold in (1000, 1100, 1200, 1300, 1400, 1500):
+                label = f"向上突破 +{threshold}" if sign == 1 else f"向下跌破 -{threshold}"
+                self.assertEqual(sum(label in message for message in messages), 1)
             self.assertTrue(all(NEAR in message and NEXT in message for message in messages))
 
     def test_each_threshold_rearms_independently(self):
@@ -80,9 +81,27 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
             alerts = monitor.GoodwayGuerrillaAlerts()
             for minute, value in enumerate((900, 1600, 1200, 1600, 900, 1100)):
                 alerts.observe(history(sign * value, START + minute * 60000))
-            self.assertEqual(len(alerts.pending), 4)
+            self.assertEqual(len(alerts.pending), 11)
             self.assertEqual(sum("1000" in message for message in alerts.pending), 2)
             self.assertEqual(sum("1500" in message for message in alerts.pending), 2)
+
+    def test_every_level_both_directions_waits_for_crossing_and_rearms(self):
+        for threshold in (1000, 1100, 1200, 1300, 1400, 1500):
+            for sign in (1, -1):
+                with self.subTest(threshold=threshold, sign=sign):
+                    alerts = monitor.GoodwayGuerrillaAlerts()
+                    for minute, value in enumerate((threshold - 1, threshold, threshold)):
+                        alerts.observe(history(sign * value, START + minute * 60000))
+                    self.assertFalse(alerts.pending)
+                    for minute, value in enumerate((threshold + 1, threshold + 2), 3):
+                        alerts.observe(history(sign * value, START + minute * 60000))
+                    self.assertEqual(len(alerts.pending), 1)
+                    alerts.observe(history(sign * (threshold - 1), START + 5 * 60000))
+                    self.assertEqual(len(alerts.pending), 1)
+                    alerts.observe(history(sign * (threshold + 1), START + 6 * 60000))
+                    self.assertEqual(len(alerts.pending), 2)
+                    label = f"向上突破 +{threshold}" if sign == 1 else f"向下跌破 -{threshold}"
+                    self.assertTrue(all(label in message for message in alerts.pending))
 
     def test_negative_cross_and_staying_below_sends_once(self):
         for minute, value in enumerate((-1499, -1501, -1600, -1700)):
@@ -114,7 +133,7 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
         self.assertFalse(self.alerts.pending)
 
     def test_identical_prefix_crossings_merge_into_one_message(self):
-        for minute, value in enumerate((1400, 1600)):
+        for minute, value in enumerate((1499, 1600)):
             self.alerts.observe({
                 **history(value, START + minute * 60000, NEAR),
                 **history(value, START + minute * 60000, NEXT),
@@ -124,8 +143,8 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
         self.assertIn(NEXT, self.alerts.pending[0])
 
     def test_contracts_cross_independently(self):
-        self.observe(1400, 0, NEAR)
-        self.observe(-1400, 0, NEXT)
+        self.observe(1499, 0, NEAR)
+        self.observe(-1499, 0, NEXT)
         self.observe(1600, 1, NEAR)
         self.observe(-1600, 2, NEXT)
         self.assertEqual(len(self.alerts.pending), 2)
@@ -140,37 +159,37 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
         self.assertIn("1499 → 1501", self.alerts.pending[0])
 
     def test_old_and_repeated_samples_do_not_retrigger(self):
-        self.observe(1400, 1)
+        self.observe(1499, 1)
         self.observe(1600, 2)
-        self.observe(1400, 0)
+        self.observe(1499, 0)
         self.observe(1600, 2)
         self.observe(1700, 3)
         self.assertEqual(len(self.alerts.pending), 1)
 
     def test_same_minute_revision_can_cross(self):
-        self.observe(1400, 0)
+        self.observe(1499, 0)
         self.observe(1600, 0)
         self.observe(1600, 0)
         self.assertEqual(len(self.alerts.pending), 1)
 
     def test_catchup_processes_unseen_minutes_in_order(self):
-        self.observe(1400, 0)
+        self.observe(1499, 0)
         self.alerts.observe({NEAR: {
             START + 3 * 60000: {"high": 1600},
             START + 1 * 60000: {"high": 1600},
-            START + 2 * 60000: {"high": 1400},
+            START + 2 * 60000: {"high": 1499},
         }})
         self.assertEqual(len(self.alerts.pending), 2)
 
     def test_failed_delivery_retries_without_losing_recross(self):
-        self.observe(1400, 0)
+        self.observe(1499, 0)
         self.observe(1600, 1)
         first = self.alerts.pending[0]
         with patch.object(monitor, "send_discord_message", side_effect=RuntimeError("secret")):
             with patch("builtins.print") as output:
                 self.alerts.flush()
                 self.assertNotIn("secret", str(output.call_args))
-        self.observe(1400, 2)
+        self.observe(1499, 2)
         self.observe(1600, 3)
         second = self.alerts.pending[-1]
         with patch.object(monitor, "send_discord_message") as sender:
@@ -217,6 +236,39 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
 
 
 class MxfValueGuerrillaAlertTests(unittest.TestCase):
+    def test_zero_crossings_wait_through_zero_and_ignore_same_side_returns(self):
+        alerts = monitor.MxfValueGuerrillaAlerts()
+        now = monitor.datetime.now(monitor.TZ)
+        for value in (0, -6, -8, 0, -2, 0, None, 'bad', float('nan'), 124, 130, 0, 20):
+            alerts.observe_snapshot({'mtx_bvav': value, 'time': 'sample'}, now)
+        self.assertEqual(len(alerts.pending), 1)
+        self.assertIn('負轉正（向上穿越 0）', alerts.pending[0])
+        self.assertIn('-2 → 124', alerts.pending[0])
+        self.assertIn('sample', alerts.pending[0])
+        for value in (0, -1, -1, -5):
+            alerts.observe_snapshot({'mtx_bvav': value}, now)
+        self.assertEqual(len(alerts.pending), 2)
+        self.assertIn('正轉負（向下穿越 0）', alerts.pending[-1])
+        self.assertIn('20 → -1', alerts.pending[-1])
+
+    def test_direct_zero_crossings_retry_via_existing_discord_queue(self):
+        alerts = monitor.MxfValueGuerrillaAlerts()
+        now = monitor.datetime.now(monitor.TZ)
+        for value in (-6, 124, -1):
+            alerts.observe_snapshot({'mtx_bvav': value}, now)
+        self.assertEqual(len(alerts.pending), 2)
+        messages = list(alerts.pending)
+        with patch.object(monitor, 'send_discord_message', side_effect=RuntimeError('offline')), patch('builtins.print'):
+            alerts.flush()
+        self.assertEqual(list(alerts.pending), messages)
+        with patch.object(monitor, 'send_discord_message') as sender, patch('builtins.print'):
+            alerts.flush()
+            alerts.flush()
+        self.assertEqual(sender.call_args_list, [
+            unittest.mock.call(message, monitor.WEBHOOK_URL) for message in messages
+        ])
+        self.assertFalse(alerts.pending)
+
     def test_2000_crossings_equalities_staying_outside_and_recross(self):
         for sign in (1, -1):
             alerts = monitor.MxfValueGuerrillaAlerts()
@@ -237,7 +289,8 @@ class MxfValueGuerrillaAlertTests(unittest.TestCase):
         self.assertEqual(len(alerts.pending), 1)
         self.assertIn('目前超過 +2000', alerts.pending[0])
         alerts.observe_snapshot({'mtx_bvav': -2100}, now)
-        self.assertEqual(len(alerts.pending), 2)
+        self.assertEqual(len(alerts.pending), 3)
+        self.assertIn('正轉負', alerts.pending[-2])
         self.assertIn('向下跌破 -2000', alerts.pending[-1])
 
     def test_uses_actual_mxf_value_field_and_retries_notification(self):

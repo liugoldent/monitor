@@ -3,10 +3,29 @@
 source venv/bin/activate
 ```
 
-## H3 Discord 單口回撤觀察
+## H3 游擊加碼（2026-10-18 改用 API_KEY）
 
-`telegram_signal_relay.py` 在可信 H3 bot 的原訊號後附上回撤觀察，送至既有
-`DISCORD_H_TRADE_WEBHOOK_URL`。只有觀察通知，不會呼叫券商或改變帳戶口數。
+2026-10-18 啟動清單調整：Compose／Windows 一鍵啟動均保留 Relay、MXF、Webhook、
+Cloudflare 與 API_KEY H3 游擊策略，共 5 個服務。EF 系列停止自動啟動並維持
+`simulation=True`；群益、凱基原生策略不自動啟動。Relay 仍持續記錄 H3 與 EF 原始訊號。
+
+新增 [H3 游擊加碼策略](h3-follow-add-strategy/README.md)，使用 API_KEY／SECRET_KEY 正式帳戶。
+第一口跟隨 H3；浮盈≥500點時，股威 TX-1／TX-2 任一 `goodway_chip960.high`
+穿越對應±1250門檻只加碼一次，總口數最多2口；全部跟隨H3出場。
+Compose 沿用 `h3-flatten-reentry-strategy` 服務名，已改接新策略；舊修復策略保留並共用執行鎖。
+原 API_KEY3 帳本保留，新帳戶使用獨立 `runtime/api_key.sqlite` 與 `records/api_key/`，不接管第三帳戶紀錄。
+
+## H3 Discord 游擊策略通知
+
+`telegram_signal_relay.py` 在可信 H3 bot 的原訊號後附上目前游擊策略規則，送至既有
+`DISCORD_H_TRADE_WEBHOOK_URL`。附註僅確認訊號接收，不代表交易服務已啟動、已成交或
+當下已符合加碼條件。第一口跟隨H3；加碼須同時浮盈≥500點與游擊穿越對應±1250門檻。
+Relay啟動通知也只確認轉送服務，交易策略另行查倉及通知啟動。
+
+## 舊版 H3 單口回撤研究（目前通知及游擊策略不使用）
+
+以下為保留的歷史研究與舊修復策略說明，不作為 API_KEY 游擊策略的加碼依據，
+也不再附加至目前 H3 轉送通知。歷史基準及研究工具保留。
 
 - 固定單口的已平倉淨損益，以點數計算，每筆來回成本估算 4.8 點。
 - 回撤百分比＝單口已平倉曲線從前高回撤點數／本次訊號當時的指數估值。
@@ -54,17 +73,20 @@ py -3 backend-futures-py/h3_entry_watch.py --seed C:/Users/USER/Downloads/h3.csv
 大於+2000或小於-2000通知至 `DISCORD_MXF_ALERT_WEBHOOK_URL`。
 首次啟動已超標會提醒一次；維持同側超標不重複，回到門檻內後再突破會再提醒；
 等於±2000不通知。無效值不重置基準，通知失敗保留至下輪重試。
-原有 `goodway_chip960.high` 的±1000／±1500與開盤通知保留。
+另偵測同一 `mtx_bvav` 的負轉正／正轉負，穿越 0 軸時送至相同 Discord；
+等於 0 時等待下一筆非零值確認，回到原本同側不重複通知。首次觀測只建立正負基準，
+不補發歷史轉換；無效值不清除方向。此通知適用日盤與夜盤。
+原有 `goodway_chip960.high` 的±1000／±1100／±1200／±1300／±1400／±1500與開盤通知保留。
 這次僅新增偵測通知，不將H1口述條件接成下單規則。
 
 ## MXF／股威 API 總結（2026-10-13）
 
-### 常態服務實際使用：每分鐘 13 次 GET
+### 常態服務實際使用：每分鐘 5 次 GET（僅保留游擊隊相關 history）
 
 `monitor_mxf.py` 沿用原有開盤時段：平日 08:45–13:45、15:00–23:59:59，
 以及週一至週六 00:00–05:00（Asia/Taipei；沿用既有時段判斷，沒有另外判斷休市日）。
-每輪原有快照 1 次，加上以下 12 個 history 商品／指標組合，每次最多並行 4 個 GET。
-四類指標的 open/high/low/close/volume 全部印在 `MXF Market Monitor` 終端機。
+每輪原有快照 1 次，加上以下 4 個 history 商品／指標組合，history 改為逐一請求。
+終端機只列印游擊隊組成值、游擊隊指標及近次月共同時間的組成合計。
 正數嚴格大於 1500 的欄位會在原指標列標示 `[>1500]`。
 依使用者要求，已移除末尾另外排序的「大於 1500 的正數欄位」彙整清單。
 正數大小本身不能證明該欄位屬於近月或次月。
@@ -72,10 +94,10 @@ py -3 backend-futures-py/h3_entry_watch.py --seed C:/Users/USER/Downloads/h3.csv
 | 用途 | GET API | 使用欄位 | 寫入／輸出 |
 | --- | --- | --- | --- |
 | 原有股威籌碼快照 | [chip960_tradeinfo](https://market-data-api.futures-ai.com/chip960_tradeinfo/) | `tx_bvav` 坦克、`mtx_bvav` 游擊隊合計、`mtx_tbta` 炮灰 | 原有 MongoDB 與 `tv_doc/mxf_value.csv` 流程 |
-| 掛單能量 `#trade_info` | [API 範例](https://tvapi.futures-op.com/history?symbol=MTX-2%23trade_info&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2、MTX-1、MTX-2，共 4 次；全部 OHLCV 欄位 | 只列印日誌 |
-| 主散方向 `#bs_indicator_acc` | [API 範例](https://tvapi.futures-op.com/history?symbol=MTX-1%23bs_indicator_acc&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2、MTX-1、MTX-2，共 4 次；全部 OHLCV 欄位 | 只列印日誌 |
-| 台指籌碼 `#goodway_chip960` | [API 範例](https://tvapi.futures-op.com/history?symbol=TX-2%23goodway_chip960&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2，共 2 次；全部 OHLCV 欄位 | 列印日誌；high（游擊隊）跨越 ±1000／±1500 與開盤通知 |
-| 股威力道來源 `#goodway_sfChip960` | [API 範例](https://tvapi.futures-op.com/history?symbol=TX-1%23goodway_sfChip960&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2，共 2 次；全部 OHLCV 欄位 | 只列印日誌 |
+| 游擊隊組成 `#trade_info` | [API 範例](https://tvapi.futures-op.com/history?symbol=MTX-2%23trade_info&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | MTX-1、MTX-2，共 2 次；只顯示 open | 列印近月、次月及共同時間合計 |
+| 游擊隊指標 `#goodway_chip960` | [API 範例](https://tvapi.futures-op.com/history?symbol=TX-2%23goodway_chip960&resolution=1&days=1&ws=true&metaData=true&agent=daddy960&product=web_goodway) | TX-1、TX-2，共 2 次；只顯示 high | 列印日誌；high（游擊隊）跨越 ±1000／±1100／±1200／±1300／±1400／±1500 與開盤通知 |
+
+已暫停大台 `#trade_info`、全部 `#bs_indicator_acc` 與 `#goodway_sfChip960` 查詢。
 
 上表 history 連結用 `days=1`，方便直接貼到瀏覽器；**服務實際改用最近 15 分鐘的範圍**，
 不帶 `days`，參數如下：
@@ -146,9 +168,9 @@ history 回應格式（以下是欄位示意，數值不是即時報價）：
 CSV 欄位、原有訊號與平均值計算沿用原流程。
 2026-10-14 加入游擊隊跨越通知：只追蹤 `TX-1#goodway_chip960.high` 與
 `TX-2#goodway_chip960.high`，使用 `.env` 的 `DISCORD_MXF_ALERT_WEBHOOK_URL`。
-前值 ≤1500、現值 >1500 時通知向上突破；前值 ≥-1500、現值 <-1500 時通知向下跌破。
-另加入 ±1000：前值 ≤1000、現值 >1000 時通知向上突破；前值 ≥-1000、現值 <-1000
-時通知向下跌破。兩組門檻獨立判斷；一次跳越兩個門檻會各發一則門檻通知。
+門檻為 1000、1100、1200、1300、1400、1500，正負兩方向都追蹤。
+對每個門檻 T：前值 ≤T、現值 >T 時通知向上突破；前值 ≥-T、現值 <-T 時通知向下跌破。
+六組門檻獨立判斷；一次跳越多個門檻會各發一則門檻通知。
 等於門檻、持續在門檻外，以及返回門檻內都不通知；返回後再次跨出會再通知。
 近次月同一輪、同資料時間、同方向及同前後數值的跨越合併一則，訊息列出兩個前綴。
 啟動或重啟後以每個前綴最新有效值建立基準，不補發啟動前的跨越。
@@ -159,7 +181,7 @@ CSV 欄位、原有訊號與平均值計算沿用原流程。
 只看當日平日的 08:45 與 15:00 一分鐘棒，分別在 08:46、15:01 收完後判斷。
 同分鐘 `webhook_data_1min.csv` 的 `MXF1!` 收盤價 < `MA_960` 且
 `goodway_chip960.high` > 0 時通知「開盤轉多」；收盤價 > `MA_960` 且 high < 0
-時通知「開盤轉空」。相等、游擊為 0 或不符合雙條件都不通知；不要求跨越 ±1000／±1500。
+時通知「開盤轉空」。相等、游擊為 0 或不符合雙條件都不通知；不要求跨越 ±1000／±1100／±1200／±1300／±1400／±1500。
 價格與籌碼必須對齊開盤棒的原始時間，缺資料會在原有 15 分鐘視窗內等待重試，
 不以隔壁分鐘或 API 的最新棒代替。近次月同值合併一則；每個前綴每場開盤只判斷一次。
 判斷紀錄及待送訊息保存至 `tv_doc/goodway_opening_alert_state.json`，重啟後仍可去重及重試。

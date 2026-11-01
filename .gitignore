@@ -52,6 +52,7 @@ backend-futures-py/h3-ef-012-strategy/records/ef_position_events.csv
 backend-futures-py/telegram-relay-runtime/
 backend-futures-py/telegram-relay-records/h_position_events.csv
 backend-futures-py/telegram-relay-records/ef_position_events.csv
+backend-futures-py/telegram-relay-records/h3_signal_*
 backend-futures-py/tv_doc/research_outputs/pure_ef_second_account_hedge_plan_*.md
 backend-futures-py/.retired-data/
 
@@ -65,5 +66,9 @@ crash.*.log
 # Dedicated EF closure hedge runtime and private trading records
 backend-futures-py/h3-flatten-reentry-strategy/runtime/
 backend-futures-py/h3-flatten-reentry-strategy/records/
+backend-futures-py/h3-follow-add-strategy/runtime/
+backend-futures-py/h3-follow-add-strategy/records/
+backend-futures-py/h3-profit-protection-strategy/runtime/
+backend-futures-py/h3-profit-protection-strategy/records/
 backend-futures-py/ef-morning-weekend-hedge-strategy/runtime/
 backend-futures-py/ef-morning-weekend-hedge-strategy/records/

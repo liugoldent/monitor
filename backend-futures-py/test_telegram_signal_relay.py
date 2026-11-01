@@ -301,21 +301,27 @@ class H3NoticeIntegrationTests(unittest.IsolatedAsyncioTestCase):
              patch.object(relay, "record_h_signal", return_value=recorded), \
              patch.object(relay, "_latest_h_event_position", return_value=-1), \
              patch.object(relay, "_event_key_exists", return_value=False), \
-             patch.object(relay, "build_h3_entry_notice", observer), \
+             patch.object(relay, "build_h3_strategy_notice", observer), \
              patch.object(relay, "send_to_discord", return_value=(True, "ok")) as send:
             await relay.telegram_message_handler(event)
         return send.call_args.args
 
     async def test_h_original_signal_and_observation_share_existing_h_channel(self):
-        args = await self.run_h_signal(Mock(return_value="【H3 單口回撤觀察】等待修復"))
+        args = await self.run_h_signal(relay.build_h3_strategy_notice)
         self.assertEqual(args[1], "h")
         self.assertIn("浩克3V3 交易訊號通知 (B=1 S=0)", args[2])
-        self.assertIn("等待修復", args[2])
+        self.assertIn("浮盈≥500點", args[2])
+        self.assertIn("低於−1250 → 高於−1250", args[2])
+        self.assertIn("高於＋1250 → 低於＋1250", args[2])
+        self.assertIn("不代表交易服務已啟動", args[2])
+        self.assertNotIn("單口回撤", args[2])
+        self.assertNotIn("2.5%", args[2])
+        self.assertNotIn("加碼觀察條件成立", args[2])
 
     async def test_observer_failure_does_not_prevent_original_delivery(self):
         args = await self.run_h_signal(Mock(side_effect=RuntimeError("private diagnostic")))
         self.assertIn("浩克3V3", args[2])
-        self.assertIn("暫不判定", args[2])
+        self.assertIn("通知待核對", args[2])
         self.assertNotIn("private diagnostic", args[2])
 
     async def test_untrusted_signal_is_forwarded_without_entry_evaluation(self):
@@ -328,7 +334,22 @@ class H3NoticeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         observer = Mock()
         args = await self.run_h_signal(observer, recorded=False)
         observer.assert_not_called()
-        self.assertIn("暫不判定", args[2])
+        self.assertIn("訊號待核對", args[2])
+
+    async def test_repeated_signal_does_not_claim_new_entry_or_add(self):
+        message = relay.build_h3_strategy_notice(-1, new_transition=False)
+        self.assertIn('同向或重複訊號', message)
+        self.assertIn('不因此增加口數', message)
+        self.assertNotIn('條件成立', message)
+
+    async def test_startup_only_confirms_relay_not_trading_service(self):
+        with patch.object(relay, 'send_discord_notice', return_value=(True, 'ok')) as send, \
+             patch.object(relay, 'append_event'), patch('builtins.print'):
+            relay.send_startup_notifications()
+        for call in send.call_args_list:
+            content = call.args[1]
+            self.assertIn('Relay啟動不代表API_KEY交易策略已啟動', content)
+            self.assertNotIn('回撤觀察', content)
 
 
 if __name__ == "__main__":

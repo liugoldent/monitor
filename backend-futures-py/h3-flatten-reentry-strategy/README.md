@@ -1,5 +1,11 @@
 # 永豐 H3 修復加碼策略（API_KEY3）
 
+> 2026-10-17：Compose 的 H3 服務已改接
+> [H3 浮盈500點＋股威游擊穿越加碼](../h3-follow-add-strategy/README.md)。
+> 2026-10-18 新策略改用 API_KEY／SECRET_KEY 正式帳戶，並使用自己的登入器與帳本。
+> 本目錄保留舊策略、API_KEY3 登入器及成交工具；以下為舊策略規格。
+> 新舊策略共用本目錄執行鎖，不能同時運行。
+
 2026-10-16 起與凱基、群益直接共用 `../h3_recovery_sizing.py` 的策略狀態機。
 永豐下單仍由本目錄 `auto_trade.py` 以 `API_KEY3`／`SECRET_KEY3` 登入 Shioaji 正式帳戶。
 

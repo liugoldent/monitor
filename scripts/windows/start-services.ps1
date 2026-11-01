@@ -6,19 +6,15 @@ $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $backendDir = Join-Path $projectDir 'backend-futures-py'
 $rootEnvPath = Join-Path $projectDir '.env'
 $watchScript = Join-Path $PSScriptRoot 'watch-service.ps1'
-$capitalServiceScript = Join-Path $PSScriptRoot 'capital-h3-service.ps1'
-$kgiServiceScript = Join-Path $PSScriptRoot 'kgi-h3-service.ps1'
-# Validate native Windows DLL service before changing any running services.
-& $capitalServiceScript -Action Check
-& $kgiServiceScript -Action Check
+# Capital/KGI native H3 services are paused; this launcher does not start them.
 $services = @(
+    'h3-signal-router',
     'telegram-signal-relay',
     'monitor-mxf',
     'webhook-server',
     'cloudflared',
-    'ef-hysteresis-again-strategy',
     'h3-flatten-reentry-strategy',
-    'ef-morning-weekend-hedge-strategy'
+    'h3-profit-protection-strategy'
 )
 function Get-RootEnvValue([string]$Name) {
     if (-not (Test-Path -LiteralPath $rootEnvPath -PathType Leaf)) { return $null }
@@ -166,6 +162,16 @@ if (-not $NoBuild) {
 }
 Push-Location $projectDir
 try {
+    # Preserve signal/data collection while keeping all other strategies paused.
+    $pausedServices = @(
+        'ef-strong-consensus-morning-flat-strategy',
+        'ef-hysteresis-total-breakout-strategy',
+        'ef-hysteresis-again-strategy',
+        'ef-morning-weekend-hedge-strategy',
+        'monitor'
+    )
+    & docker compose --profile '*' stop @pausedServices
+    if ($LASTEXITCODE -ne 0) { throw "Could not stop paused strategy/legacy services: $LASTEXITCODE" }
     if ($needsBuild) {
         # Every application service uses monitor-app:local. Build and import it
         # once; asking Compose to build every service repeats the large export.
@@ -179,19 +185,10 @@ try {
             }
         }
     }
-    # Keep retired strategy containers from earlier launches stopped.
-    & docker compose --profile shadow stop 'ef-strong-consensus-morning-flat-strategy' 'ef-hysteresis-total-breakout-strategy'
-    if ($LASTEXITCODE -ne 0) { throw "Could not stop retired EF strategy services: $LASTEXITCODE" }
-    $composeArgs = @('compose', '--progress', 'plain', '--profile', 'tunnel', 'up', '--detach', '--no-build')
-    $composeArgs += @($services | Where-Object { $_ -ne 'ef-morning-weekend-hedge-strategy' })
+    $composeArgs = @('compose', '--profile', 'h3-protection', '--progress', 'plain', 'up', '--detach', '--no-build')
+    $composeArgs += $services
     & docker @composeArgs
     if ($LASTEXITCODE -ne 0) { throw "docker compose failed: $LASTEXITCODE" }
-    # Always start a fresh account-2 process, even when its image is unchanged.
-    # Other services retain their ordinary compose lifecycle.
-    $efArgs = @('compose', '--progress', 'plain', 'up', '--detach', '--no-build', '--no-deps', '--force-recreate')
-    $efArgs += 'ef-morning-weekend-hedge-strategy'
-    & docker @efArgs
-    if ($LASTEXITCODE -ne 0) { throw "EF account 2 startup failed: $LASTEXITCODE" }
 } finally {
     Pop-Location
     if ($projectBuilder) {
@@ -204,13 +201,13 @@ try {
 }
 
 $logWindows = @(
+    @{ Title = 'H3 Concord + Telegram Signals'; Service = 'h3-signal-router' },
     @{ Title = 'Telegram H-EF Relay'; Service = 'telegram-signal-relay' },
     @{ Title = 'MXF Market Monitor'; Service = 'monitor-mxf' },
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
-    @{ Title = 'EF Hysteresis Again SIM - API KEY'; Service = 'ef-hysteresis-again-strategy' },
-    @{ Title = 'Hulk 3 LIVE - API KEY3'; Service = 'h3-flatten-reentry-strategy' },
-    @{ Title = 'EF Pure EF Net Direction SIM - API KEY2'; Service = 'ef-morning-weekend-hedge-strategy' }
+    @{ Title = 'H3 Follow Add LIVE - API KEY'; Service = 'h3-flatten-reentry-strategy' },
+    @{ Title = 'H3 Follow - API KEY2'; Service = 'h3-profit-protection-strategy' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {
@@ -251,18 +248,4 @@ foreach ($item in $logWindows) {
     Start-Sleep -Milliseconds 300
 }
 
-& $capitalServiceScript -Action Start
-& $kgiServiceScript -Action Start
-$capitalWatchScript = Join-Path $PSScriptRoot 'watch-capital-h3.ps1'
-if ($terminal) {
-    & $terminal.Source --window monitor-services new-tab --title 'H3 Capital LIVE' powershell.exe -NoLogo -NoExit -ExecutionPolicy Bypass -File $capitalWatchScript
-} else {
-    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $capitalWatchScript))
-}
-$kgiWatchScript = Join-Path $PSScriptRoot 'watch-kgi-h3.ps1'
-if ($terminal) {
-    & $terminal.Source --window monitor-services new-tab --title 'H3 KGI LIVE' powershell.exe -NoLogo -NoExit -ExecutionPolicy Bypass -File $kgiWatchScript
-} else {
-    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $kgiWatchScript))
-}
-Write-Host 'Windows services launched, including native H3 Capital and KGI. Closing log tabs does not stop trading services.' -ForegroundColor Green
+Write-Host '7 Docker services launched: Concord/TG H3 router, data collection, Cloudflare, API_KEY H3 Follow Add (LIVE), and API_KEY2 H3 Follow (see startup log for broker mode). EF/Capital/KGI startup is disabled. Closing log tabs does not stop Docker services.' -ForegroundColor Green

@@ -14,7 +14,7 @@ scripts/run-services-docker.sh
 
 ## 啟動
 
-### 單純訊號接收模式（預設）
+### 數據記錄＋API_KEY H3 游擊策略（預設）
 
 在 repo 根目錄執行：
 
@@ -35,7 +35,10 @@ run-windows-services.cmd
 ```
 
 它會開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、`Webhook Server`、
-`Cloudflare Tunnel`、`EF Hysteresis Again SIM - API KEY` 與 `EF Pure EF Net Direction SIM - API KEY2` 頁籤。
+`Cloudflare Tunnel`、`H3 Follow Add LIVE - API KEY`、`H3 Follow - API KEY2`，以及 `H3 Concord + Telegram Signals` 共 7 個日誌頁籤。
+Windows 一鍵啟動會啟用 `h3-protection` profile，額外啟動 API_KEY2 的 H3 純跟單（2026-10-29 已切為真實下單）。
+雙擊 `stop-windows-services.cmd` 會停止兩個永豐策略及共用 Docker 服務，不自動平倉或撤單。
+群益、凱基原生 H3 及 EF 系列都不自動啟動。
 
 看 log：
 
@@ -49,8 +52,23 @@ docker compose logs -f telegram-signal-relay
 docker compose down
 ```
 
-預設啟動 `telegram-signal-relay`、`webhook-server`、`monitor-mxf`，以及 EF Hysteresis Again（API_KEY）與純 EF 合計方向＋多空對稱否決（API_KEY2）兩套 Shioaji 模擬策略。舊 Hysteresis 模擬策略與 TOTAL Breakout 影子策略放在 `shadow` profile，預設不啟動。
-前三個服務維持核心資料：
+一般 Compose 預設啟動以下服務及 `h3-signal-router`（共6個）；Windows 一鍵啟動額外啟動 `h3-profit-protection-strategy`（API_KEY2 H3 純跟單），共7個。康和本機優先與 TG 備援詳見 [雙來源說明](docs/h3-dual-source-signals.md)。
+
+| 服務 | 用途 |
+| --- | --- |
+| `telegram-signal-relay` | H3／EF 訊號及原始事件記錄、Discord 轉發 |
+| `h3-signal-router` | 唯讀查詢康和本機 H3，與 TG 備援去重後供兩策略讀取 |
+| `monitor-mxf` | MXF 籌碼與股威游擊監控、資料記錄 |
+| `webhook-server` | 接收並保存 TradingView K 棒 |
+| `cloudflared` | 維持 TradingView webhook 對外連線 |
+| `h3-flatten-reentry-strategy` | API_KEY／SECRET_KEY 正式帳戶，H3 浮盈500點＋游擊穿越加碼 |
+
+EF Again、純 EF 移至 `ef-simulation` profile；舊 Hysteresis 與 TOTAL Breakout 保留在
+`shadow` profile，全部預設不啟動。EF 有券商連線的策略均為 `simulation=True`。
+Windows 一鍵腳本會先停止先前的 EF 與 legacy 整合容器，再啟動上述服務。
+停止策略程序不會自動平倉或撤單。
+
+前三個服務繼續維持核心資料，EF 策略停用不影響 EF 原始訊號記錄：
 
 ```text
 Telethon H  訊號 -> DISCORD_H_TRADE_WEBHOOK_URL
@@ -67,11 +85,11 @@ Telegram 稽核紀錄 -> backend-futures-py/telegram-relay-records/telegram_sign
 每次服務程序啟動時，H relay、EF relay 與交易策略各自會向專用
 Discord webhook 發送一次啟動通知；relay 的通知結果也會寫入稽核 JSONL。
 
-`cloudflared` 仍是手動啟動，避免 Docker 啟動時未經確認就對外開放服務。
-需要既有 tunnel 時執行：
+`cloudflared` 現在隨預設清單啟動，使用專案根目錄 `.env` 的 `CLOUDFLARED_TOKEN`。
+單獨套用既有 tunnel 時執行：
 
 ```powershell
-docker compose --profile tunnel up -d cloudflared
+docker compose up -d cloudflared
 ```
 
 原本的整合容器已移到 `legacy` profile，除非明確執行以下命令才會啟動：
@@ -84,8 +102,8 @@ docker compose --profile legacy up monitor
 
 ```text
 8080  webhook_server.py
-5050  mongo_market_api.py
-5173  frontend-vue vite dev server
+5050  mongo_market_api.py（僅 legacy 整合容器）
+5173  frontend-vue vite dev server（僅 legacy 整合容器）
 ```
 
 ## Cloudflare tunnel
@@ -101,7 +119,7 @@ cp docker.env.example .env
 然後把 `.env` 內的 `CLOUDFLARED_TOKEN=` 補上真實 token。
 `docker compose` 會自動讀 repo 根目錄的 `.env`。
 
-如果 `CLOUDFLARED_TOKEN` 是空的，容器會跳過 cloudflared，但其他服務照常啟動。
+Cloudflare 需要有效 token 才能建立 tunnel；Windows 一鍵腳本會在缺少 token 時要求輸入。
 
 ## 重要掛載檔案
 
@@ -132,7 +150,7 @@ initialize-telegram-relay-session.cmd
 
 ## 只跑部分服務
 
-可以用 `SERVICE_FILTER` 只跑指定服務，方便測試。
+`SERVICE_FILTER` 僅供 legacy 整合容器內的啟動腳本選擇服務；一般 Compose 請直接指定服務名稱。
 
 ```bash
 SERVICE_FILTER=webhook-server,mongo-market-api,frontend-vue docker compose up --build
