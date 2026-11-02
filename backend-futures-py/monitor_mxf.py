@@ -54,6 +54,7 @@ GOODWAY_SYMBOLS = ("MTX-1", "MTX-2")
 GOODWAY_POSITIVE_THRESHOLD = 1500
 GOODWAY_GUERRILLA_THRESHOLDS = (1000, 1100, 1200, 1300, 1400, 1500)
 MXF_VALUE_GUERRILLA_THRESHOLD = 2000
+MXF_VALUE_CROSSING_THRESHOLD = 500
 GOODWAY_GUERRILLA_SYMBOLS = ("TX-1#goodway_chip960", "TX-2#goodway_chip960")
 GOODWAY_GROUPS = (
     ("游擊隊組成", "trade_info", ("MTX-1", "MTX-2"),
@@ -247,6 +248,7 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
         super().__init__()
         self.last_value: float | None = None
         self.last_nonzero_value: float | None = None
+        self.last_threshold_values: dict[int, float] = {}
 
     def observe_snapshot(self, snapshot: dict | None, now: datetime) -> None:
         value = _to_float((snapshot or {}).get("mtx_bvav"))
@@ -264,6 +266,25 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
                     f"資料時間 {snapshot.get('time') or now.strftime('%Y-%m-%d %H:%M:%S')}\n"
                     f"游擊隊（mtx_bvav）：{nonzero:g} → {value:g}"
                 )
+        # Equality waits for a strict crossing; the first sample only sets a baseline.
+        for boundary in (MXF_VALUE_CROSSING_THRESHOLD, -MXF_VALUE_CROSSING_THRESHOLD):
+            if value == boundary:
+                continue
+            baseline = self.last_threshold_values.get(boundary)
+            self.last_threshold_values[boundary] = value
+            if baseline is None:
+                continue
+            if boundary > 0 and baseline < boundary < value:
+                direction = f"向上突破 +{boundary}"
+            elif boundary < 0 and baseline > boundary > value:
+                direction = f"向下跌破 {boundary}"
+            else:
+                continue
+            self.pending.append(
+                f"📣 mxf_value 游擊隊 {direction}\n"
+                f"資料時間 {snapshot.get('time') or now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"游擊隊（mtx_bvav）：{baseline:g} → {value:g}"
+            )
         threshold = MXF_VALUE_GUERRILLA_THRESHOLD
         direction = None
         if value > threshold and (previous is None or previous <= threshold):
@@ -837,7 +858,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     print('=== 游擊隊資料監控 ===')
-    print("mxf_value 游擊隊通知｜正負穿越 0 軸；等於 0 等待方向確認｜mtx_bvav > +2000 / < -2000｜首次已超標也通知；持續超標不重複", flush=True)
+    print("mxf_value 游擊隊通知｜正負穿越 0 軸；等於 0 等待方向確認｜向上突破 +500 / 向下跌破 -500；等於門檻等待，首次只建立基準｜mtx_bvav > +2000 / < -2000；首次已超標也通知｜持續超標不重複", flush=True)
     print(
         "游擊隊跨越通知｜TX-1/TX-2#goodway_chip960.high"
         "｜突破 +1000/+1100/+1200/+1300/+1400/+1500"

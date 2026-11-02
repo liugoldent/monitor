@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 from contextlib import closing
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,26 @@ ACTION = re.compile(r'訊號部位通知\s*[（(]\s*浩克3V3\s*[)）]\s*')
 
 def now_local():
     return datetime.now(TZ)
+
+
+def same_file(previous, current):
+    # Docker Desktop may renumber the mount device after a VM/host reboot.
+    # An inode change still means replacement; content anchors detect rewrites.
+    return previous is not None and previous[1] == current[1]
+
+
+def local_anchor(connection, cursor):
+    row = connection.execute('SELECT rowid,* FROM HISTORY WHERE rowid=?', (cursor,)).fetchone()
+    return hashlib.sha256(repr(row).encode('utf-8')).hexdigest()
+
+
+def telegram_anchor(handle, offset):
+    position = handle.tell()
+    try:
+        handle.seek(max(0, offset-256))
+        return hashlib.sha256(handle.read(min(offset, 256))).hexdigest()
+    finally:
+        handle.seek(position)
 
 
 def stamp(value):
@@ -171,19 +192,26 @@ class Router:
         # Reopen every poll: see fresh commits and never use immutable=1 on a live DB.
         with closing(sqlite3.connect(self.vendor.resolve().as_uri()+'?mode=ro', uri=True, timeout=0.1)) as vendor:
             vendor.execute('PRAGMA query_only=ON')
+            vendor.execute('BEGIN')  # Maximum, anchor and rows share one snapshot.
             maximum = vendor.execute('SELECT COALESCE(MAX(rowid),0) FROM HISTORY').fetchone()[0]
             cursor = self.get('local_cursor')
-            identity = list((self.vendor.stat().st_dev, self.vendor.stat().st_ino))
-            if cursor is not None and (maximum < cursor or identity != self.get('local_identity')):
-                raise RuntimeError('Concord database replaced or HISTORY truncated')
+            stat = self.vendor.stat()
+            identity = [stat.st_dev, stat.st_ino]
+            saved_anchor = self.get('local_anchor')
+            reset = cursor is not None and (
+                maximum < cursor or not same_file(self.get('local_identity'), identity)
+                or (saved_anchor is not None and local_anchor(vendor, cursor) != saved_anchor))
             # First successful connection is a live baseline, never replay old positions.
-            baseline = cursor is None
+            baseline = cursor is None or reset
             rows = vendor.execute('''SELECT h.rowid,h.DATE,h.TIME,h.ACTION,h.POSITION,
                     h.SIGNAL_ID,s.GROUP_NAME FROM HISTORY h JOIN HISTORY_SETTING s
                     ON h.BLOCK=s.BLOCK AND h.SIGNAL_ID=s.SIGNAL_ID
                     WHERE h.rowid>? AND h.rowid<=? AND s.GROUP_NAME=?
                     ORDER BY h.rowid''', (0 if baseline else cursor, maximum, NAME)).fetchall()
+            anchor = local_anchor(vendor, maximum)
         with self.db:
+            if reset:
+                self.db.execute('DELETE FROM local_seen')
             for row in rows:
                 candidate = local_signal(row)
                 if candidate is None:
@@ -194,21 +222,32 @@ class Router:
                     self.accept(candidate, now)
             self.put('local_cursor', maximum)
             self.put('local_identity', identity)
+            self.put('local_anchor', anchor)
         if baseline:
-            self.audit('local_baseline', cursor=maximum)
+            self.audit('local_rebaseline' if reset else 'local_baseline',
+                       previous_cursor=cursor, cursor=maximum, identity=identity)
 
     def poll_telegram(self, now):
-        stat = self.telegram.stat()
-        identity = [stat.st_dev, stat.st_ino]
-        saved = self.get('tg_cursor')
-        if saved is None:
-            with self.db:
-                self.put('tg_cursor', dict(identity=identity, offset=stat.st_size))
-            self.audit('telegram_baseline', offset=stat.st_size)
-            return
-        if identity != saved['identity'] or stat.st_size < saved['offset']:
-            raise RuntimeError('Telegram source replaced or truncated')
         with self.telegram.open('rb') as handle:
+            stat = os.fstat(handle.fileno())
+            identity = [stat.st_dev, stat.st_ino]
+            saved = self.get('tg_cursor')
+            reset = saved is not None and (
+                not same_file(saved['identity'], identity) or stat.st_size < saved['offset']
+                or ('anchor' in saved and telegram_anchor(handle, saved['offset']) != saved['anchor']))
+            if saved is None or reset:
+                with self.db:
+                    self.put('tg_cursor', dict(identity=identity, offset=stat.st_size,
+                                              anchor=telegram_anchor(handle, stat.st_size),
+                                              discard_partial=stat.st_size > 0 and self._partial_tail(handle, stat.st_size)))
+                self.audit('telegram_rebaseline' if reset else 'telegram_baseline',
+                           previous_offset=saved['offset'] if saved else None, offset=stat.st_size,
+                           identity=identity)
+                return
+            if 'anchor' not in saved or saved['identity'] != identity:
+                saved = dict(saved, identity=identity, anchor=telegram_anchor(handle, saved['offset']))
+                with self.db:
+                    self.put('tg_cursor', saved)
             handle.seek(saved['offset'])
             # Bound a burst so a large Telegram backlog cannot starve local polling.
             for _ in range(500):
@@ -221,9 +260,16 @@ class Router:
                 except (ValueError, TypeError, UnicodeError):
                     candidate = None
                 with self.db:
-                    if candidate:
+                    if candidate and not saved.get('discard_partial', False):
                         self.accept(candidate, now)
-                    self.put('tg_cursor', dict(identity=identity, offset=handle.tell()))
+                    saved = dict(identity=identity, offset=handle.tell(),
+                                 anchor=telegram_anchor(handle, handle.tell()))
+                    self.put('tg_cursor', saved)
+
+    @staticmethod
+    def _partial_tail(handle, size):
+        handle.seek(size-1)
+        return handle.read(1) != b'\n'
 
     def step(self, now=None):
         now = now or now_local()

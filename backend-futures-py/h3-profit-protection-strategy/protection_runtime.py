@@ -8,6 +8,8 @@ from h_core import TradingError
 from runtime import Engine as BaseEngine, LedgerError, RolloverPause, signal
 from follow_state import FollowState as State
 from protection_policy import Protection
+from protection_policy import number
+from recovery_sizing import RecoverySizing
 
 
 class ProtectionEngine(BaseEngine):
@@ -24,6 +26,33 @@ class ProtectionEngine(BaseEngine):
                     raise LedgerError('缺少永豐2保護帳本，不接管既有部位')
                 self.save_protection(Protection())
         self.protection()
+        with store.db:
+            existed = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='h3_profit_sizing'").fetchone()
+            store.db.execute('CREATE TABLE IF NOT EXISTS h3_profit_sizing '
+                             '(id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)')
+            if store.db.execute('SELECT 1 FROM h3_profit_sizing').fetchone() is None:
+                if existed or store.pending():
+                    raise LedgerError('連輸加口帳本缺漏或有未確認委託，不自動重設')
+                self.save_sizing(RecoverySizing())
+                self.audit_in_transaction('sizing_initialized', dict(
+                    basis='new closed-H3-round ledger; no historical backfill',
+                    existing_position=self.state().expected))
+        self.sizing()
+
+    def sizing(self):
+        try:
+            row = self.store.db.execute('SELECT payload FROM h3_profit_sizing WHERE id=1').fetchone()
+            return RecoverySizing(**json.loads(row[0])).validate()
+        except (ValueError, TypeError, KeyError, IndexError) as exc:
+            raise LedgerError('永豐2連輸加口帳本無效，停止送單並保留原始狀態') from exc
+
+    def save_sizing(self, value):
+        value.validate()
+        self.store.db.execute('INSERT OR REPLACE INTO h3_profit_sizing VALUES (1,?)',
+                              (json.dumps(asdict(value)),))
+
+    def entry_quantity(self):
+        return self.sizing().quantity(self.broker.unit)
 
     def protection(self):
         try:
@@ -50,13 +79,20 @@ class ProtectionEngine(BaseEngine):
 
     def order(self, target, phase, key, planned, protection, preflight=None, *, reason='H3'):
         self.validate_position()
-        previous = self.state().expected
+        old_state = self.state()
+        previous = old_state.expected
+        sizing = self.sizing()
+        old_protection = self.protection()
+        self.broker.entry_quantity = sizing.quantity(self.broker.unit)
+        if phase == 'flatten' and old_state.first_price is None:
+            raise LedgerError('缺少原持倉成交價，不能結算連輸帳本')
         if not self.broker.valid_transition(previous, target-previous, phase, target):
-            raise TradingError('永豐2只允許依H_UNIT_KEY2進場或全平，禁止加碼')
+            raise TradingError('永豐2只允許依連輸狀態以Unit或Unit+1進場，或原口數全平')
         protection.validate()
         payload = dict(trigger=key, phase=phase, previous=previous, target=target,
             side='buy' if target > previous else 'sell', quantity=abs(target-previous),
             reason=reason, planned_state=asdict(planned), planned_protection=asdict(protection))
+        payload['sizing_before'] = asdict(sizing)
         # Check before creating the durable intent AND again at the broker gate.
         if preflight:
             preflight()
@@ -76,21 +112,35 @@ class ProtectionEngine(BaseEngine):
             raise
         if actual != target:
             raise TradingError('成交後庫存不符，保留保護委託 guard')
+        price = self.broker.confirmed_price
+        if price is None or number(price) <= 0:
+            raise LedgerError('缺少完整成交均價，保留 guard，不更新損益')
         if phase == 'entry':
-            price = self.broker.first_fill
-            planned = replace(planned, first_price=str(price) if price is not None else None)
+            planned = replace(planned, first_price=str(price))
             from ef_trade_runtime import now_local
             protection = replace(protection, entered_at=now_local().isoformat())
+        elif phase == 'flatten':
+            gross = ((number(price)-number(old_state.first_price)) * (1 if previous > 0 else -1)
+                     + number(old_protection.carry_points))
+            sizing = sizing.close(gross, abs(previous))
         with self.store.db:
-            if self.store.pending() != payload or self.state().expected != previous:
+            if (self.store.pending() != payload or self.state() != old_state
+                    or asdict(self.sizing()) != payload['sizing_before']):
                 raise LedgerError('成交後帳本變動，保留 guard')
             self.save(replace(planned, expected=target))
             self.save_protection(protection)
+            self.save_sizing(sizing)
             self.store.db.execute('DELETE FROM guard WHERE id=1')
             self.audit_in_transaction('protection_confirmed', dict(payload=payload,
-                state=asdict(self.state()), protection=asdict(protection)))
+                state=asdict(self.state()), protection=asdict(protection), sizing=asdict(sizing),
+                confirmed_price=str(price)))
         label = f'跟隨H3進場{abs(target)}口' if phase == 'entry' else '跟隨H3全平'
         self.notify(f'【永豐2｜H3跟單】{label}：{previous:+d} → {target:+d}口，成交與庫存已確認。')
+        if phase == 'flatten':
+            self.notify(f'【永豐2｜連輸加口】連輸{sizing.loss_streak}筆；'
+                        f'已平倉回撤{number(sizing.peak_points)-number(sizing.equity_points)}點×口；'
+                        f'下筆{self.entry_quantity()}口（Unit={self.broker.unit}，'
+                        f'{"已加1口，維持至回前高" if sizing.boosted else "基準口數"}）。')
 
     def on_signal(self, event, *, now=None):
         parsed = signal(event, now)
@@ -115,7 +165,7 @@ class ProtectionEngine(BaseEngine):
             if self.state().expected:
                 self.order(0, 'flatten', key, State(round_key=key), next_protection, preflight)
             if direction:
-                self.order(direction*self.broker.unit, 'entry', key, State(round_key=key), next_protection, preflight)
+                self.order(direction*self.entry_quantity(), 'entry', key, State(round_key=key), next_protection, preflight)
             else:
                 with self.store.db:
                     self.save(State(round_key=key))

@@ -236,6 +236,38 @@ class GoodwayGuerrillaAlertTests(unittest.TestCase):
 
 
 class MxfValueGuerrillaAlertTests(unittest.TestCase):
+    def test_500_crossings_wait_at_boundary_ignore_invalid_and_rearm(self):
+        now = monitor.datetime.now(monitor.TZ)
+        for sign in (1, -1):
+            with self.subTest(sign=sign):
+                alerts = monitor.MxfValueGuerrillaAlerts()
+                for value in (499, 500, 500):
+                    alerts.observe_snapshot({'mtx_bvav': sign * value}, now)
+                self.assertFalse(alerts.pending)
+                for value in (None, 'bad', float('nan'), float('inf')):
+                    alerts.observe_snapshot({'mtx_bvav': value}, now)
+                for value in (501, 600, 500, 501, 499, 500, 501):
+                    alerts.observe_snapshot({'mtx_bvav': sign * value, 'time': 'sample'}, now)
+                self.assertEqual(len(alerts.pending), 2)
+                label = '向上突破 +500' if sign > 0 else '向下跌破 -500'
+                self.assertTrue(all(label in m and 'sample' in m for m in alerts.pending))
+                messages = list(alerts.pending)
+                with patch.object(monitor, 'send_discord_message') as sender, patch('builtins.print'):
+                    alerts.flush()
+                    alerts.flush()
+                self.assertEqual(sender.call_args_list, [
+                    unittest.mock.call(message, monitor.WEBHOOK_URL) for message in messages
+                ])
+
+    def test_500_startup_outside_or_at_boundary_does_not_notify(self):
+        now = monitor.datetime.now(monitor.TZ)
+        for sign in (1, -1):
+            for values in ((501, 600), (500, 501, 600)):
+                alerts = monitor.MxfValueGuerrillaAlerts()
+                for value in values:
+                    alerts.observe_snapshot({'mtx_bvav': sign * value}, now)
+                self.assertFalse(alerts.pending)
+
     def test_zero_crossings_wait_through_zero_and_ignore_same_side_returns(self):
         alerts = monitor.MxfValueGuerrillaAlerts()
         now = monitor.datetime.now(monitor.TZ)
@@ -289,8 +321,9 @@ class MxfValueGuerrillaAlertTests(unittest.TestCase):
         self.assertEqual(len(alerts.pending), 1)
         self.assertIn('目前超過 +2000', alerts.pending[0])
         alerts.observe_snapshot({'mtx_bvav': -2100}, now)
-        self.assertEqual(len(alerts.pending), 3)
-        self.assertIn('正轉負', alerts.pending[-2])
+        self.assertEqual(len(alerts.pending), 4)
+        self.assertIn('正轉負', alerts.pending[-3])
+        self.assertIn('向下跌破 -500', alerts.pending[-2])
         self.assertIn('向下跌破 -2000', alerts.pending[-1])
 
     def test_uses_actual_mxf_value_field_and_retries_notification(self):

@@ -43,7 +43,8 @@ class ProtectionRollover(AutomaticRollover):
                                 plan['key'], self.clock().isoformat())
             if fill['fill_status'] != 'complete' or plan['old_state'].get('first_price') is None:
                 raise LedgerError('永豐2換月缺少舊月完整成交價／進場價，不重設保護')
-            self.close_points = ((number(fill['entry_price'])-number(plan['old_state']['first_price']))
+            average = sum(number(f['price'])*f['quantity'] for f in fill['fills']) / abs(quantity)
+            self.close_points = ((average-number(plan['old_state']['first_price']))
                                  * (1 if quantity > 0 else -1))
         return super().recover_leg(plan)
 
@@ -65,7 +66,17 @@ class ProtectionRollover(AutomaticRollover):
                     raise LedgerError('缺少已核對換月損益，不覆蓋保護帳本')
                 protection = replace(protection,
                     carry_points=str(number(protection.carry_points)+self.close_points))
+                # Keep the H3 round intact; count the extra roll roundtrip cost
+                # only when the eventual H3 exit closes this entire round.
+                self.engine.save_sizing(self.engine.sizing().rolled())
             else:
+                fill = detail['entry']
+                if not fill or fill['fill_status'] != 'complete':
+                    raise LedgerError('換月缺少完整新月成交均價')
+                average = sum(number(f['price'])*f['quantity'] for f in fill['fills']) / abs(quantity)
+                row = self.store.db.execute('SELECT payload FROM pyramid_state WHERE id=1').fetchone()
+                state = self.engine.state_type(**json.loads(row[0])).validate()
+                self.engine.save(replace(state, first_price=str(average)))
                 # Retain peak and armed state, but the old-month sample must
                 # never be reused against the newly filled contract's cost.
                 protection = replace(protection, entered_at=self.clock().isoformat(),

@@ -202,15 +202,130 @@ class RouterTests(unittest.TestCase):
         self.router = self.open_router()
         self.assertEqual([e['signal_key'] for e in self.events()], ['h3-dual:1'])
 
-    def test_truncation_fails_local_but_keeps_tg_available(self):
+    def test_truncation_rebaselines_local_and_keeps_tg_available(self):
         self.local(1)
         self.router.step(self.now)
         self.connection.execute('DELETE FROM HISTORY')
         self.connection.commit()
         self.telegram(-1)
         self.router.step(self.now)
-        self.assertIn('concord_sqlite', self.router.errors)
+        self.assertNotIn('concord_sqlite', self.router.errors)
+        self.assertEqual(self.router.get('local_cursor'), 0)
         self.assertEqual([e['source_kind'] for e in self.events()], ['telegram'])
+        self.local(1, at=self.now+timedelta(seconds=1))
+        self.router.step(self.now+timedelta(seconds=1))
+        self.assertEqual([e['direction'] for e in self.events()], [-1, 1])
+
+    def test_reboot_device_change_preserves_legacy_cursors(self):
+        self.local(1, at=self.now-timedelta(seconds=60))
+        self.telegram(1, at=self.now-timedelta(seconds=60))
+        self.router.step(self.now)
+        identity = self.router.get('local_identity')
+        tg = self.router.get('tg_cursor')
+        identity[0] += 1
+        tg['identity'][0] += 1
+        tg.pop('anchor')  # Migrate the pre-fix persisted state without resetting it.
+        with self.router.db:
+            self.router.put('local_identity', identity)
+            self.router.put('tg_cursor', tg)
+            self.router.db.execute("DELETE FROM meta WHERE key='local_anchor'")
+        self.router.db.close()
+        self.router = self.open_router()
+        self.local(-1)
+        self.telegram(-1)
+        self.router.step(self.now)
+        self.assertEqual(self.router.errors, {})
+        self.assertEqual([e['direction'] for e in self.events()], [-1])
+        self.assertEqual(self.router.get('local_cursor'), 2)
+        self.assertEqual(self.router.get('tg_cursor')['offset'], self.tg.stat().st_size)
+        self.assertIsNotNone(self.router.get('local_anchor'))
+        self.assertIn('anchor', self.router.get('tg_cursor'))
+
+    def test_database_replacement_skips_existing_rows_and_keeps_outbox(self):
+        self.router.step(self.now)
+        self.local(1)
+        self.router.step(self.now)
+        replacement = self.root/'replacement.tde'
+        with sqlite3.connect(replacement) as other:
+            self.connection.backup(other)
+            other.execute("UPDATE HISTORY SET POSITION='B=0 S=1'")
+            other.execute('INSERT INTO HISTORY SELECT * FROM HISTORY')
+        self.connection.close()
+        replacement.replace(self.vendor)
+        self.connection = sqlite3.connect(self.vendor)
+        self.addCleanup(self.connection.close)
+        self.router.step(self.now+timedelta(seconds=1))
+        self.assertEqual(self.router.errors, {})
+        self.assertEqual([e['direction'] for e in self.events()], [1])
+        self.assertEqual(self.router.get('local_cursor'), 2)
+        self.local(-1, at=self.now+timedelta(seconds=2))
+        self.router.step(self.now+timedelta(seconds=2))
+        self.assertEqual([e['signal_key'] for e in self.events()], ['h3-dual:1', 'h3-dual:2'])
+
+    def test_legacy_tg_cursor_gets_anchor_even_without_new_lines(self):
+        self.router.step(self.now)
+        saved = self.router.get('tg_cursor')
+        saved.pop('anchor')
+        saved['identity'][0] += 1
+        with self.router.db:
+            self.router.put('tg_cursor', saved)
+        self.router.step(self.now)
+        self.assertIn('anchor', self.router.get('tg_cursor'))
+        self.assertEqual(self.router.get('tg_cursor')['offset'], saved['offset'])
+        self.assertEqual(self.events(), [])
+
+    def test_database_rewrite_with_same_inode_and_row_count_rebaselines(self):
+        self.local(1)
+        self.router.step(self.now)
+        self.connection.execute("UPDATE HISTORY SET POSITION='B=0 S=1'")
+        self.connection.commit()
+        self.router.step(self.now)
+        self.assertEqual(self.router.errors, {})
+        self.assertEqual(self.events(), [])
+        self.assertEqual(self.router.db.execute('SELECT direction FROM local_seen').fetchone()[0], -1)
+        self.local(1, at=self.now+timedelta(seconds=1))
+        self.router.step(self.now+timedelta(seconds=1))
+        self.assertEqual([e['direction'] for e in self.events()], [1])
+
+    def test_tg_replacement_skips_existing_content_then_reads_new_signal(self):
+        self.router.step(self.now)
+        replacement = self.root/'replacement.jsonl'
+        replacement.write_text('', encoding='utf-8')
+        replacement.replace(self.tg)
+        self.telegram(1)
+        self.router.step(self.now)
+        self.assertEqual(self.router.errors, {})
+        self.assertEqual(self.events(), [])
+        self.telegram(-1, at=self.now+timedelta(seconds=1), message_id=2)
+        self.router.step(self.now+timedelta(seconds=1))
+        self.assertEqual([e['direction'] for e in self.events()], [-1])
+
+    def test_tg_truncate_and_regrow_beyond_saved_offset_skips_old_content(self):
+        self.telegram(1)
+        self.router.step(self.now)
+        self.tg.write_bytes(b'')
+        self.telegram(-1, message_id=22)
+        self.assertGreater(self.tg.stat().st_size, self.router.get('tg_cursor')['offset'])
+        self.router.step(self.now)
+        self.assertEqual(self.router.errors, {})
+        self.assertEqual(self.events(), [])
+        self.telegram(1, at=self.now+timedelta(seconds=1), message_id=23)
+        self.router.step(self.now+timedelta(seconds=1))
+        self.assertEqual([e['direction'] for e in self.events()], [1])
+
+    def test_tg_truncation_recovers_without_replaying_partial_baseline(self):
+        self.telegram(1)
+        self.router.step(self.now)
+        self.tg.write_bytes(b'')
+        self.telegram(-1, partial=True)
+        self.router.step(self.now)
+        with self.tg.open('a') as handle:
+            handle.write('\n')
+        self.router.step(self.now)
+        self.assertEqual(self.events(), [])
+        self.telegram(1, at=self.now+timedelta(seconds=1), message_id=2)
+        self.router.step(self.now+timedelta(seconds=1))
+        self.assertEqual([e['direction'] for e in self.events()], [1])
 
 
     def test_two_accounts_execute_local_once_and_ignore_delayed_tg(self):

@@ -83,7 +83,8 @@ def startup_notice(engine):
     return ('【永豐2｜H3跟單啟動】\n'
         f'模式：Shioaji simulation={account.BROKER_SIMULATION}（{"模擬委託" if account.BROKER_SIMULATION else "真實下單"}）。\n'
         f'核對部位{state.expected:+d}口。\n'
-        f'每輪跟H3進場{engine.broker.unit}口（H_UNIT_KEY2），不加碼；H3平倉就全平，反向先全平再依設定口數進場。\n'
+        f'基準{engine.broker.unit}口（H_UNIT_KEY2）；連輸6筆後下一筆Unit+1口，最多只加1口，回前高恢復Unit。\n'
+        f'目前連輸{engine.sizing().loss_streak}筆，下筆{engine.entry_quantity()}口；H3平倉就全平，反向先平後開。\n'
         '已移除浮盈500點／回吐30%自動平倉及同輪停利鎖限制。\n'
         '尚未設定日K均線出場；重啟不補歷史訊號、不接管舊倉；'
         '結算日沿用13:25自動換月。')
