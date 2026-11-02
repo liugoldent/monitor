@@ -1,0 +1,13 @@
+"\u9023\u7dda\u4e8b\u4ef6\uff1acode=0 source=login"
+"\u9023\u7dda\u4e8b\u4ef6\uff1acode=3001 source=quote"
+"\u9023\u7dda\u4e8b\u4ef6\uff1acode=0 source=login"
+"\u9023\u7dda\u4e8b\u4ef6\uff1acode=3003 source=quote"
+"\u9023\u7dda\u4e8b\u4ef6\uff1acode=5001 source=login"
+{"mode": "read_only", "account": "***2899", "message_1019": "SK_ERROR_QUERY_IN_PROCESSING"}
+{"attempt": 1, "elapsed_s": 0.047, "status": 1, "raw": "001,\u67e5\u7121\u8cc7\u6599,F020[redacted]", "message": "001,\u67e5\u7121\u8cc7\u6599,F020[redacted]", "micro_position": 0}
+{"attempt": 2, "elapsed_s": 0.0, "status": 1019, "raw": "SK_ERROR_QUERY_IN_PROCESSING", "message": "SK_ERROR_QUERY_IN_PROCESSING", "parse_error": "\u5eab\u5b58\u67e5\u8a62\u932f\u8aa4\uff1a1019"}
+"\u5eab\u5b58\u67e5\u8a62\u5fd9\u788c\uff081019\uff09\uff1b6 \u79d2\u5f8c\u91cd\u67e5\uff0c\u7b2c 2/3 \u6b21"
+{"updated_position_method": 0, "query_busy_audit": [["inventory_query_busy", "{\"code\": 1019, \"name\": \"SK_ERROR_QUERY_IN_PROCESSING\", \"attempt\": 1}"]]}
+"\u9023\u7dda\u4e8b\u4ef6\uff1acode=3002 source=login"
+"\u9023\u7dda\u4e8b\u4ef6\uff1acode=3002 source=quote"
+{"finished": true, "orders_sent": 0}

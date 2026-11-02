@@ -1,0 +1,39 @@
+{
+  "read_only": true,
+  "order_submission": false,
+  "account_suffix": "2248",
+  "position_first": 0,
+  "position_second": 0,
+  "orders": [
+    {
+      "ActNo": "8332248",
+      "AfterQty": "0",
+      "BS": "B",
+      "BeforeQty": "0",
+      "BrokerID": "F004000",
+      "CNT": "02182885",
+      "ErrCode": "3296",
+      "ErrLength": "48",
+      "ErrMsg": "\u5f8c\u6aaf:\u539f\u5e63\u4fdd\u8b49\u91d1\u4e0d\u8db3\uff0c\u4e0d\u8db334950.00\u5143",
+      "FrontOffice": "4",
+      "IB": "",
+      "OrderFunc": "I",
+      "OrderNo": "cA000",
+      "PositionEffect": "O",
+      "Price": "000000.00",
+      "PriceFlag": "1",
+      "ReportTime": "233253299",
+      "SendTime": "",
+      "SubAccount": "126",
+      "Symbol": "TMFJ6",
+      "TaiCode": "",
+      "Temp": "",
+      "TimeInForce": "I",
+      "TradeDate": "20261015",
+      "TradeHour": "P",
+      "WEBID": "167"
+    }
+  ],
+  "deals": [],
+  "trade_count": 1
+}

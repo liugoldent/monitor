@@ -1,0 +1,13 @@
+{
+  "mode": "read_only",
+  "account_suffix": "2899",
+  "quote_code": "TM2610",
+  "settle_ym": "202610",
+  "micro_position": 0,
+  "replay_complete": true,
+  "report_count": 13,
+  "pending_order": true,
+  "orders_sent": 0,
+  "report_account_exact_match": false,
+  "reports": []
+}

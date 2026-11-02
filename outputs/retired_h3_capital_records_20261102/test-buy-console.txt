@@ -1,0 +1,10 @@
+{"product": "微型台指期貨", "month": "202610", "side": "buy", "quantity": 1, "price_type": "market", "time_in_force": "IOC", "open_close": "new"}
+連線事件：code=0 source=login
+連線事件：code=3001 source=quote
+連線事件：code=0 source=login
+連線事件：code=3003 source=quote
+連線事件：code=5001 source=login
+{"sdk_code": 683724120, "sdk_message": "SKAPI5737889620120176182042688"}
+{"sdk_code": 683724120, "sdk_message": "SKAPI5737889620120176182042688", "proxy_reports": [{"stamp": 0, "code": 0, "message": "1000 ( [LOGIN] ) Pending Order OrderNo:   SeqNo:   ORKEY: SKAPI5737889620120176182042688"}], "order_reports": [{"Type": "N", "OrderErr": "Y", "ComId": "TM2610", "Qty": "1", "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"}, {"Type": "N", "OrderErr": "Y", "ComId": "TM2610", "Qty": "1", "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"}, {"Type": "N", "OrderErr": "Y", "ComId": "TM2610", "Qty": "1", "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"}, {"Type": "N", "OrderErr": "Y", "ComId": "TM2610", "Qty": "1", "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"}, {"Type": "N", "OrderErr": "Y", "ComId": "TM2610", "Qty": "1", "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"}, {"Type": "N", "OrderErr": "Y", "ComId": "TM2610", "Qty": "1", "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"}, {"Type": "N", "OrderErr": "Y", "ComId": "TM2610", "Qty": "1", "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"}]}
+連線事件：code=3002 source=login
+連線事件：code=3002 source=quote

@@ -1,0 +1,62 @@
+{
+  "sdk_code": 683724120,
+  "sdk_message": "SKAPI5737889620120176182042688",
+  "proxy_reports": [
+    {
+      "stamp": 0,
+      "code": 0,
+      "message": "1000 ( [LOGIN] ) Pending Order OrderNo:   SeqNo:   ORKEY: SKAPI5737889620120176182042688"
+    }
+  ],
+  "order_reports": [
+    {
+      "Type": "N",
+      "OrderErr": "Y",
+      "ComId": "TM2610",
+      "Qty": "1",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "Type": "N",
+      "OrderErr": "Y",
+      "ComId": "TM2610",
+      "Qty": "1",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "Type": "N",
+      "OrderErr": "Y",
+      "ComId": "TM2610",
+      "Qty": "1",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "Type": "N",
+      "OrderErr": "Y",
+      "ComId": "TM2610",
+      "Qty": "1",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "Type": "N",
+      "OrderErr": "Y",
+      "ComId": "TM2610",
+      "Qty": "1",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "Type": "N",
+      "OrderErr": "Y",
+      "ComId": "TM2610",
+      "Qty": "1",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "Type": "N",
+      "OrderErr": "Y",
+      "ComId": "TM2610",
+      "Qty": "1",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    }
+  ]
+}

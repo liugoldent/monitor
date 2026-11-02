@@ -1,8 +1,0 @@
-.env
-!.env.example
-h-config.json
-runtime/
-.venv/
-*.dll
-*.pfx
-*.log

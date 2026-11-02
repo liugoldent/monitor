@@ -1,0 +1,39 @@
+{
+  "mode": "read_only",
+  "orders_sent": 0,
+  "account_suffix": "2899",
+  "login_ok": true,
+  "replay_complete": true,
+  "contract_valid": true,
+  "position_first": 0,
+  "position_second": 0,
+  "no_working_micro_orders": true,
+  "reports": [],
+  "rights_status": 0,
+  "rights": [
+    {
+      "Equity": "0",
+      "ExcessMargin": "0",
+      "AccountBalance": "0",
+      "InitialMargin": "0",
+      "OrderMargin": "0"
+    },
+    {
+      "Equity": "0",
+      "ExcessMargin": "0",
+      "AccountBalance": "0",
+      "InitialMargin": "0",
+      "OrderMargin": "0"
+    }
+  ],
+  "audit": [
+    [
+      "inventory_query_busy",
+      {
+        "code": 1019,
+        "name": "SK_ERROR_QUERY_IN_PROCESSING",
+        "attempt": 1
+      }
+    ]
+  ]
+}

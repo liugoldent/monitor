@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $nativeErrors = @()
 foreach ($nativeScript in @('capital-h3-service.ps1', 'kgi-h3-service.ps1')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $nativeScript))) { continue }
     try { & (Join-Path $PSScriptRoot $nativeScript) -Action Stop }
     catch { $nativeErrors += "${nativeScript}: $($_.Exception.Message)" }
 }

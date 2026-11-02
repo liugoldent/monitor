@@ -1,0 +1,11 @@
+{
+  "environment": "production",
+  "read_only": true,
+  "exit_code": 0,
+  "diagnostic_passed": true,
+  "order_submitted": false,
+  "safe_output": [
+    "凱基帳戶末碼 2248；TMFJ6 淨庫存 +0 口。",
+    "未確認委託阻擋：False；此模式未送單。"
+  ]
+}

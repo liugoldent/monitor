@@ -1,0 +1,12 @@
+{
+  "environment": "simulation",
+  "product": "TMFJ6",
+  "action": "BUY",
+  "quantity": 1,
+  "price_type": "MKT",
+  "time_in_force": "IOC",
+  "submission_attempted": false,
+  "confirmed": false,
+  "error_type": "TradingError",
+  "pending_order_guard": false
+}

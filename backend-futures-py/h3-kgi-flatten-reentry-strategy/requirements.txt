@@ -1,2 +1,0 @@
-# The explicit close/open adapter is verified against this exact SDK source.
-kgisuperpy==2.1.2

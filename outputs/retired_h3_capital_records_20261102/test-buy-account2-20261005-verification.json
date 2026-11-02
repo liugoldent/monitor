@@ -1,0 +1,31 @@
+{
+  "tested_key": "SKAPI5391140180123004184724232",
+  "reports": [
+    {
+      "KeyNo": "2315616462211",
+      "SeqNo": "2315616462211",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    }
+  ],
+  "new_reports": [
+    {
+      "KeyNo": "2315616462211",
+      "SeqNo": "2315616462211",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    }
+  ],
+  "inventory_status": 1,
+  "inventory_raw": "001,查無資料,[ACCOUNT]"
+}

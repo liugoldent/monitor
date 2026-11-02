@@ -1,0 +1,12 @@
+{
+  "read_only_broker_calls": true,
+  "order_submission": false,
+  "signal_watcher_started": false,
+  "account_suffix": "2248",
+  "reconciled_rejection": true,
+  "pending_after": false,
+  "position_after": 0,
+  "error_code": "3296",
+  "zero_fills": true,
+  "proof_source": "broker_replay_rejection"
+}

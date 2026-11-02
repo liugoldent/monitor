@@ -1,0 +1,95 @@
+{
+  "tested_key": "SKAPI5737889620120176182042688",
+  "reports": [
+    {
+      "KeyNo": "2315616336345",
+      "SeqNo": "2315616336345",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "KeyNo": "2315616367648",
+      "SeqNo": "2315616367648",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "KeyNo": "2315616366157",
+      "SeqNo": "2315616366157",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "KeyNo": "2315616373234",
+      "SeqNo": "2315616373234",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "KeyNo": "2315616410518",
+      "SeqNo": "2315616410518",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "KeyNo": "2315616434760",
+      "SeqNo": "2315616434760",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "KeyNo": "2315616459229",
+      "SeqNo": "2315616459229",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    },
+    {
+      "KeyNo": "2315616462185",
+      "SeqNo": "2315616462185",
+      "OrderNo": "00000",
+      "TradeDate": "20261005",
+      "Type": "N",
+      "OrderErr": "Y",
+      "Qty": "1",
+      "ComId": "TM2610",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !"
+    }
+  ],
+  "inventory_status": 1,
+  "inventory_raw": "001,查無資料,[ACCOUNT]"
+}

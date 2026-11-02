@@ -15,8 +15,7 @@ from zoneinfo import ZoneInfo
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
 LEGACY = BACKEND / 'h3-flatten-reentry-strategy'
-sys.path.insert(0, str(BACKEND / 'h3-capital-flatten-reentry-strategy'))
-sys.path.insert(0, str(LEGACY))
+sys.path.insert(0, str(BACKEND / 'h3-common'))
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BASE))
 

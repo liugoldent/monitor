@@ -1,0 +1,322 @@
+連線事件：code=0 source=login
+連線事件：code=3001 source=quote
+連線事件：code=0 source=login
+連線事件：code=3003 source=quote
+連線事件：code=5001 source=login
+群益微型台指商品清單：
+[
+  {
+    "market": 2,
+    "name": "微台近",
+    "quote_code": "TM0000AM",
+    "order_code": "TM0000AM",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610",
+    "quote_code": "TM2610AM",
+    "order_code": "TM2610AM",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2611",
+    "quote_code": "TM2611AM",
+    "order_code": "TM2611AM",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2612",
+    "quote_code": "TM2612AM",
+    "order_code": "TM2612AM",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2703",
+    "quote_code": "TM2703AM",
+    "order_code": "TM2703AM",
+    "expiry": "20270317"
+  },
+  {
+    "market": 2,
+    "name": "微台2706",
+    "quote_code": "TM2706AM",
+    "order_code": "TM2706AM",
+    "expiry": "20270616"
+  },
+  {
+    "market": 2,
+    "name": "微台2709",
+    "quote_code": "TM2709AM",
+    "order_code": "TM2709AM",
+    "expiry": "20270916"
+  },
+  {
+    "market": 2,
+    "name": "微台近",
+    "quote_code": "TM0000",
+    "order_code": "TM0000",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610",
+    "quote_code": "TM2610",
+    "order_code": "TM2610",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2611",
+    "quote_code": "TM2611",
+    "order_code": "TM2611",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2612",
+    "quote_code": "TM2612",
+    "order_code": "TM2612",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2703",
+    "quote_code": "TM2703",
+    "order_code": "TM2703",
+    "expiry": "20270317"
+  },
+  {
+    "market": 2,
+    "name": "微台2706",
+    "quote_code": "TM2706",
+    "order_code": "TM2706",
+    "expiry": "20270616"
+  },
+  {
+    "market": 2,
+    "name": "微台2709",
+    "quote_code": "TM2709",
+    "order_code": "TM2709",
+    "expiry": "20270916"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2611",
+    "quote_code": "TM2610/2611AM",
+    "order_code": "TM2610/2611AM",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2612",
+    "quote_code": "TM2610/2612AM",
+    "order_code": "TM2610/2612AM",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2703",
+    "quote_code": "TM2610/2703AM",
+    "order_code": "TM2610/2703AM",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2706",
+    "quote_code": "TM2610/2706AM",
+    "order_code": "TM2610/2706AM",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2709",
+    "quote_code": "TM2610/2709AM",
+    "order_code": "TM2610/2709AM",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2612",
+    "quote_code": "TM2611/2612AM",
+    "order_code": "TM2611/2612AM",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2703",
+    "quote_code": "TM2611/2703AM",
+    "order_code": "TM2611/2703AM",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2706",
+    "quote_code": "TM2611/2706AM",
+    "order_code": "TM2611/2706AM",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2709",
+    "quote_code": "TM2611/2709AM",
+    "order_code": "TM2611/2709AM",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2612/2703",
+    "quote_code": "TM2612/2703AM",
+    "order_code": "TM2612/2703AM",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2612/2706",
+    "quote_code": "TM2612/2706AM",
+    "order_code": "TM2612/2706AM",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2612/2709",
+    "quote_code": "TM2612/2709AM",
+    "order_code": "TM2612/2709AM",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2703/2706",
+    "quote_code": "TM2703/2706AM",
+    "order_code": "TM2703/2706AM",
+    "expiry": "20270317"
+  },
+  {
+    "market": 2,
+    "name": "微台2703/2709",
+    "quote_code": "TM2703/2709AM",
+    "order_code": "TM2703/2709AM",
+    "expiry": "20270317"
+  },
+  {
+    "market": 2,
+    "name": "微台2706/2709",
+    "quote_code": "TM2706/2709AM",
+    "order_code": "TM2706/2709AM",
+    "expiry": "20270616"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2611",
+    "quote_code": "TM2610/2611",
+    "order_code": "TM2610/2611",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2612",
+    "quote_code": "TM2610/2612",
+    "order_code": "TM2610/2612",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2703",
+    "quote_code": "TM2610/2703",
+    "order_code": "TM2610/2703",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2706",
+    "quote_code": "TM2610/2706",
+    "order_code": "TM2610/2706",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2610/2709",
+    "quote_code": "TM2610/2709",
+    "order_code": "TM2610/2709",
+    "expiry": "20261021"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2612",
+    "quote_code": "TM2611/2612",
+    "order_code": "TM2611/2612",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2703",
+    "quote_code": "TM2611/2703",
+    "order_code": "TM2611/2703",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2706",
+    "quote_code": "TM2611/2706",
+    "order_code": "TM2611/2706",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2611/2709",
+    "quote_code": "TM2611/2709",
+    "order_code": "TM2611/2709",
+    "expiry": "20261118"
+  },
+  {
+    "market": 2,
+    "name": "微台2612/2703",
+    "quote_code": "TM2612/2703",
+    "order_code": "TM2612/2703",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2612/2706",
+    "quote_code": "TM2612/2706",
+    "order_code": "TM2612/2706",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2612/2709",
+    "quote_code": "TM2612/2709",
+    "order_code": "TM2612/2709",
+    "expiry": "20261216"
+  },
+  {
+    "market": 2,
+    "name": "微台2703/2706",
+    "quote_code": "TM2703/2706",
+    "order_code": "TM2703/2706",
+    "expiry": "20270317"
+  },
+  {
+    "market": 2,
+    "name": "微台2703/2709",
+    "quote_code": "TM2703/2709",
+    "order_code": "TM2703/2709",
+    "expiry": "20270317"
+  },
+  {
+    "market": 2,
+    "name": "微台2706/2709",
+    "quote_code": "TM2706/2709",
+    "order_code": "TM2706/2709",
+    "expiry": "20270616"
+  }
+]
+庫存查詢回傳碼： 1
+庫存原始資料（含帳號，請勿直接分享）： 001,查無資料,F0200006008770
+委託回補筆數： 7
+此模式只查詢，未送出委託。
+連線事件：code=3002 source=login
+連線事件：code=3002 source=quote

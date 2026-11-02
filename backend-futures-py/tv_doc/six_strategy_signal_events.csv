@@ -1426,3 +1426,5 @@ received_at,message_time,account,strategy_code,raw_strategy_code,strategy_name,p
 2026-11-02 09:22:43,2026-11-02 09:22:32,6008770,CFCTX16m,CFCTX16m,財神列車16號,0,1,enter,bull,1,《策略》CFCTX16m《倉位》0.0 -> 1.0
 2026-11-02 09:25:40,2026-11-02 09:25:39,6008770,CFCCPm,CFCCPm,財神列車6號,0,1,enter,bull,1,《策略》CFCCPm《倉位》0.0 -> 1.0
 2026-11-02 09:46:02,2026-11-02 09:46:01,6008770,CFCTX23m,CFCTX23m,財神列車23號,1,0,exit,bull,1,《策略》CFCTX23m《倉位》1.0 -> 0.0
+2026-11-02 15:40:14,2026-11-02 15:40:13,6008770,CFCCPm,CFCCPm,財神列車6號,1,-1,reverse,bear,1,《策略》CFCCPm《倉位》1.0 -> -1.0
+2026-11-02 15:42:18,2026-11-02 15:42:17,6008770,CFCTX17m,CFCTX17m,財神列車17號,0,-1,enter,bear,1,《策略》CFCTX17m《倉位》0.0 -> -1.0

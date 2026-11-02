@@ -1,0 +1,32 @@
+{
+  "mode": "read_only",
+  "account_suffix": "2899",
+  "report_account_exact_match": true,
+  "replay_complete": true,
+  "reports": [
+    {
+      "KeyNo": "2315617343305",
+      "SeqNo": "2315617343305",
+      "MarketType": "TF",
+      "Type": "N",
+      "OrderErr": "Y",
+      "BuySell": "BNI10",
+      "ComId": "TM2610",
+      "ComId1": "FITM",
+      "YearMonth1": "202610",
+      "OrderNo": "00000",
+      "Qty": "1",
+      "Date": "20261012",
+      "Time": "09:17:09",
+      "TradeDate": "20261012",
+      "Agent": "y",
+      "PreOrder": "A",
+      "OrderEffective": "20261012",
+      "OrderSeq": "",
+      "OkSeq": "",
+      "ErrorMsg": "[060] 此投資人個幣保證金不足  不可下單 !",
+      "ExchangeTandemMsg": ""
+    }
+  ],
+  "orders_sent": 0
+}

@@ -6,6 +6,8 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import time
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'h3-common'))
 
 from h_core import OrderRejected, TradingError, execute_h, parse_signal
 from h3_entry_watch import (Curve, ENTRY, RECOVERY, RULE_VERSION, WatchError,
