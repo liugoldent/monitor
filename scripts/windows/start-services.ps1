@@ -114,6 +114,7 @@ foreach ($requiredFile in @(
     (Join-Path $backendDir '.env'),
     (Join-Path $backendDir 'Sinopac.pfx'),
     $watchScript
+    (Join-Path $PSScriptRoot 'frontend-service.ps1')
 )) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "Required file is missing: $requiredFile"
@@ -199,6 +200,8 @@ try {
     }
     $env:BUILDX_BUILDER = $previousBuilder
 }
+
+& (Join-Path $PSScriptRoot 'frontend-service.ps1') -Action Start -NoBuild:$NoBuild
 
 $logWindows = @(
     @{ Title = 'H3 Concord + Telegram Signals'; Service = 'h3-signal-router' },

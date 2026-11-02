@@ -4,6 +4,7 @@ $sourceDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $fixture = Join-Path $PSScriptRoot ('fixture-' + [guid]::NewGuid().ToString('N'))
 $global:launcherTestCommands = [Collections.Generic.List[object]]::new()
 $global:launcherTestWindows = [Collections.Generic.List[object]]::new()
+$global:launcherTestFrontendActions = [Collections.Generic.List[string]]::new()
 function Assert-That($condition, $message) {
     if (-not $condition) { throw $message }
 }
@@ -33,11 +34,13 @@ try {
     Set-Content -LiteralPath (Join-Path $backendDir '.env') -Value '# fake'
     Set-Content -LiteralPath (Join-Path $backendDir 'Sinopac.pfx') -Value 'fake'
     Set-Content -LiteralPath (Join-Path $scriptsDir 'watch-service.ps1') -Value '# fake'
+    Set-Content -LiteralPath (Join-Path $scriptsDir 'frontend-service.ps1') -Value 'param($Action, [switch]$NoBuild); $global:launcherTestFrontendActions.Add($Action)'
     foreach ($name in @('capital-h3-service.ps1', 'kgi-h3-service.ps1')) {
         Set-Content -LiteralPath (Join-Path $scriptsDir $name) -Value 'param($Action); if ($Action -ne "Stop") { throw "Wrong native action" }'
     }
 
     & (Join-Path $scriptsDir 'start-services.ps1') -NoBuild
+    Assert-That ($global:launcherTestFrontendActions[0] -eq 'Start') 'Frontend was not started.'
     $ups = @($global:launcherTestCommands | Where-Object { $_ -contains 'up' })
     Assert-That ($ups.Count -eq 1) 'Expected exactly one Compose up.'
     foreach ($service in @('h3-signal-router', 'h3-flatten-reentry-strategy', 'h3-profit-protection-strategy')) {
@@ -52,6 +55,7 @@ try {
 
     $global:launcherTestCommands.Clear()
     & (Join-Path $scriptsDir 'stop-services.ps1')
+    Assert-That ($global:launcherTestFrontendActions -contains 'Stop') 'Frontend was not stopped.'
     $stops = @($global:launcherTestCommands | Where-Object { $_ -contains 'stop' })
     Assert-That ($stops.Count -eq 1) 'Expected one Compose stop.'
     foreach ($service in @('h3-signal-router', 'h3-flatten-reentry-strategy', 'h3-profit-protection-strategy')) {
@@ -67,6 +71,10 @@ try {
     catch { $reportedFailure = $_.Exception.Message -like '*fake native stop failure*' }
     Assert-That $reportedFailure 'Native stop error must be reported.'
     Assert-That (@($global:launcherTestCommands | Where-Object { $_ -contains 'stop' }).Count -eq 1) 'Native error prevented Docker shutdown.'
+    Set-Content -LiteralPath (Join-Path $scriptsDir 'frontend-service.ps1') -Value 'throw "fake frontend stop failure"'
+    $global:launcherTestCommands.Clear()
+    try { & (Join-Path $scriptsDir 'stop-services.ps1') } catch { }
+    Assert-That (@($global:launcherTestCommands | Where-Object { $_ -contains 'stop' }).Count -eq 1) 'Frontend error prevented Docker shutdown.'
     Write-Host 'PASS: router and both strategies start/stop; seven log tabs; native failure still stops Docker.'
 } finally {
     foreach ($name in @('docker', 'wt.exe', 'Start-Sleep', 'Start-Process', 'Get-Command')) {

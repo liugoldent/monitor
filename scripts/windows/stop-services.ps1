@@ -4,6 +4,8 @@ param()
 $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $nativeErrors = @()
+try { & (Join-Path $PSScriptRoot 'frontend-service.ps1') -Action Stop }
+catch { $nativeErrors += "TX frontend: $($_.Exception.Message)" }
 foreach ($nativeScript in @('capital-h3-service.ps1', 'kgi-h3-service.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $nativeScript))) { continue }
     try { & (Join-Path $PSScriptRoot $nativeScript) -Action Stop }
@@ -34,5 +36,5 @@ try {
 }
 Write-Host 'Docker services stopped, including API_KEY and API_KEY2. Existing positions are unchanged.' -ForegroundColor Green
 if ($nativeErrors.Count) {
-    throw ("Docker services stopped, but native service shutdown needs review: " + ($nativeErrors -join '; '))
+    throw ("Docker services stopped, but local service shutdown needs review: " + ($nativeErrors -join '; '))
 }
