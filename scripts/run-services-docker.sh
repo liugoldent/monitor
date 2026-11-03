@@ -55,7 +55,7 @@ start_service "monitor-mxf" "backend-futures-py" python monitor_mxf.py
 start_service "monitor-stock-futures" "backend-futures-py" python monitor_stock_futures.py
 start_service "monitor-pocket-etf" "backend-futures-py" python monitor_pocket_etf.py
 start_service "webhook-server" "backend-futures-py" python webhook_server.py
-start_service "frontend-vue" "frontend-vue" pnpm dev --host 0.0.0.0
+# The React frontend is managed separately by scripts/windows/frontend-service.ps1.
 start_service "monitor-render-ping" "backend-futures-py" python monitor_render_ping.py
 start_service "mongo-market-api" "backend-futures-py" python mongo_market_api.py
 

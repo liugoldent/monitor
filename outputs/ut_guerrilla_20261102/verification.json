@@ -1,0 +1,6 @@
+{
+  "reconciliation": "passed",
+  "replay_transition_tests": "passed",
+  "holding_cap": "passed",
+  "no_cross_session_positions": "passed"
+}

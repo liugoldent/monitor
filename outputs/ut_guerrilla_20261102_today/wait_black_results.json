@@ -1,0 +1,126 @@
+{
+  "date": "2026-11-02",
+  "session": "day",
+  "buy_guerrilla_check": "Buy availability only; do not recheck when black closes",
+  "black_definition": "Close < Open; strictly later candle than Buy",
+  "cancel_rule": "Sell available before/on black confirmation or before queued entry cancels setup",
+  "execution": "floor(black available minute)+1 minute open",
+  "baseline": {
+    "trades": 8,
+    "gross_profit": 193.0,
+    "gross_loss": 65.0,
+    "gross": 128.0,
+    "net2": 112.0,
+    "net4": 96.0,
+    "net8": 64.0,
+    "pf_net4": 2.2467532467532467,
+    "win_rate_net4": 0.625,
+    "mean_net4": 12.0,
+    "max_closed_drawdown_net4": 37.0,
+    "one_way_turnover": 16,
+    "ending_position": 0,
+    "unrealized": 0.0,
+    "best_trade_net4": 81.0,
+    "worst_trade_net4": -35.0
+  },
+  "wait_black": {
+    "trades": 7,
+    "gross_profit": 146.0,
+    "gross_loss": 18.0,
+    "gross": 128.0,
+    "net2": 114.0,
+    "net4": 100.0,
+    "net8": 72.0,
+    "pf_net4": 4.333333333333333,
+    "win_rate_net4": 0.5714285714285714,
+    "mean_net4": 14.285714285714286,
+    "max_closed_drawdown_net4": 20.0,
+    "one_way_turnover": 14,
+    "ending_position": 0,
+    "unrealized": 0.0,
+    "best_trade_net4": 47.0,
+    "worst_trade_net4": -12.0
+  },
+  "setups": 8,
+  "cancelled": 1,
+  "decisions": [
+    {
+      "signal_time": "2026-11-02 11:12:00",
+      "g_at_buy": 609,
+      "baseline_entry": "2026-11-02 11:14:00",
+      "status": "entered",
+      "black_time": "2026-11-02 11:13:00",
+      "entry_t": "2026-11-02 11:15:00",
+      "exit_t": "2026-11-02 11:20:00",
+      "net4": 9.0
+    },
+    {
+      "signal_time": "2026-11-02 11:27:00",
+      "g_at_buy": 704,
+      "baseline_entry": "2026-11-02 11:29:00",
+      "status": "entered",
+      "black_time": "2026-11-02 11:32:00",
+      "entry_t": "2026-11-02 11:34:00",
+      "exit_t": "2026-11-02 11:44:00",
+      "net4": 47.0
+    },
+    {
+      "signal_time": "2026-11-02 12:11:00",
+      "g_at_buy": 786,
+      "baseline_entry": "2026-11-02 12:13:00",
+      "status": "entered",
+      "black_time": "2026-11-02 12:12:00",
+      "entry_t": "2026-11-02 12:14:00",
+      "exit_t": "2026-11-02 12:15:00",
+      "net4": 27.0
+    },
+    {
+      "signal_time": "2026-11-02 12:14:00",
+      "g_at_buy": 716,
+      "baseline_entry": "2026-11-02 12:16:00",
+      "status": "entered",
+      "black_time": "2026-11-02 12:15:00",
+      "entry_t": "2026-11-02 12:17:00",
+      "exit_t": "2026-11-02 12:20:00",
+      "net4": -10.0
+    },
+    {
+      "signal_time": "2026-11-02 12:20:00",
+      "g_at_buy": 619,
+      "baseline_entry": "2026-11-02 12:22:00",
+      "status": "entered",
+      "black_time": "2026-11-02 12:21:00",
+      "entry_t": "2026-11-02 12:23:00",
+      "exit_t": "2026-11-02 12:33:00",
+      "net4": 47.0
+    },
+    {
+      "signal_time": "2026-11-02 12:40:00",
+      "g_at_buy": 1042,
+      "baseline_entry": "2026-11-02 12:42:00",
+      "status": "cancelled",
+      "reason": "sell_before_or_on_black",
+      "sell_signal_time": "2026-11-02 12:41:00"
+    },
+    {
+      "signal_time": "2026-11-02 12:44:00",
+      "g_at_buy": 698,
+      "baseline_entry": "2026-11-02 12:46:00",
+      "status": "entered",
+      "black_time": "2026-11-02 12:45:00",
+      "entry_t": "2026-11-02 12:47:00",
+      "exit_t": "2026-11-02 12:52:00",
+      "net4": -12.0
+    },
+    {
+      "signal_time": "2026-11-02 12:54:00",
+      "g_at_buy": 543,
+      "baseline_entry": "2026-11-02 12:56:00",
+      "status": "entered",
+      "black_time": "2026-11-02 12:55:00",
+      "entry_t": "2026-11-02 12:57:00",
+      "exit_t": "2026-11-02 12:58:00",
+      "net4": -8.0
+    }
+  ]
+}

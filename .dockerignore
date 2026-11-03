@@ -5,6 +5,8 @@
 **/*.pyc
 **/.venv
 **/node_modules
+# The React viewer is built and managed on the Windows host, not in this image.
+tx-trading-system/
 **/.env
 **/*.pfx
 **/*.log

@@ -36,16 +36,15 @@ COPY backend-futures-py/requirements.txt backend-futures-py/requirements.txt
 RUN pip install --index-url "$PIP_INDEX_URL" --no-cache-dir --retries 5 --timeout 60 -r backend-futures-py/requirements.txt
 
 COPY backend-heyu-node/package.json backend-heyu-node/pnpm-lock.yaml backend-heyu-node/
-COPY frontend-vue/package.json frontend-vue/pnpm-lock.yaml frontend-vue/
-RUN cd backend-heyu-node && pnpm install --no-frozen-lockfile \
-    && cd /app/frontend-vue && pnpm install --no-frozen-lockfile
+# The React viewer runs as a native Windows service; no frontend is bundled here.
+RUN cd backend-heyu-node && pnpm install --no-frozen-lockfile
 
 COPY . .
 
 RUN sed -i 's/\r$//' /app/run-services.sh /app/run-trade-services.sh /app/scripts/run-services-docker.sh \
     && chmod +x /app/run-services.sh /app/run-trade-services.sh /app/scripts/run-services-docker.sh
 
-EXPOSE 8080 5050 5173
+EXPOSE 8080 5050
 
 ENTRYPOINT ["tini", "--"]
 CMD ["bash", "/app/run-services.sh"]

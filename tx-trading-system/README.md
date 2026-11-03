@@ -20,6 +20,8 @@ npm run dev
 
 也已整合到專案根目錄的 Windows 啟停工具：雙擊 `C:\Users\USER\Desktop\monitor\run-windows-services.cmd` 會隨原有服務安裝所需套件、建置並在背景啟動前端；雙擊 `stop-windows-services.cmd` 會一起停止。啟動後開啟 http://127.0.0.1:5173 。啟動器會記錄前端 PID、建立時間與絕對執行路徑，停止時只關閉驗證為本專案的程序。記錄與輸出位於 `.runtime/service.json`、`.runtime/stdout.log`、`.runtime/stderr.log`（不加入 Git）。若先前用 `npm run dev` 手動啟動，請先在該終端機按 Ctrl+C 釋放 5173，避免和背景服務衝突。原有 `-NoPull` / `-NoBuild` 參數仍可用；`-NoBuild` 需要已安裝套件及已產生的 dist。
 
+Docker 的 `monitor-app:local` 僅建置後端服務，不再依賴已移除的 `frontend-vue`。React 專案與其本機執行資料不加入 Docker 建置內容；5173 由 Windows 前端程序使用。
+
 ## 資料與對齊
 
 - 伺服器直接唯讀取用相鄰目錄 `../backend-futures-py/tv_doc/webhook_data_1min.csv` 及 `mxf_value.csv`，不複製、不修改來源。

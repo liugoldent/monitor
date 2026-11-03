@@ -1,0 +1,378 @@
+{
+  "cutoff": "2026-11-02 19:46:00",
+  "price_sha256": "e99f73669f50ee1dff1a4b231f20e053d23814d1d0a896533e76ebd52ef57cbb",
+  "guerrilla_sha256": "ce1a0a42fb170d801d76dd89e68aef084783ae08416a1e2cf500cfa9e179c7ed",
+  "threshold_periods": [
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 08:51:00",
+      "end": "2026-11-02 08:51:00",
+      "min": 645,
+      "max": 645,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 09:10:00",
+      "end": "2026-11-02 09:14:00",
+      "min": 546,
+      "max": 1429,
+      "n": 5
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 09:16:00",
+      "end": "2026-11-02 09:16:00",
+      "min": 550,
+      "max": 550,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 09:19:00",
+      "end": "2026-11-02 09:24:00",
+      "min": 558,
+      "max": 911,
+      "n": 6
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 09:27:00",
+      "end": "2026-11-02 09:31:00",
+      "min": 585,
+      "max": 892,
+      "n": 5
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 09:33:00",
+      "end": "2026-11-02 09:34:00",
+      "min": 529,
+      "max": 662,
+      "n": 2
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 09:39:00",
+      "end": "2026-11-02 09:40:00",
+      "min": 789,
+      "max": 856,
+      "n": 2
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 09:42:00",
+      "end": "2026-11-02 09:42:00",
+      "min": 553,
+      "max": 553,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 10:10:00",
+      "end": "2026-11-02 10:10:00",
+      "min": 578,
+      "max": 578,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 10:13:00",
+      "end": "2026-11-02 10:13:00",
+      "min": 527,
+      "max": 527,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 10:17:00",
+      "end": "2026-11-02 10:18:00",
+      "min": 570,
+      "max": 943,
+      "n": 2
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 10:23:00",
+      "end": "2026-11-02 10:23:00",
+      "min": 568,
+      "max": 568,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 10:34:00",
+      "end": "2026-11-02 10:34:00",
+      "min": 635,
+      "max": 635,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 10:43:00",
+      "end": "2026-11-02 10:43:00",
+      "min": 652,
+      "max": 652,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 10:59:00",
+      "end": "2026-11-02 11:00:00",
+      "min": 513,
+      "max": 516,
+      "n": 2
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 11:03:00",
+      "end": "2026-11-02 11:23:00",
+      "min": 509,
+      "max": 856,
+      "n": 21
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 11:25:00",
+      "end": "2026-11-02 13:02:00",
+      "min": 536,
+      "max": 1616,
+      "n": 98
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 13:12:00",
+      "end": "2026-11-02 13:14:00",
+      "min": 535,
+      "max": 642,
+      "n": 3
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 13:25:00",
+      "end": "2026-11-02 13:27:00",
+      "min": 509,
+      "max": 653,
+      "n": 3
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 13:32:00",
+      "end": "2026-11-02 13:38:00",
+      "min": 507,
+      "max": 719,
+      "n": 7
+    },
+    {
+      "session": "day",
+      "condition": "above500",
+      "start": "2026-11-02 13:40:00",
+      "end": "2026-11-02 13:44:00",
+      "min": 676,
+      "max": 784,
+      "n": 5
+    },
+    {
+      "session": "day",
+      "condition": "below_minus500",
+      "start": "2026-11-02 08:45:00",
+      "end": "2026-11-02 08:45:00",
+      "min": -1238,
+      "max": -1238,
+      "n": 1
+    },
+    {
+      "session": "day",
+      "condition": "below_minus500",
+      "start": "2026-11-02 08:57:00",
+      "end": "2026-11-02 08:58:00",
+      "min": -643,
+      "max": -600,
+      "n": 2
+    },
+    {
+      "session": "day",
+      "condition": "below_minus500",
+      "start": "2026-11-02 10:02:00",
+      "end": "2026-11-02 10:02:00",
+      "min": -559,
+      "max": -559,
+      "n": 1
+    },
+    {
+      "session": "night",
+      "condition": "above500",
+      "start": "2026-11-02 15:00:00",
+      "end": "2026-11-02 15:00:00",
+      "min": 954,
+      "max": 954,
+      "n": 1
+    },
+    {
+      "session": "night",
+      "condition": "below_minus500",
+      "start": "2026-11-02 15:45:00",
+      "end": "2026-11-02 15:49:00",
+      "min": -610,
+      "max": -514,
+      "n": 5
+    },
+    {
+      "session": "night",
+      "condition": "below_minus500",
+      "start": "2026-11-02 16:23:00",
+      "end": "2026-11-02 16:23:00",
+      "min": -521,
+      "max": -521,
+      "n": 1
+    },
+    {
+      "session": "night",
+      "condition": "below_minus500",
+      "start": "2026-11-02 16:56:00",
+      "end": "2026-11-02 17:00:00",
+      "min": -658,
+      "max": -590,
+      "n": 5
+    }
+  ],
+  "summary": [
+    {
+      "session": "2026-11-02 08:45:00",
+      "side": 1,
+      "trades": 8,
+      "gross_profit": 193.0,
+      "gross_loss": 65.0,
+      "gross": 128.0,
+      "net2": 112.0,
+      "net4": 96.0,
+      "net8": 64.0,
+      "pf_net4": 2.2467532467532467,
+      "win_rate_net4": 0.625,
+      "mean_net4": 12.0,
+      "max_closed_drawdown_net4": 37.0,
+      "one_way_turnover": 16,
+      "ending_position": 0,
+      "unrealized": 0.0,
+      "best_trade_net4": 81.0,
+      "worst_trade_net4": -35.0
+    }
+  ],
+  "open_positions": [],
+  "issues": [],
+  "missing_price_minutes": [
+    "2026-11-02 17:29:00",
+    "2026-11-02 17:30:00",
+    "2026-11-02 17:31:00",
+    "2026-11-02 17:32:00",
+    "2026-11-02 17:33:00",
+    "2026-11-02 17:34:00",
+    "2026-11-02 17:35:00",
+    "2026-11-02 17:36:00",
+    "2026-11-02 17:37:00",
+    "2026-11-02 17:38:00",
+    "2026-11-02 17:39:00"
+  ],
+  "accepted_candidates": [
+    {
+      "bucket": "2026-11-02 11:12:00",
+      "direction": 1,
+      "g": 609,
+      "g_time": "2026-11-02 11:12:00",
+      "fill_t": "2026-11-02 11:14:00",
+      "fill": 45172,
+      "valid_fill": true,
+      "warm_count": 2480
+    },
+    {
+      "bucket": "2026-11-02 11:27:00",
+      "direction": 1,
+      "g": 704,
+      "g_time": "2026-11-02 11:27:00",
+      "fill_t": "2026-11-02 11:29:00",
+      "fill": 45195,
+      "valid_fill": true,
+      "warm_count": 2495
+    },
+    {
+      "bucket": "2026-11-02 12:11:00",
+      "direction": 1,
+      "g": 786,
+      "g_time": "2026-11-02 12:11:00",
+      "fill_t": "2026-11-02 12:13:00",
+      "fill": 45227,
+      "valid_fill": true,
+      "warm_count": 2539
+    },
+    {
+      "bucket": "2026-11-02 12:14:00",
+      "direction": 1,
+      "g": 716,
+      "g_time": "2026-11-02 12:14:00",
+      "fill_t": "2026-11-02 12:16:00",
+      "fill": 45231,
+      "valid_fill": true,
+      "warm_count": 2542
+    },
+    {
+      "bucket": "2026-11-02 12:20:00",
+      "direction": 1,
+      "g": 619,
+      "g_time": "2026-11-02 12:20:00",
+      "fill_t": "2026-11-02 12:22:00",
+      "fill": 45224,
+      "valid_fill": true,
+      "warm_count": 2548
+    },
+    {
+      "bucket": "2026-11-02 12:40:00",
+      "direction": 1,
+      "g": 1042,
+      "g_time": "2026-11-02 12:40:00",
+      "fill_t": "2026-11-02 12:42:00",
+      "fill": 45252,
+      "valid_fill": true,
+      "warm_count": 2568
+    },
+    {
+      "bucket": "2026-11-02 12:44:00",
+      "direction": 1,
+      "g": 698,
+      "g_time": "2026-11-02 12:44:00",
+      "fill_t": "2026-11-02 12:46:00",
+      "fill": 45236,
+      "valid_fill": true,
+      "warm_count": 2572
+    },
+    {
+      "bucket": "2026-11-02 12:54:00",
+      "direction": 1,
+      "g": 543,
+      "g_time": "2026-11-02 12:54:00",
+      "fill_t": "2026-11-02 12:56:00",
+      "fill": 45275,
+      "valid_fill": true,
+      "warm_count": 2582
+    }
+  ]
+}
