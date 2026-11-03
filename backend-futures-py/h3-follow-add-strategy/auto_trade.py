@@ -22,10 +22,10 @@ def required(name):
 
 
 def position_unit():
-    unit = int(os.getenv('H_UNIT', '1'))
-    if unit < 1:
+    value = os.getenv('H_UNIT', '1')
+    if not value.isascii() or not value.isdigit() or int(value) < 1:
         raise ValueError('H_UNIT 必須是正整數')
-    return unit
+    return int(value)
 
 
 def initialize_broker_session():

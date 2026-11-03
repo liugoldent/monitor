@@ -96,12 +96,13 @@ class ManualRollover:
             raise shared.BrokerOrderError('等待舊月全平且次月只有一筆單向庫存')
         position = live[0]
         actual = shared._position_side(position) * shared._position_quantity(position)
-        if not 1 <= abs(actual) <= 2:
-            raise shared.BrokerOrderError('次月部位須為單向1或2口')
-        # With one lot, inventory cost is the new round's cost basis. For two
-        # lots the first fill is unknown, and the round has already used its add.
+        old = self.engine.state()
+        if actual != old.expected or actual == 0:
+            raise shared.BrokerOrderError('次月部位須與原持倉方向及實際口數一致')
+        # Only rounds that have not added may use the adopted inventory cost
+        # for another crossing; retain the original round's add flag.
         price = None
-        if abs(actual) == 1:
+        if not old.added:
             try:
                 price = str(number(shared._position_value(position, 'price'), positive=True))
             except ValueError:
@@ -139,7 +140,7 @@ class ManualRollover:
         except shared.BrokerOrderError:
             return self.waiting('換倉核對期間庫存或委託改變')
         state = State(expected=evidence['actual'], first_price=evidence['first_price'],
-                      added=abs(evidence['actual']) == 2,
+                      added=old.added,
                       round_key=f'manual-roll:{target}:{self.clock().isoformat()}')
         state.validate()
         detail = dict(previous_contract=row[0], previous_state=asdict(old),

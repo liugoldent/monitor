@@ -23,7 +23,7 @@ def credentials():
     if len(key) < 10:
         raise ValueError('h3-shane-use API_KEY 格式無效')
     person = required('PERSON_ID')
-    account_id = required('H3_SHANE_ACCOUNT_ID')
+    account_id = os.getenv('H3_SHANE_ACCOUNT_ID', '').strip()
     ca = Path(required('CA_PATH'))
     if not ca.is_absolute():
         ca = BASE / ca
@@ -48,8 +48,10 @@ def initialize():
     api = sj.Shioaji(simulation=BROKER_SIMULATION)
     try:
         api.login(key, secret)
-        actual = str(shared._position_value(api.futopt_account, 'account_id'))
-        if actual != account_id:
+        actual = shared._position_value(api.futopt_account, 'account_id')
+        if not actual:
+            raise ValueError('h3-shane-use 登入後沒有可用的預設期貨帳戶')
+        if account_id and str(actual) != account_id:
             raise ValueError('h3-shane-use 期貨帳號與 H3_SHANE_ACCOUNT_ID 不符')
         api.activate_ca(ca_path=str(ca), ca_passwd=person, person_id=person)
     except Exception:

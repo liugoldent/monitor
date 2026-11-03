@@ -20,32 +20,21 @@ class ShaneState(State):
 class ShaneEngine(Engine):
     state_type = ShaneState
 
-    def validate_position(self):
-        self.broker.check_rollover()
-        if self.store.pending():
-            raise LedgerError('Shane 有未確認委託，保留 guard，不重送')
-        if self.broker.position() != self.state().expected:
-            raise LedgerError('Shane 券商庫存與專用帳本不符，不接管或自動平倉')
-
     def on_signal(self, event, *, now=None):
         parsed = signal(event, now)
         if parsed is None:
             return False
-        self.validate_position()
+        if not self.consume_signal(parsed):
+            return False
         key, direction, received = parsed
-        # The established Store.consume suppresses same-direction notices for
-        # ten seconds. This policy intentionally acts on every distinct H3 ID.
-        with self.store.db:
-            if self.store.db.execute('SELECT 1 FROM signals WHERE id=?', (key,)).fetchone():
-                return False
-            self.store.db.execute('INSERT INTO signals VALUES (?,?,?,?)',
-                                  (key, direction, received, 'consumed'))
 
         def fresh():
             if signal(event) is None:
                 raise RolloverPause('H3 訊號已超過30秒，本筆尚未送出')
 
         try:
+            fresh()
+            self.adopt_signal_inventory(key)
             if self.state().expected:
                 self.order(0, 'flatten', key, ShaneState(round_key=key), fresh)
             if direction:

@@ -1,4 +1,4 @@
-"""API_KEY: follow fresh H3; add once at profit >=500 and a guerrilla crossing."""
+"""API_KEY: follow fresh H3 with H_UNIT; add one at profit >=500 and a crossing."""
 from __future__ import annotations
 
 import argparse
@@ -79,8 +79,7 @@ def check_config():
     if len(auto_trade.required('API_KEY')) < 10:
         raise TradingError('API_KEY 格式無效（少於10字元）')
     auto_trade.required('SECRET_KEY')
-    if auto_trade.position_unit() != 1:
-        raise TradingError('新策略固定第1口跟單，H_UNIT 必須為1')
+    auto_trade.position_unit()
     ca = Path(os.getenv('CA_PATH') or BACKEND / 'Sinopac.pfx')
     if not ca.is_file():
         raise TradingError('找不到 API_KEY 憑證')
@@ -138,14 +137,14 @@ def poll_guerrilla(engine, ticker, history, prices, offset):
     engine.on_sample(ticker, value, stamp.isoformat(), price, preflight)
 
 
-def startup_notice(state):
+def startup_notice(state, unit):
     return ('【API_KEY｜H3游擊策略啟動】\n'
-            f'核對部位：{position_text(state.expected)}；本輪已加碼：{"是" if state.added else "否"}。\n'
+            f'帳本部位：{position_text(state.expected)}；本輪已加碼：{"是" if state.added else "否"}。\n'
             '沿用已保存部位與加碼紀錄，不補歷史訊號；換月窗口內依保存進度自動換倉。\n'
             '結算日13:25自動先平舊月、再以同方向同口數進次月；無須手動換倉。\n'
-            '等待新H3訊號；第一口跟單，反向先全平再進1口，空手訊號全平。\n'
+            f'每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進H_UNIT={unit}口；空手訊號只全平。\n'
             '加碼：第一口當下浮盈≥500點＋股威近月或次月游擊high穿越；'
-            '多單向上穿越−1250，空單向下穿越＋1250；每輪僅加1口、最多2口。')
+            '多單向上穿越−1250，空單向下穿越＋1250；每輪僅加1口。')
 
 
 def watch(engine, poll=2):
@@ -161,9 +160,9 @@ def watch(engine, poll=2):
         time.sleep(poll)
     inventory = InventoryReporter(engine)
     inventory.startup(now_local())
-    engine.validate_position()
+    engine.validate_position(require_match=False)
     engine.reset_observations()
-    engine.notify(startup_notice(engine.state()))
+    engine.notify(startup_notice(engine.state(), engine.broker.unit))
     # API polling is asynchronous so an eight-second HTTP timeout cannot delay H3 exits.
     with ThreadPoolExecutor(max_workers=2) as executor:
         watch_loop(engine, prices, offset, identity, executor, poll, inventory)
@@ -243,6 +242,7 @@ def run_session(store, notify, poll):
             print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
         broker = PyramidBroker(api, auto_trade._sj, store, watchdog, records=RECORDS,
                                allow_pending=rollover_pending)
+        broker.unit = auto_trade.position_unit()
         symbol = ledger_symbol(store, auto_trade.shared.tmf_contract_code(api))
         broker.contract_code = symbol
         engine = Engine(store, broker, symbol, notify)

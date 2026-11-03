@@ -23,7 +23,7 @@ run-windows-services.cmd
 1. 執行 `git pull --ff-only` 拉取目前分支更新；失敗時停止啟動流程，不重啟服務。
 2. 檢查必要檔案與 Docker；群益H3、凱基H3暫停自動啟動，不檢查其 SDK 或帳戶設定。
 3. 必要時啟動 Docker Desktop並等待引擎就緒。
-4. 停止全部 EF 策略與 legacy 整合容器，必要時重新 build，啟動下列 7 個服務。
+4. 停止全部 EF 策略與 legacy 整合容器，必要時重新 build，啟動下列 8 個服務。
 5. 在 Windows Terminal 開各服務的 log 分頁；沒有 Windows Terminal 時改開 PowerShell。
 
 2026-10-18 起，一鍵啟動不再啟動群益H3或凱基H3，也不開啟兩者日誌分頁。
@@ -38,17 +38,18 @@ run-windows-services.cmd
 也使用 Shioaji 模擬帳戶（`simulation=True`），不以 `EF_PURE_FLAT_ENABLE_ORDERS` 切換。
 兩套策略移至 `ef-simulation` profile，現在都不自動啟動；程式、設定與紀錄保留。
 
-Windows 一鍵啟動會額外啟用 `h3-protection` profile，同時啟動兩個永豐策略：
+Windows 一鍵啟動會額外啟用 `h3-protection` 與 `h3-shane` profiles，同時啟動三個永豐策略。Shane 使用獨立的 `backend-futures-py/h3-shane-use/.env`，須設定 `H3_SHANE_ENABLE_ORDERS=true`；目前為模擬交易，憑證路徑可設為 `CA_PATH=Sinopac_shane.pfx`：
 
 | 服務 | 用途 |
 | --- | --- |
 | `telegram-signal-relay` | 繼續記錄 H3／EF 訊號並轉發 Discord |
-| `h3-signal-router` | 康和本機優先、TG備援，去重後供兩個永豐策略讀取（[說明](../h3-dual-source-signals.md)） |
+| `h3-signal-router` | 康和本機優先、TG備援，去重後供三個永豐策略讀取（[說明](../h3-dual-source-signals.md)） |
 | `monitor-mxf` | 籌碼、游擊資料監控與記錄 |
 | `webhook-server` | 接收並保存 TradingView 行情 |
 | `cloudflared` | 維持 TradingView webhook 對外連線 |
 | `h3-flatten-reentry-strategy` | API_KEY／SECRET_KEY H3 游擊加碼（正式帳戶） |
 | `h3-profit-protection-strategy` | API_KEY2 H3 純跟單，依 H_UNIT_KEY2 設定口數（目前正式帳戶），無浮盈回吐平倉 |
+| `h3-shane-use` | Shane H3 跟單（模擬帳戶），每筆新的方向訊號先平再進 SHANE_UNIT 口 |
 
 第一次取得新版啟動器，請先在 Windows 專案目錄執行一次 `git pull --ff-only`，再雙擊啟動器。之後可直接執行啟動器完成拉取與建置。拉取失敗時保留現有服務，不會自動 reset、stash 或覆蓋本機修改。
 
@@ -70,7 +71,7 @@ Windows 一鍵啟動會額外啟用 `h3-protection` profile，同時啟動兩個
 stop-windows-services.cmd
 ```
 
-停止總腳本會一併停止兩個永豐策略與其餘 Docker 服務，也停止群益H3及凱基H3；不自動平倉或撤單。即使原生服務停止失敗，仍會嘗試停止 Docker 服務。關閉log視窗不會停止交易服務。
+停止總腳本會一併停止 API_KEY、API_KEY2、Shane 三個永豐策略與其餘 Docker 服務，也停止群益H3及凱基H3；不自動平倉或撤單。即使原生服務停止失敗，仍會嘗試停止 Docker 服務。關閉log視窗不會停止交易服務。
 
 ## 單獨初始化 Telegram
 

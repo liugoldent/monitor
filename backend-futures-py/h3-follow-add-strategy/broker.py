@@ -35,7 +35,7 @@ class PyramidBroker(ShioajiRecoveryBroker):
             raise TradingError('游擊策略委託與 guard 不符')
         previous = payload['previous']
         if not self.valid_transition(previous, delta, phase, target):
-            raise TradingError('游擊策略僅允許跟單1口、加碼1口或全平')
+            raise TradingError('游擊策略僅允許按H_UNIT跟單、加碼1口或原口數全平')
 
         def before_order():
             self.check_rollover()
@@ -73,6 +73,7 @@ class PyramidBroker(ShioajiRecoveryBroker):
         return result.actual_position
 
     def valid_transition(self, previous, delta, phase, target):
-        return ((phase == 'flatten' and target == 0 and 1 <= abs(previous) <= 2)
-                or (phase == 'entry' and previous == 0 and abs(target) == abs(delta) == 1)
-                or (phase == 'add' and abs(previous) == abs(delta) == 1 and target == previous * 2))
+        return ((phase == 'flatten' and target == 0 and previous != 0 and delta == -previous)
+                or (phase == 'entry' and previous == 0 and abs(target) == abs(delta) == self.unit)
+                or (phase == 'add' and previous != 0 and delta == (1 if previous > 0 else -1)
+                    and target == previous + delta))

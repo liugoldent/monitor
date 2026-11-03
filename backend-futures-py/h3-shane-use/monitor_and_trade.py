@@ -10,7 +10,8 @@ from shane_bootstrap import BASE, BACKEND
 import shane_account as account
 from shane_account import ShaneBroker
 from shane_runtime import ShaneEngine
-from h_core import Store, TradingError
+from shane_status import StatusReporter, failure_status
+from h_core import Store
 from runtime import LedgerError, RolloverPause
 from rollover import ledger_symbol
 from auto_rollover import AutomaticRollover, ROLLOVER_PHASES
@@ -61,10 +62,10 @@ def watch(engine, poll):
     while not engine.broker.rollover.synchronize():
         engine.broker.check()
         time.sleep(poll)
-    engine.validate_position()
+    engine.validate_position(require_match=False)
     engine.notify(f'【Shane｜H3跟單啟動】simulation={account.BROKER_SIMULATION}；'
-                  f'核對部位 {engine.state().expected:+d} 口；'
-                  f'每筆新H3多空訊號先全平，再進 SHANE_UNIT={engine.broker.unit} 口；空手訊號全平。')
+                  f'帳本部位 {engine.state().expected:+d} 口；'
+                  f'每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進 SHANE_UNIT={engine.broker.unit} 口；空手訊號只全平。')
     while True:
         engine.broker.check()
         if not engine.broker.rollover.synchronize():
@@ -133,14 +134,17 @@ def main(argv=None):
         store = Store(STATE_PATH)
         notify = Notifications(lambda: os.getenv('DISCORD_H3_SHANE_WEBHOOK_URL', ''),
                                RECORDS / 'notifications.jsonl')
+        status = StatusReporter()
         try:
             while True:
                 try:
                     run_session(store, notify, max(0.1, float(os.getenv('H3_SHANE_POLL_SECONDS', '0.25'))))
                 except Exception as exc:
-                    reason = str(exc) if isinstance(exc, TradingError) else type(exc).__name__
-                    store.audit('shane_waiting', dict(reason=reason, pending=bool(store.pending())))
-                    print('Shane H3 等待核對：' + reason, flush=True)
+                    pending = bool(store.pending())
+                    event, message = failure_status(
+                        exc, simulation=account.BROKER_SIMULATION, pending=pending)
+                    store.audit(event, dict(reason=message, pending=pending))
+                    status.report(message)
                     time.sleep(60 if isinstance(exc, LedgerError) else 5)
         finally:
             store.db.close()

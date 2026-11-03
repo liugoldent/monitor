@@ -38,9 +38,10 @@ def reconcile_filled_order(store, api, backup_path, records):
             or current_state.expected != previous):
         raise TradingError('委託前部位與帳本不符，保持阻擋')
     quantity = abs(target - previous)
-    valid = ((phase == 'entry' and previous == 0 and abs(target) == 1)
-             or (phase == 'add' and abs(previous) == 1 and target == previous * 2)
-             or (phase == 'flatten' and 1 <= abs(previous) <= 2 and target == 0))
+    valid = ((phase == 'entry' and previous == 0 and target != 0)
+             or (phase == 'add' and previous != 0 and not current_state.added
+                 and target == previous + (1 if previous > 0 else -1))
+             or (phase == 'flatten' and previous != 0 and target == 0))
     side = 'buy' if target > previous else 'sell'
     if (not valid or payload.get('quantity') != quantity or payload.get('side') != side
             or pending.get('previous_position') != previous

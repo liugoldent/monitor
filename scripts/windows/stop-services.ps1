@@ -21,6 +21,7 @@ $services = @(
     'ef-hysteresis-again-strategy',
     'h3-flatten-reentry-strategy',
     'h3-profit-protection-strategy',
+    'h3-shane-use',
     'ef-hysteresis-total-breakout-strategy',
     'cloudflared'
 )
@@ -34,7 +35,7 @@ try {
 } finally {
     Pop-Location
 }
-Write-Host 'Docker services stopped, including API_KEY and API_KEY2. Existing positions are unchanged.' -ForegroundColor Green
+Write-Host 'Docker services stopped, including API_KEY, API_KEY2, and Shane. Existing positions are unchanged.' -ForegroundColor Green
 if ($nativeErrors.Count) {
     throw ("Docker services stopped, but local service shutdown needs review: " + ($nativeErrors -join '; '))
 }

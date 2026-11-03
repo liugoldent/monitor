@@ -67,12 +67,46 @@ class Engine:
         self.store.db.execute('UPDATE pyramid_state SET payload=? WHERE id=1',
                               (json.dumps(asdict(state)),))
 
-    def validate_position(self):
+    def validate_position(self, *, require_match=True):
         self.broker.check_rollover()
-        if self.store.pending():
+        if self.store.pending() or self.broker.guard.get('pending'):
             raise TradingError('有未確認委託，禁止重送')
-        if self.broker.position() != self.state().expected:
+        actual = self.broker.position()
+        if type(actual) is not int:
+            raise TradingError('券商庫存口數無效，不能視為空手')
+        if require_match and actual != self.state().expected:
             raise TradingError('API_KEY 庫存與游擊策略帳本不符，不接管舊倉或自動平倉')
+        return actual
+
+    def consume_signal(self, parsed):
+        # Canonical IDs deduplicate events; a distinct same-direction signal
+        # starts a new cycle even within ten seconds.
+        key, direction, received = parsed
+        with self.store.db:
+            if self.store.db.execute('SELECT 1 FROM signals WHERE id=?', (key,)).fetchone():
+                return False
+            self.store.db.execute('INSERT INTO signals VALUES (?,?,?,?)',
+                                  (key, direction, received, 'consumed'))
+        return True
+
+    def adopt_signal_inventory(self, key):
+        """Adopt a verified snapshot only for a fresh signal's flatten phase."""
+        actual = self.validate_position(require_match=False)
+        old = self.state()
+        if actual == old.expected:
+            return
+        with self.store.db:
+            if self.store.pending() or self.broker.guard.get('pending') or self.state() != old:
+                raise LedgerError('庫存同步期間帳本或委託變動，不覆蓋')
+            self.save(self.state_type(expected=actual, round_key=key))
+            self.on_external_inventory(actual)
+            self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
+                (datetime.now(timezone.utc).isoformat(), 'signal_inventory_adopted',
+                 json.dumps(dict(key=key, old_state=asdict(old), actual=actual,
+                                 sizing='external changes: incomplete round P&L excluded'))))
+
+    def on_external_inventory(self, actual):
+        pass
 
     def order(self, target, phase, key, planned, preflight=None):
         self.validate_position()
@@ -115,22 +149,19 @@ class Engine:
         parsed = signal(event, now)
         if parsed is None:
             return False
-        self.validate_position()
-        if not self.store.consume(*parsed):
+        if not self.consume_signal(parsed):
             return False
         key, direction, _ = parsed
         def fresh():
             if signal(event) is None:
-                raise TradingError('H3 訊號已超過30秒，不追單')
-        previous = self.state().expected
-        if direction and previous and (previous > 0) == (direction > 0):
-            self.store.audit('pyramid_same_direction', dict(key=key, direction=direction))
-            return True  # A repeated direction never resets this round's add flag.
+                raise RolloverPause('H3 訊號已超過30秒，不追單')
         try:
+            fresh()
+            self.adopt_signal_inventory(key)
             if self.state().expected:
-                self.order(0, 'flatten', key, State(round_key=key), fresh)
+                self.order(0, 'flatten', key, self.state_type(round_key=key), fresh)
             if direction:
-                self.order(direction, 'entry', key, State(round_key=key), fresh)
+                self.order(direction * self.broker.unit, 'entry', key, self.state_type(round_key=key), fresh)
                 if self.state().first_price is None:
                     self.notify('【API_KEY｜H3游擊策略】缺少第一口實際成交價，本輪停用加碼；出場仍跟隨H3。')
         except RolloverPause:
@@ -144,12 +175,16 @@ class Engine:
         return True
 
     def on_sample(self, ticker, value, stamp, price, preflight=None):
+        if self.validate_position(require_match=False) != self.state().expected:
+            # Manual exits wait for the next H3 signal; never add to a stale book.
+            return False
         current = self.state()
         planned, add = observe(current, ticker, value, stamp, price)
         if planned == current:
             return False
         if add:
-            self.order(current.expected * 2, 'add', 'guerrilla:' + ticker + ':' + stamp,
+            direction = 1 if current.expected > 0 else -1
+            self.order(current.expected + direction, 'add', 'guerrilla:' + ticker + ':' + stamp,
                        replace(planned, added=True), preflight)
         else:
             with self.store.db:

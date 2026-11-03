@@ -54,6 +54,14 @@ class ProtectionEngine(BaseEngine):
     def entry_quantity(self):
         return self.sizing().quantity(self.broker.unit)
 
+    def on_external_inventory(self, actual):
+        self.save_protection(Protection(h3_direction=(1 if actual > 0 else -1) if actual else 0))
+        sizing = self.sizing()
+        self.save_sizing(replace(sizing, roll_cost_points='0'))
+        self.audit_in_transaction('sizing_external_round_excluded', dict(
+            actual=actual, sizing_before=asdict(sizing),
+            reason='external inventory changed; full manual realized P&L unavailable'))
+
     def protection(self):
         try:
             row = self.store.db.execute('SELECT payload FROM profit_protection WHERE id=1').fetchone()
@@ -84,8 +92,6 @@ class ProtectionEngine(BaseEngine):
         sizing = self.sizing()
         old_protection = self.protection()
         self.broker.entry_quantity = sizing.quantity(self.broker.unit)
-        if phase == 'flatten' and old_state.first_price is None:
-            raise LedgerError('缺少原持倉成交價，不能結算連輸帳本')
         if not self.broker.valid_transition(previous, target-previous, phase, target):
             raise TradingError('永豐2只允許依連輸狀態以Unit或Unit+1進場，或原口數全平')
         protection.validate()
@@ -119,7 +125,7 @@ class ProtectionEngine(BaseEngine):
             planned = replace(planned, first_price=str(price))
             from ef_trade_runtime import now_local
             protection = replace(protection, entered_at=now_local().isoformat())
-        elif phase == 'flatten':
+        elif phase == 'flatten' and old_state.first_price is not None:
             gross = ((number(price)-number(old_state.first_price)) * (1 if previous > 0 else -1)
                      + number(old_protection.carry_points))
             sizing = sizing.close(gross, abs(previous))
@@ -137,6 +143,8 @@ class ProtectionEngine(BaseEngine):
         label = f'跟隨H3進場{abs(target)}口' if phase == 'entry' else '跟隨H3全平'
         self.notify(f'【永豐2｜H3跟單】{label}：{previous:+d} → {target:+d}口，成交與庫存已確認。')
         if phase == 'flatten':
+            if old_state.first_price is None:
+                self.notify('【永豐2｜連輸加口】本輪缺少完整進出場損益，不計輸贏；保留既有連輸與加口狀態。')
             self.notify(f'【永豐2｜連輸加口】連輸{sizing.loss_streak}筆；'
                         f'已平倉回撤{number(sizing.peak_points)-number(sizing.equity_points)}點×口；'
                         f'下筆{self.entry_quantity()}口（Unit={self.broker.unit}，'
@@ -146,15 +154,9 @@ class ProtectionEngine(BaseEngine):
         parsed = signal(event, now)
         if parsed is None:
             return False
-        self.validate_position()
-        current = self.protection()
-        if not self.store.consume(*parsed):
+        if not self.consume_signal(parsed):
             return False
         key, direction, _ = parsed
-        if (direction and direction == current.h3_direction
-                and self.state().expected):
-            self.store.audit('protection_same_round_ignored', dict(key=key, locked=current.locked))
-            return True
 
         def preflight():
             if signal(event) is None:
@@ -162,6 +164,10 @@ class ProtectionEngine(BaseEngine):
 
         next_protection = Protection(h3_direction=direction)
         try:
+            preflight()
+            self.protection()
+            self.sizing()
+            self.adopt_signal_inventory(key)
             if self.state().expected:
                 self.order(0, 'flatten', key, State(round_key=key), next_protection, preflight)
             if direction:

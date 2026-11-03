@@ -82,11 +82,10 @@ def startup_notice(engine):
     state = engine.state()
     return ('【永豐2｜H3跟單啟動】\n'
         f'模式：Shioaji simulation={account.BROKER_SIMULATION}（{"模擬委託" if account.BROKER_SIMULATION else "真實下單"}）。\n'
-        f'核對部位{state.expected:+d}口。\n'
+        f'帳本部位{state.expected:+d}口。\n'
         f'基準{engine.broker.unit}口（H_UNIT_KEY2）；連輸6筆後下一筆Unit+1口，最多只加1口，回前高恢復Unit。\n'
-        f'目前連輸{engine.sizing().loss_streak}筆，下筆{engine.entry_quantity()}口；H3平倉就全平，反向先平後開。\n'
-        '已移除浮盈500點／回吐30%自動平倉及同輪停利鎖限制。\n'
-        '尚未設定日K均線出場；重啟不補歷史訊號、不接管舊倉；'
+        f'目前連輸{engine.sizing().loss_streak}筆，下筆{engine.entry_quantity()}口；每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進場；空手訊號只全平。\n'
+        '手動改倉導致庫存不同時，該輪完整損益不明，不計連輸；尚未設定日K均線出場；重啟不補歷史訊號；'
         '結算日沿用13:25自動換月。')
 
 
@@ -96,7 +95,7 @@ def watch(engine, poll=2):
     while not engine.broker.rollover.synchronize():
         engine.broker.check()
         time.sleep(poll)
-    engine.validate_position()
+    engine.validate_position(require_match=False)
     notice = startup_notice(engine)
     print(notice, flush=True)
     engine.notify(notice)

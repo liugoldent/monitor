@@ -1,4 +1,4 @@
-"""H3 base-one / profit-500 guerrilla crossing policy. No broker imports."""
+"""H3 configured-unit / profit-500 guerrilla crossing policy. No broker imports."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
@@ -36,9 +36,9 @@ class State:
     sample_value: dict[str, str] = field(default_factory=dict)
 
     def validate(self):
-        if (type(self.expected) is not int or abs(self.expected) > 2
+        if (type(self.expected) is not int
                 or type(self.added) is not bool
-                or self.added != (abs(self.expected) == 2)
+                or (self.added and abs(self.expected) < 2)
                 or (self.expected == 0 and self.first_price is not None)):
             raise ValueError('策略部位帳本無效')
         if self.first_price is not None:
@@ -69,7 +69,7 @@ def observe(state: State, ticker: str, guerrilla, sample_at: str, price):
                     else (previous > level > value)))
     profit = ((current_price - number(state.first_price)) * direction
               if current_price is not None and state.first_price is not None else None)
-    add = bool(crossed and not state.added and abs(state.expected) == 1
+    add = bool(crossed and not state.added and state.expected != 0
                and profit is not None and profit >= PROFIT_POINTS)
     # Touching the boundary is neutral: -1300 -> -1250 -> -1200 crosses once.
     previous_values = dict(state.previous_guerrilla)

@@ -14,7 +14,8 @@ $services = @(
     'webhook-server',
     'cloudflared',
     'h3-flatten-reentry-strategy',
-    'h3-profit-protection-strategy'
+    'h3-profit-protection-strategy',
+    'h3-shane-use'
 )
 function Get-RootEnvValue([string]$Name) {
     if (-not (Test-Path -LiteralPath $rootEnvPath -PathType Leaf)) { return $null }
@@ -113,6 +114,7 @@ function Get-BuildState {
 foreach ($requiredFile in @(
     (Join-Path $backendDir '.env'),
     (Join-Path $backendDir 'Sinopac.pfx'),
+    (Join-Path $backendDir 'h3-shane-use\.env'),
     $watchScript
     (Join-Path $PSScriptRoot 'frontend-service.ps1')
 )) {
@@ -186,7 +188,7 @@ try {
             }
         }
     }
-    $composeArgs = @('compose', '--profile', 'h3-protection', '--progress', 'plain', 'up', '--detach', '--no-build')
+    $composeArgs = @('compose', '--profile', 'h3-protection', '--profile', 'h3-shane', '--progress', 'plain', 'up', '--detach', '--no-build')
     $composeArgs += $services
     & docker @composeArgs
     if ($LASTEXITCODE -ne 0) { throw "docker compose failed: $LASTEXITCODE" }
@@ -210,7 +212,8 @@ $logWindows = @(
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'H3 Follow Add LIVE - API KEY'; Service = 'h3-flatten-reentry-strategy' },
-    @{ Title = 'H3 Follow - API KEY2'; Service = 'h3-profit-protection-strategy' }
+    @{ Title = 'H3 Follow - API KEY2'; Service = 'h3-profit-protection-strategy' },
+    @{ Title = 'H3 Shane SIMULATION'; Service = 'h3-shane-use' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {
@@ -251,4 +254,4 @@ foreach ($item in $logWindows) {
     Start-Sleep -Milliseconds 300
 }
 
-Write-Host '7 Docker services launched: Concord/TG H3 router, data collection, Cloudflare, API_KEY H3 Follow Add (LIVE), and API_KEY2 H3 Follow (see startup log for broker mode). EF/Capital/KGI startup is disabled. Closing log tabs does not stop Docker services.' -ForegroundColor Green
+Write-Host '8 Docker services launched: Concord/TG H3 router, data collection, Cloudflare, API_KEY H3 Follow Add (LIVE), API_KEY2 H3 Follow (see startup log for broker mode), and Shane H3 Follow (SIMULATION). EF/Capital/KGI startup is disabled. Closing log tabs does not stop Docker services.' -ForegroundColor Green

@@ -73,11 +73,10 @@ class ShaneRuntimeTests(unittest.TestCase):
         self.assertFalse(self.engine.on_signal(event))
         self.assertEqual(self.broker.orders, [('entry', 0, 1)])
 
-    def test_unowned_inventory_blocks_orders(self):
-        self.broker.actual = 1
-        with self.assertRaises(Exception):
-            self.engine.on_signal(self.event('1', -1))
-        self.assertEqual(self.broker.orders, [])
+    def test_actual_inventory_is_fully_closed_before_entry(self):
+        self.broker.actual = 7
+        self.engine.on_signal(self.event('1', -1))
+        self.assertEqual(self.broker.orders, [('flatten', 7, 0), ('entry', 0, -1)])
 
     def test_configured_unit_and_existing_position_quantity(self):
         self.broker.unit = 3

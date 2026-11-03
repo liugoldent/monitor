@@ -27,7 +27,7 @@ class InventoryReporter:
             actual = self.engine.broker.position()
             expected = self.engine.state().expected
             snapshot.update(status='success', actual=actual, expected=expected, matches=actual == expected)
-            match = '一致' if actual == expected else '不一致，請核對；不自動調整部位'
+            match = '一致' if actual == expected else '不一致；等待新H3訊號時按券商實際庫存全平，再依UNIT進場'
             message = (f'✅【API_KEY｜H3跟單加碼｜{label}】\n'
                        f'時間：{now:%Y-%m-%d %H:%M:%S}（台北）\n'
                        f'券商微台部位：{position_text(actual)}\n'
