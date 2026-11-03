@@ -175,8 +175,10 @@ class Router:
             if confirmed:
                 self.audit('telegram_confirms_local', candidate, local_rowid=confirmed[0])
                 return
-        if last and (at <= last['at'] or direction == last['direction']):
-            self.audit('duplicate_or_older', candidate)
+        # Publish a fresh same-direction H3 notice as a distinct event. Existing
+        # account strategies ignore it; Shane's policy closes and re-enters.
+        if last and at <= last['at']:
+            self.audit('older_or_same_timestamp', candidate)
             return
         seq = self.db.execute('SELECT COALESCE(MAX(seq),0)+1 FROM outbox').fetchone()[0]
         event = dict(event='received', route='h', source='h3_dual_source',

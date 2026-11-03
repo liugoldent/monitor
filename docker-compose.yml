@@ -300,6 +300,34 @@ services:
       - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records:ro
       - ./backend-futures-py/ef-morning-weekend-hedge-strategy/runtime:/app/backend-futures-py/ef-morning-weekend-hedge-strategy/runtime
 
+  h3-shane-use:
+    <<: *runtime-safety
+    profiles: ["h3-shane"]
+    build: *app-build
+    image: *app-image
+    container_name: monitor-h3-shane-use
+    cpus: "0.40"
+    mem_limit: 768m
+    mem_reservation: 256m
+    memswap_limit: 768m
+    command: ["python", "/app/backend-futures-py/h3-shane-use/monitor_and_trade.py"]
+    working_dir: /app/backend-futures-py/h3-shane-use/runtime
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      h3-signal-router:
+        condition: service_healthy
+    volumes:
+      - ./backend-futures-py/h3-shane-use:/app/backend-futures-py/h3-shane-use:ro
+      - ./backend-futures-py/h3-shane-use/runtime:/app/backend-futures-py/h3-shane-use/runtime
+      - ./backend-futures-py/h3-shane-use/records:/app/backend-futures-py/h3-shane-use/records
+      - ./backend-futures-py/h3-follow-add-strategy:/app/backend-futures-py/h3-follow-add-strategy:ro
+      - ./backend-futures-py/h3-common:/app/backend-futures-py/h3-common:ro
+      - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
+      - ./backend-futures-py/shioaji_tmf_target.py:/app/backend-futures-py/shioaji_tmf_target.py:ro
+      - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records:ro
+
   cloudflared:
     <<: *runtime-safety
     image: cloudflare/cloudflared:latest

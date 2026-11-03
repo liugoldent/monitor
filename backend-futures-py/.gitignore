@@ -1,5 +1,6 @@
 .env
 .env.*
+!h3-shane-use/.env.example
 venv/
 .venv/
 __pycache__/

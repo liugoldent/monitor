@@ -70,5 +70,7 @@ backend-futures-py/h3-follow-add-strategy/runtime/
 backend-futures-py/h3-follow-add-strategy/records/
 backend-futures-py/h3-profit-protection-strategy/runtime/
 backend-futures-py/h3-profit-protection-strategy/records/
+backend-futures-py/h3-shane-use/runtime/
+backend-futures-py/h3-shane-use/records/
 backend-futures-py/ef-morning-weekend-hedge-strategy/runtime/
 backend-futures-py/ef-morning-weekend-hedge-strategy/records/

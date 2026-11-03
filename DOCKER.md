@@ -37,6 +37,7 @@ run-windows-services.cmd
 它會開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、`Webhook Server`、
 `Cloudflare Tunnel`、`H3 Follow Add LIVE - API KEY`、`H3 Follow - API KEY2`，以及 `H3 Concord + Telegram Signals` 共 7 個日誌頁籤。
 Windows 一鍵啟動會啟用 `h3-protection` profile，額外啟動 API_KEY2 的 H3 純跟單（2026-10-29 已切為真實下單）。
+`h3-shane-use` 是獨立的 `h3-shane` profile，需填寫其目錄內 `.env` 後明確啟動；不隨一般 Compose 或 Windows 一鍵啟動。規則與操作見 [Shane H3 跟單](backend-futures-py/h3-shane-use/README.md)。
 雙擊 `stop-windows-services.cmd` 會停止兩個永豐策略及共用 Docker 服務，不自動平倉或撤單。
 群益、凱基原生 H3 及 EF 系列都不自動啟動。
 
