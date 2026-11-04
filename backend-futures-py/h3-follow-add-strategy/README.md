@@ -1,4 +1,4 @@
-# H3 MDD 1000點加口（API_KEY）
+# H3 連輸六筆加口（API_KEY）
 
 本策略使用永豐正式帳戶 `API_KEY`／`SECRET_KEY`（`simulation=False`），初次建立帳本時以微台近一 `TMFR1` 解析實際月份，之後固定使用帳本的實際合約下單。
 
@@ -12,12 +12,12 @@ Compose 沿用服務名 `h3-flatten-reentry-strategy`，命令已切換至本目
 2026-10-18 起，本策略為唯一預設啟動的交易策略。Compose 與 Windows 一鍵啟動均保留
 Relay、MXF、Webhook、Cloudflare 與本策略共 5 個服務；EF、群益、凱基不自動啟動。
 
-## 交易規則（2026-11-03更新）
+## 交易規則（2026-11-04更新）
 
 - 已移除浮盈500點＋游擊穿越的盤中加碼；不再輪詢股威資料。
-- 使用 `mdd_runtime.MddEngine`，基準口數為 `H_UNIT`。新H3訊號先依券商實際庫存全平，確認後再進場；空手訊號只全平。同ID去重，異ID同方向仍先平後開。
-- 每次新進場讀取 `../tv_doc/h_trade.csv`，以完整H3輪次的進出場價差計算累計單口毛點數，與前高比較。**不乘口數、不扣費用、不含浮動損益**。
-- 已平倉回撤**超過 1000 點**時使用 **Unit+1**；直到累計點數回到前高，才恢復 Unit。歷史檔缺漏或完整輪次無法計價時暫停新進場。
+- 使用 `mdd_runtime.MddEngine`，基準口數為 `H_UNIT=2`。新H3訊號先依券商實際庫存全平，確認後再進場；空手訊號只全平。同ID去重，異ID同方向仍先平後開。
+- 依 API_KEY 的完整成交輪次計算單口毛點數，連輸計數自切換起算。手動改倉造成成本不完整的輪次排除。
+- 連續六筆平倉虧損後，下一筆進場為 **Unit+1（3 口）**。累計毛點數回到前高後恢復 **Unit（2 口）**。
 - `h3_mdd_sizing` 保留券商成交核對用途，與部位、guard在同一SQLite交易更新。完整成交價缺漏時保留guard，唯讀核對原單後才入帳，不重送。
 - 換月維持原口數，券商帳本保留舊月成交供核對。
 - 訊號來源為 `../telegram-relay-records/h3_signal_events.jsonl`，由獨立router提供康和優先／可信TG備援訊號，30秒內有效。啟動不補歷史、不立即調整舊倉。
@@ -35,7 +35,7 @@ H3 服務須於結算日 13:25 前運行並保持券商連線；到時由監控�
 3. 以次月實際合約進相同方向、相同口數；核對完整成交、成交價與庫存後完成換月。
 4. 原本空手時只切換帳本月份，不下單；之後等待新 H3 訊號。
 
-換月後進出場使用保存的次月實際合約；新H3進場依MDD採Unit或Unit+1。
+換月後進出場使用保存的次月實際合約；新H3進場依連輸帳本採Unit或Unit+1。
 換月本身維持原口數，不觸發額外加口。
 
 `h3_auto_rollover` 保存階段（close/open/done）；每腿有唯一 intent_id、券商 trade_id 及持久化 guard。
@@ -88,7 +88,7 @@ Relay 啟動通知只確認轉送服務已啟動，不表示 API_KEY 交易策�
 ```dotenv
 API_KEY=有效的交易帳戶API金鑰
 SECRET_KEY=同組交易帳戶Secret
-H_UNIT=1
+H_UNIT=2
 PERSON_ID=交易帳戶身分設定
 # 留空時使用 backend-futures-py/Sinopac.pfx
 CA_PATH=
@@ -127,7 +127,7 @@ docker compose logs -f h3-flatten-reentry-strategy
 `pending=False` 僅表示沒有未確認委託，不代表空手或正常跟單。
 一般交易日手動部位只在新H3訊號到來時同步全平，不在啟動或游擊觀測時自行改倉。
 
-- `runtime/api_key.sqlite`：API_KEY 策略部位、成交成本、MDD加口帳本、訊號去重與稽核；舊觀測欄位保留相容。
+- `runtime/api_key.sqlite`：API_KEY 策略部位、成交成本、連輸加口帳本、訊號去重與稽核；舊觀測欄位保留相容。
 - `../h3-flatten-reentry-strategy/runtime/monitor.lock`：版本切換鎖，防止新舊策略並行。
 - `records/api_key/entries.csv`／`records/api_key/live_order_attempts.csv`：API_KEY 實際成交與委託紀錄。
 - `records/api_key/notifications.jsonl`：沿用既有 Discord 通知與發送稽核。

@@ -22,7 +22,7 @@ def required(name):
 
 
 def position_unit():
-    value = os.getenv('H_UNIT', '1')
+    value = os.getenv('H_UNIT', '2')
     if not value.isascii() or not value.isdigit() or int(value) < 1:
         raise ValueError('H_UNIT 必須是正整數')
     return int(value)

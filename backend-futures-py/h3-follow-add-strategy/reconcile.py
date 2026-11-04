@@ -13,7 +13,7 @@ import shioaji_tmf_target as shared
 from h_core import TradingError
 from strategy import State
 from trade_records import entry_record, append_entry
-from mdd_sizing import read_sizing, save_sizing, average_fill
+from mdd_sizing import matches_order_snapshot, read_sizing, save_sizing, average_fill
 
 
 def reconcile_filled_entry(store, api, backup_path, records):
@@ -85,7 +85,7 @@ def reconcile_filled_order(store, api, backup_path, records):
     mdd_entry = entry_record(result, payload['trigger'], datetime.now().isoformat()) if mdd_before else None
     mdd_after = None
     if mdd_before is not None:
-        if asdict(read_sizing(store)) != mdd_before:
+        if not matches_order_snapshot(store, mdd_before):
             raise TradingError('MDD帳本與原委託不符，保留guard')
         mdd_after = read_sizing(store).filled(phase, current_state, average_fill(mdd_entry))
     entry = (entry_record(result, payload['trigger'], datetime.now().isoformat())
@@ -120,7 +120,7 @@ def reconcile_filled_order(store, api, backup_path, records):
         if store.pending() != payload or current != state_row or broker_row != row:
             raise TradingError('核對期間帳本已變動，保持阻擋')
         if mdd_after is not None:
-            if asdict(read_sizing(store)) != mdd_before:
+            if not matches_order_snapshot(store, mdd_before):
                 raise TradingError('核對期間MDD帳本變動，保留guard')
             save_sizing(store, mdd_after)
         store.db.execute('UPDATE pyramid_state SET symbol=?,payload=? WHERE id=1',

@@ -1,20 +1,12 @@
-"""API_KEY entry sizing from H3 history and broker-fill reconciliation."""
-import csv
+"""API_KEY entry sizing from complete broker fills."""
 from dataclasses import asdict, replace
 
 from runtime import Engine, LedgerError
-from mdd_sizing import MddSizing, read_historical_mdd, read_sizing, save_sizing
-
-
-def historical_mdd():
-    try:
-        return read_historical_mdd()
-    except (OSError, ValueError, csv.Error) as exc:
-        raise LedgerError(f'無法讀取 H3 歷史回撤，暫停新進場：{exc}') from exc
+from mdd_sizing import MddSizing, read_sizing, save_sizing
 
 
 class MddEngine(Engine):
-    strategy_label = 'H3 MDD加口'
+    strategy_label = 'H3 連輸加口'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -28,7 +20,7 @@ class MddEngine(Engine):
                 save_sizing(self.store, MddSizing())
                 self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES '
                     "(datetime('now'),'mdd_initialized',?)",
-                    ('初始化券商成交核對帳本；新進場口數使用 h_trade.csv',))
+                    ('初始化券商成交連輸帳本',))
         self.sizing()
 
     def sizing(self):
@@ -38,7 +30,7 @@ class MddEngine(Engine):
             raise LedgerError('MDD帳本無效，停止送單並保留原始紀錄') from exc
 
     def entry_quantity(self):
-        return self.broker.unit + int(historical_mdd().boosted)
+        return self.sizing().quantity(self.broker.unit)
 
     def on_external_inventory(self, actual):
         save_sizing(self.store, replace(self.sizing(), tracking=False, carry='0'))
@@ -47,7 +39,7 @@ class MddEngine(Engine):
         if payload['phase'] not in {'entry', 'flatten'}:
             raise LedgerError('MDD策略只允許H3進場與全平')
         if payload['phase'] == 'entry':
-            # Use the quantity already selected from one history snapshot.
+            # Use the quantity already selected from the confirmed fill ledger.
             self.broker.entry_quantity = payload['quantity']
         payload['mdd_before'] = asdict(self.sizing())
 

@@ -1,53 +1,10 @@
-"""Historical H3 entry sizing and the broker-fill reconciliation ledger."""
-import csv
+"""API_KEY broker-fill ledger for sizing after six consecutive losing rounds."""
 from dataclasses import asdict, dataclass, replace
-from decimal import Decimal
 import json
-from pathlib import Path
 
 from strategy import number
 
-H3_TRADE_HISTORY = Path(__file__).resolve().parents[1] / 'tv_doc/h_trade.csv'
-
-
-@dataclass(frozen=True)
-class HistoricalMdd:
-    equity: Decimal
-    peak: Decimal
-    boosted: bool
-
-    @property
-    def drawdown(self):
-        return self.peak - self.equity
-
-
-def read_historical_mdd(path=H3_TRADE_HISTORY):
-    """Replay complete CSV rounds in order using the single-lot price difference."""
-    equity = peak = Decimal(0)
-    boosted = False
-    entry = None
-    with path.open(encoding='utf-8-sig', newline='') as handle:
-        rows = csv.DictReader(handle, strict=True)
-        if not {'action', 'side', 'price'}.issubset(rows.fieldnames or ()):
-            raise ValueError('H3 歷史交易缺少 action、side 或 price 欄位')
-        for row in rows:
-            action, side = row['action'], row['side']
-            if side not in ('bull', 'bear'):
-                raise ValueError(f'H3 歷史交易第 {rows.line_num} 行方向無效')
-            if action == 'enter' and entry is None:
-                entry = row
-            elif action == 'exiting' and entry is not None and side == entry['side']:
-                try:
-                    points = number(row['price'], positive=True) - number(entry['price'], positive=True)
-                except ValueError as exc:
-                    raise ValueError(f'H3 歷史交易第 {rows.line_num} 行缺少有效的進出場價格') from exc
-                equity += points if side == 'bull' else -points
-                peak = max(peak, equity)
-                boosted = equity < peak and (boosted or peak - equity > 1000)
-                entry = None
-            else:
-                raise ValueError(f'H3 歷史交易第 {rows.line_num} 行進出場無法配對')
-    return HistoricalMdd(equity, peak, boosted)
+LOSS_THRESHOLD = 6
 
 
 @dataclass(frozen=True)
@@ -58,6 +15,7 @@ class MddSizing:
     closed_rounds: int = 0
     tracking: bool = False
     carry: str = '0'
+    loss_streak: int = 0
 
     def validate(self):
         equity, peak = number(self.equity), number(self.peak)
@@ -65,7 +23,8 @@ class MddSizing:
         if (type(self.boosted) is not bool or type(self.tracking) is not bool
                 or type(self.closed_rounds) is not int or self.closed_rounds < 0
                 or peak < max(0, equity) or (self.boosted and equity == peak)
-                or (peak - equity >= 1000 and not self.boosted)
+                or type(self.loss_streak) is not int or not 0 <= self.loss_streak <= self.closed_rounds
+                or (self.loss_streak >= LOSS_THRESHOLD and not self.boosted)
                 or (not self.tracking and number(self.carry) != 0)):
             raise ValueError('MDD加口帳本無效')
         return self
@@ -91,14 +50,32 @@ class MddSizing:
             return replace(self, carry=str(gross)).validate()
         equity = number(self.equity) + gross
         peak = max(number(self.peak), equity)
+        streak = self.loss_streak + 1 if gross < 0 else 0
         return replace(self, equity=str(equity), peak=str(peak), tracking=False, carry='0',
-                       boosted=equity < peak and (self.boosted or peak-equity >= 1000),
+                       loss_streak=streak, boosted=equity < peak and (self.boosted or streak >= LOSS_THRESHOLD),
                        closed_rounds=self.closed_rounds+1).validate()
 
 
-def read_sizing(store):
+def decode_sizing(payload):
+    if 'loss_streak' not in payload:
+        # Start the new policy at zero while preserving an in-flight round.
+        payload = dict(payload, loss_streak=0, equity='0', peak='0', boosted=False)
+    return MddSizing(**payload).validate()
+
+
+def read_sizing_payload(store):
     row = store.db.execute('SELECT payload FROM h3_mdd_sizing WHERE id=1').fetchone()
-    return MddSizing(**json.loads(row[0])).validate()
+    return json.loads(row[0])
+
+
+def read_sizing(store):
+    return decode_sizing(read_sizing_payload(store))
+
+
+def matches_order_snapshot(store, snapshot):
+    if 'loss_streak' not in snapshot:
+        return read_sizing_payload(store) == snapshot
+    return asdict(read_sizing(store)) == snapshot
 
 
 def save_sizing(store, sizing):

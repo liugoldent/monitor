@@ -1,4 +1,4 @@
-"""API_KEY: historical H3 drawdown over 1000 points uses Unit+1 until recovery."""
+"""API_KEY H3 follow strategy with sizing after six consecutive losses."""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE))
 from h_core import Store, TradingError
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
-from mdd_runtime import MddEngine as Engine, historical_mdd
+from mdd_runtime import MddEngine as Engine
 from inventory import InventoryReporter
 from ef_trade_runtime import Notifications, now_local, position_text
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
@@ -87,11 +87,11 @@ def check_config():
 
 
 def startup_notice(state, unit):
-    return ('【API_KEY｜H3 MDD加口策略啟動】\n'
+    return ('【API_KEY｜H3 連輸加口策略啟動】\n'
             f'帳本部位：{position_text(state.expected)}；Unit={unit}。\n'
-            '每筆新H3訊號先全平，再依MDD狀態進場；空手訊號只全平。\n'
-            '每次進場讀取 h_trade.csv，以完整H3輪次的單口毛點數計算回撤。\n'
-            '回撤超過1000點用Unit+1，維持到回前高；結算日13:25按原口數自動換月。')
+            '每筆新H3訊號先全平，再依連輸狀態進場；空手訊號只全平。\n'
+            '依本帳戶完整H3輪次的成交毛點數計算連輸。\n'
+            '連輸6筆後下一筆用Unit+1，維持到回前高；結算日13:25按原口數自動換月。')
 
 
 def watch(engine, poll=2):
@@ -111,7 +111,7 @@ def watch(engine, poll=2):
 
 
 def watch_loop(engine, offset, identity, poll, inventory):
-    console = ConsoleStatus('永豐1 H3 MDD加口')
+    console = ConsoleStatus('永豐1 H3 連輸加口')
     while True:
         engine.broker.check()
         if engine.broker.rollover is not None and not engine.broker.rollover.synchronize():
@@ -185,7 +185,7 @@ def supervise(store, notify, poll):
             if failure != last_failure or last_notice_at is None or notice_at - last_notice_at >= 300:
                 store.audit('pyramid_recovering', dict(reason=reason, pending=pending, retry_seconds=retry_seconds))
                 try:
-                    notify('【API_KEY｜H3 MDD加口策略復原中】' + reason
+                    notify('【API_KEY｜H3 連輸加口策略復原中】' + reason
                            + f'；程序仍在，{retry_seconds:g}秒後重新連線核對；未確認委託不重送。')
                 except Exception:
                     print('復原通知失敗，服務仍繼續重試', flush=True)
@@ -202,9 +202,8 @@ def main(argv=None):
     load_env()
     check_config()
     if args.check_config:
-        mdd = historical_mdd()
-        print(f'H3 歷史回撤 {mdd.drawdown:g} 點；進場 {auto_trade.position_unit() + int(mdd.boosted)} 口。')
-        print('API_KEY H3 MDD加口策略本機設定通過；本次未登入、未送單。', flush=True)
+        print(f'H3 基準進場 {auto_trade.position_unit()} 口；連輸6筆後加1口。')
+        print('API_KEY H3 連輸加口策略本機設定通過；本次未登入、未送單。', flush=True)
         return
     from filelock import FileLock
     LOCK.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +211,7 @@ def main(argv=None):
     with FileLock(str(LOCK), timeout=0):
         check_legacy()
         store = Store(STATE_PATH)
-        console = ConsoleStatus('永豐1 H3 MDD加口')
+        console = ConsoleStatus('永豐1 H3 連輸加口')
         console.write('服務啟動，準備連線及核對；進入監控後每60秒輸出心跳。')
         notify = console.notifications(Notifications(lambda: os.getenv('DISCORD_H3_GUERRILLA_WEBHOOK_URL', ''),
                                RECORDS / 'notifications.jsonl'))
