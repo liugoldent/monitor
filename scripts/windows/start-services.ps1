@@ -213,7 +213,7 @@ $logWindows = @(
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'H3 Follow Add LIVE - API KEY'; Service = 'h3-flatten-reentry-strategy' },
     @{ Title = 'H3 Follow - API KEY2'; Service = 'h3-profit-protection-strategy' },
-    @{ Title = 'H3 Shane SIMULATION'; Service = 'h3-shane-use' }
+    @{ Title = 'H3 Shane - see log for broker mode'; Service = 'h3-shane-use' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {
@@ -254,4 +254,4 @@ foreach ($item in $logWindows) {
     Start-Sleep -Milliseconds 300
 }
 
-Write-Host '8 Docker services launched: Concord/TG H3 router, data collection, Cloudflare, API_KEY H3 Follow Add (LIVE), API_KEY2 H3 Follow (see startup log for broker mode), and Shane H3 Follow (SIMULATION). EF/Capital/KGI startup is disabled. Closing log tabs does not stop Docker services.' -ForegroundColor Green
+Write-Host '8 Docker services launched: Concord/TG H3 router, data collection, Cloudflare, API_KEY H3 Follow Add (LIVE), API_KEY2 H3 Follow and Shane H3 Follow (see startup logs for broker mode). EF/Capital/KGI startup is disabled. Closing log tabs does not stop Docker services.' -ForegroundColor Green

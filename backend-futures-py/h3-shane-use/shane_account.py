@@ -8,7 +8,7 @@ from broker import PyramidBroker
 import shioaji_tmf_target as shared
 
 _api = None
-BROKER_SIMULATION = True
+BROKER_SIMULATION = False
 
 
 def required(name):

@@ -699,12 +699,11 @@ def build_h3_strategy_notice(direction: int, *, new_transition: bool = True) -> 
     status = (f'收到H3{label}向訊號。' if new_transition else
               f'收到H3同向或重複訊號（{label}）；不因此增加口數或重置本輪加碼紀錄。')
     return (
-        '【H3游擊策略｜訊號接收】\n'
+        '【H3 MDD加口｜訊號接收】\n'
         f'狀態：{status}\n'
-        '進出場：新H3跟隨1口；反向先全平再進1口；空手訊號全平。\n'
-        '加碼：第一口當下浮盈≥500點，且股威TX近月或次月游擊high穿越：\n'
-        '多單：低於−1250 → 高於−1250；空單：高於＋1250 → 低於＋1250。\n'
-        '每輪僅加1口，總共最多2口；穿越當下須同時達到浮盈門檻。\n'
+        '進出場：新H3先全平，再依MDD狀態以Unit或Unit+1進場；空手訊號全平。\n'
+        '加口：已平倉單口累計毛點數距前高回撤達1000點，下一筆Unit+1；回前高恢復Unit。\n'
+        '只多1口，不累進；已移除浮盈500點與游擊穿越的盤中加碼。\n'
         '本通知只表示接收訊號，不代表交易服務已啟動、已成交或已符合加碼條件；'
         '實際執行以API_KEY策略成交及庫存核對通知為準。'
     )
@@ -720,7 +719,7 @@ def send_startup_notifications() -> None:
             "模式：接收、記錄並轉送，不下單；Relay啟動不代表API_KEY交易策略已啟動。"
         )
         if route == 'h':
-            content += '\nH3採第一口跟單、浮盈≥500點＋游擊穿越加碼，每輪最多2口。'
+            content += '\nAPI_KEY H3依Unit跟單；已平倉單口回撤達1000點，下一筆Unit+1，回前高恢復Unit。'
         delivered, detail = send_discord_notice(webhook_url, content)
         append_event(
             {

@@ -10,6 +10,7 @@ from rollover import ManualRollover
 from runtime import LedgerError
 from strategy import State
 from trade_records import entry_record, append_entry
+from mdd_sizing import read_sizing, save_sizing, average_fill
 
 
 # User-specified dates are cross-checked against broker delivery_date, including
@@ -209,6 +210,14 @@ class AutomaticRollover(ManualRollover):
         if shared._net_position(positions) != target:
             raise LedgerError('換月成交與庫存不一致，不開下一腿、不重送')
         entry = None
+        mdd_exists = self.store.db.execute("SELECT 1 FROM sqlite_master WHERE name='h3_mdd_sizing'").fetchone()
+        sizing_before = read_sizing(self.store) if mdd_exists else None
+        sizing_after = sizing_before
+        fill = None
+        if mdd_exists:
+            fill = entry_record(shared.OrderResult(previous, target, target, side, quantity, trade),
+                                payload['trigger'], self.clock().isoformat())
+            sizing_after = sizing_before.filled(phase, self.engine.state(), average_fill(fill))
         if phase == 'roll_open':
             entry = entry_record(shared.OrderResult(previous, target, target, side, quantity, trade),
                                  payload['trigger'], self.clock().isoformat())
@@ -216,6 +225,9 @@ class AutomaticRollover(ManualRollover):
                 raise LedgerError('次月換月成交價明細不足，不解除保護')
         state = self.engine.state_type(expected=target, first_price=str(entry['entry_price']) if entry else None,
                       added=plan['old_state']['added'] if target else False, round_key=plan['key'])
+        if mdd_exists and entry:
+            from dataclasses import replace
+            state = replace(state, first_price=average_fill(fill))
         state.validate()
         updated = dict(plan, stage='open' if phase == 'roll_close' else 'done')
         if phase == 'roll_open':
@@ -234,6 +246,10 @@ class AutomaticRollover(ManualRollover):
                 raise LedgerError('換月核對期間紀錄變動，不解除保護')
             self.store.db.execute('UPDATE pyramid_state SET symbol=?,payload=? WHERE id=1',
                                   (plan['new'], json.dumps(asdict(state))))
+            if mdd_exists:
+                if read_sizing(self.store) != sizing_before:
+                    raise LedgerError('換月核對期間MDD帳本變動，保留guard')
+                save_sizing(self.store, sizing_after)
             self.store.db.execute('INSERT OR REPLACE INTO shioaji_order_state VALUES (1,?)', (json.dumps(new_guard),))
             self.store.db.execute('DELETE FROM guard WHERE id=1')
             self.save_plan(updated)

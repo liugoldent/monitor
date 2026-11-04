@@ -5,6 +5,7 @@ from recovery_broker import ShioajiRecoveryBroker
 from h_core import TradingError, OrderRejected
 from ef_trade_runtime import append_order, now_local
 from trade_records import entry_record, append_entry
+from mdd_sizing import average_fill
 from runtime import RolloverPause
 import shioaji_tmf_target as shared
 
@@ -13,6 +14,7 @@ class PyramidBroker(ShioajiRecoveryBroker):
     account_label = 'API_KEY'
     preflight = None
     first_fill = None
+    confirmed_price = None
     contract_code = None
     rollover = None
 
@@ -46,6 +48,7 @@ class PyramidBroker(ShioajiRecoveryBroker):
 
         before_order()
         self.first_fill = None
+        self.confirmed_price = None
         try:
             result = shared.execute_target_position(
                 target, api=self.api, sj=self.sj, strict_tmf=True,
@@ -61,8 +64,10 @@ class PyramidBroker(ShioajiRecoveryBroker):
                 or result.quantity != abs(delta) or type(filled) is not int or filled != abs(delta)
                 or result.actual_position != target):
             raise TradingError('未確認完整成交與一致庫存，保留 guard')
+        entry = entry_record(result, payload['trigger'], now_local().isoformat())
+        if entry['fill_status'] == 'complete':
+            self.confirmed_price = average_fill(entry)
         if phase in {'entry', 'add'}:
-            entry = entry_record(result, payload['trigger'], now_local().isoformat())
             self.first_fill = entry['entry_price'] if entry['fill_status'] == 'complete' else None
             self.store.audit('pyramid_fills', dict(phase=phase, **entry))
             append_entry(self.records / 'entries.csv', entry)
@@ -74,6 +79,8 @@ class PyramidBroker(ShioajiRecoveryBroker):
 
     def valid_transition(self, previous, delta, phase, target):
         return ((phase == 'flatten' and target == 0 and previous != 0 and delta == -previous)
-                or (phase == 'entry' and previous == 0 and abs(target) == abs(delta) == self.unit)
-                or (phase == 'add' and previous != 0 and delta == (1 if previous > 0 else -1)
+                or (phase == 'entry' and previous == 0
+                    and abs(target) == abs(delta) == getattr(self, 'entry_quantity', self.unit))
+                or (phase == 'add' and not hasattr(self, 'entry_quantity')
+                    and previous != 0 and delta == (1 if previous > 0 else -1)
                     and target == previous + delta))

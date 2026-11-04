@@ -13,6 +13,7 @@ import shioaji_tmf_target as shared
 from h_core import TradingError
 from strategy import State
 from trade_records import entry_record, append_entry
+from mdd_sizing import read_sizing, save_sizing, average_fill
 
 
 def reconcile_filled_entry(store, api, backup_path, records):
@@ -80,6 +81,13 @@ def reconcile_filled_order(store, api, backup_path, records):
     if shared._net_position(positions) != target:
         raise TradingError('已成交委託與目前庫存不一致，保持阻擋')
     result = shared.OrderResult(previous, target, target, side, quantity, trade)
+    mdd_before = payload.get('mdd_before')
+    mdd_entry = entry_record(result, payload['trigger'], datetime.now().isoformat()) if mdd_before else None
+    mdd_after = None
+    if mdd_before is not None:
+        if asdict(read_sizing(store)) != mdd_before:
+            raise TradingError('MDD帳本與原委託不符，保留guard')
+        mdd_after = read_sizing(store).filled(phase, current_state, average_fill(mdd_entry))
     entry = (entry_record(result, payload['trigger'], datetime.now().isoformat())
              if phase in {'entry', 'add'} else None)
     if entry is not None and entry['fill_status'] != 'complete':
@@ -96,6 +104,9 @@ def reconcile_filled_order(store, api, backup_path, records):
     new_guard['last_resolved'] = resolved
     if phase == 'entry':
         state = State(expected=target, first_price=str(entry['entry_price']), round_key=payload['trigger'])
+        if mdd_entry is not None:
+            from dataclasses import replace
+            state = replace(state, first_price=average_fill(mdd_entry))
     elif phase == 'flatten':
         state = State(round_key=payload['trigger'])
     else:
@@ -108,6 +119,10 @@ def reconcile_filled_order(store, api, backup_path, records):
         broker_row = store.db.execute('SELECT payload FROM shioaji_order_state WHERE id=1').fetchone()
         if store.pending() != payload or current != state_row or broker_row != row:
             raise TradingError('核對期間帳本已變動，保持阻擋')
+        if mdd_after is not None:
+            if asdict(read_sizing(store)) != mdd_before:
+                raise TradingError('核對期間MDD帳本變動，保留guard')
+            save_sizing(store, mdd_after)
         store.db.execute('UPDATE pyramid_state SET symbol=?,payload=? WHERE id=1',
                          (code, json.dumps(asdict(state))))
         store.db.execute('UPDATE shioaji_order_state SET payload=? WHERE id=1', (json.dumps(new_guard),))

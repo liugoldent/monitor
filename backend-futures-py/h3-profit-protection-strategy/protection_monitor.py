@@ -11,6 +11,7 @@ import protection_account as account
 from protection_runtime import ProtectionEngine
 from protection_rollover import ProtectionRollover
 from h_core import Store, TradingError
+from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
 from rollover import ledger_symbol
 from auto_rollover import ROLLOVER_PHASES
@@ -90,6 +91,7 @@ def startup_notice(engine):
 
 
 def watch(engine, poll=2):
+    console = ConsoleStatus('永豐2 H3跟單', account.BROKER_SIMULATION)
     stat = SOURCE.stat()
     offset, identity = stat.st_size, stat.st_ino
     while not engine.broker.rollover.synchronize():
@@ -97,13 +99,13 @@ def watch(engine, poll=2):
         time.sleep(poll)
     engine.validate_position(require_match=False)
     notice = startup_notice(engine)
-    print(notice, flush=True)
     engine.notify(notice)
     while True:
         engine.broker.check()
         if not engine.broker.rollover.synchronize():
             time.sleep(poll)
             continue
+        console.heartbeat(engine)
         stat = SOURCE.stat()
         if stat.st_ino != identity or stat.st_size < offset:
             raise TradingError('Relay訊號檔被替換或截斷，停止核對')
@@ -120,6 +122,7 @@ def watch(engine, poll=2):
                 except (ValueError, UnicodeError):
                     continue
                 try:
+                    console.received(event)
                     engine.on_signal(event)
                 except RolloverPause:
                     offset = before
@@ -188,7 +191,9 @@ def main(argv=None):
     with FileLock(str(LOCK), timeout=0):
         check_legacy()
         store = Store(STATE_PATH)
-        notify = Notifications(lambda: os.getenv(WEBHOOK_ENV, ''), RECORDS/'notifications.jsonl')
+        console = ConsoleStatus('永豐2 H3跟單', account.BROKER_SIMULATION)
+        console.write('服務啟動，準備連線及核對；進入監控後每60秒輸出心跳。')
+        notify = console.notifications(Notifications(lambda: os.getenv(WEBHOOK_ENV, ''), RECORDS/'notifications.jsonl'))
         try:
             supervise(store, notify, max(0.1, float(os.getenv('H3_PROTECTION_POLL_SECONDS', '0.25'))))
         finally:

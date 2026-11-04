@@ -32,6 +32,8 @@ run-windows-services.cmd
 
 已確認的整筆拒單在零成交、庫存一致及回報可關聯時會結案並繼續監控，同一訊號不重送。未知結果、部分成交、斷線或庫存不明仍停止核對，日誌會留下原因。關閉日誌分頁不會停止策略。
 
+三個永豐策略進入監控迴圈後立即輸出中文心跳，此後每60秒輸出一次，包含台北時間、帳戶標籤、正式／模擬模式、帳本口數及啟動後最近讀取訊號的時間。心跳不查詢券商，不代表即時庫存核對；新訊號讀取、策略啟動及成交通知也同步輸出至日誌。異常時顯示既有的重試／等待核對訊息。
+
 
 `ef-hysteresis-again-strategy` 使用 `API_KEY` / `SECRET_KEY` 的 Shioaji 模擬帳戶（`simulation=True`）；
 `ef-morning-weekend-hedge-strategy` 使用第二組 `API_KEY2` / `SECRET_KEY2`，

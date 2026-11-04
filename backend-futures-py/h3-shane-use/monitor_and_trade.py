@@ -12,6 +12,7 @@ from shane_account import ShaneBroker
 from shane_runtime import ShaneEngine
 from shane_status import StatusReporter, failure_status
 from h_core import Store
+from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
 from rollover import ledger_symbol
 from auto_rollover import AutomaticRollover, ROLLOVER_PHASES
@@ -57,6 +58,7 @@ def check_config():
 
 
 def watch(engine, poll):
+    console = ConsoleStatus('Shane H3跟單', account.BROKER_SIMULATION)
     stat = SOURCE.stat()
     offset, identity = stat.st_size, stat.st_ino
     while not engine.broker.rollover.synchronize():
@@ -71,6 +73,7 @@ def watch(engine, poll):
         if not engine.broker.rollover.synchronize():
             time.sleep(poll)
             continue
+        console.heartbeat(engine)
         stat = SOURCE.stat()
         if stat.st_ino != identity or stat.st_size < offset:
             raise LedgerError('H3 訊號檔被替換或截斷，停止核對')
@@ -87,6 +90,7 @@ def watch(engine, poll):
                 except (ValueError, UnicodeError):
                     continue
                 try:
+                    console.received(event)
                     engine.on_signal(event)
                 except RolloverPause:
                     offset = before
@@ -132,8 +136,10 @@ def main(argv=None):
     RECORDS.mkdir(parents=True, exist_ok=True)
     with FileLock(str(LOCK), timeout=0):
         store = Store(STATE_PATH)
-        notify = Notifications(lambda: os.getenv('DISCORD_H3_SHANE_WEBHOOK_URL', ''),
-                               RECORDS / 'notifications.jsonl')
+        console = ConsoleStatus('Shane H3跟單', account.BROKER_SIMULATION)
+        console.write('服務啟動，準備連線及核對；進入監控後每60秒輸出心跳。')
+        notify = console.notifications(Notifications(lambda: os.getenv('DISCORD_H3_SHANE_WEBHOOK_URL', ''),
+                               RECORDS / 'notifications.jsonl'))
         status = StatusReporter()
         try:
             while True:

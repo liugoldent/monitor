@@ -1,8 +1,7 @@
-"""API_KEY: follow fresh H3 with H_UNIT; add one at profit >=500 and a crossing."""
+"""API_KEY: historical H3 drawdown over 1000 points uses Unit+1 until recovery."""
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json
 import os
@@ -10,7 +9,6 @@ from pathlib import Path
 import sqlite3
 import sys
 import time
-from zoneinfo import ZoneInfo
 
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE.parent
@@ -20,10 +18,10 @@ sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BASE))
 
 from h_core import Store, TradingError
-from runtime import Engine, LedgerError, RolloverPause
+from console_status import ConsoleStatus
+from runtime import LedgerError, RolloverPause
+from mdd_runtime import MddEngine as Engine, historical_mdd
 from inventory import InventoryReporter
-from feeds import CsvTail, timestamp, fresh, current_price
-from strategy import number
 from ef_trade_runtime import Notifications, now_local, position_text
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
 from broker import PyramidBroker
@@ -31,10 +29,8 @@ from reconcile import reconcile_filled_order
 from rollover import ledger_symbol
 from auto_rollover import AutomaticRollover, ROLLOVER_PHASES
 import auto_trade
-from goodway_guerrilla import GOODWAY_GUERRILLA_SYMBOLS, fetch_goodway_history
 
 SOURCE = BACKEND / 'telegram-relay-records/h3_signal_events.jsonl'
-PRICES = BACKEND / 'tv_doc/webhook_data_1min.csv'
 RUNTIME = BASE / 'runtime'
 STATE_PATH = RUNTIME / 'api_key.sqlite'
 RECORDS = BASE / 'records/api_key'
@@ -84,67 +80,18 @@ def check_config():
     if not ca.is_file():
         raise TradingError('找不到 API_KEY 憑證')
     auto_trade.required('PERSON_ID')
-    for path in (SOURCE, PRICES):
+    for path in (SOURCE,):
         if not path.is_file():
             raise TradingError('找不到策略訊號／游擊／行情輸入檔：' + path.name)
     check_legacy()
 
 
-def poll_guerrilla(engine, ticker, history, prices, offset):
-    """Only the newest live bar/revision is actionable; no history replay."""
-    if SOURCE.stat().st_size != offset:
-        return  # Let the next loop process all newly arrived H3 events first.
-    now = now_local()
-    rollover = engine.broker.rollover
-    if isinstance(rollover, AutomaticRollover):
-        plan = rollover.plan()
-        if plan and plan['stage'] == 'done' and plan['new'] == engine.symbol:
-            boundary = rollover.close_deadline(plan['old'])
-            if now.date() == boundary.date():
-                try:
-                    ready = now >= boundary and timestamp(prices.latest['TradingView Time']) >= boundary
-                except (TypeError, KeyError, ValueError):
-                    ready = False
-                if not ready:
-                    # MXF1! may still quote the expiring month until 13:30.
-                    # Exits remain enabled; never add using the old-month price.
-                    engine.reset_observations(ticker)
-                    return
-    if not history:
-        engine.reset_observations(ticker)
-        return
-    latest = max(history)
-    try:
-        stamp = datetime.fromtimestamp(latest / 1000, ZoneInfo('Asia/Taipei')).replace(tzinfo=None)
-        value = number(history[latest]['high'])
-    except (ValueError, TypeError, KeyError, OSError, OverflowError):
-        engine.reset_observations(ticker)
-        return
-    if not fresh(stamp, now):
-        engine.reset_observations(ticker)
-        return
-    state = engine.state()
-    previous_at = state.sample_at.get(ticker)
-    if previous_at and (stamp - timestamp(previous_at)).total_seconds() > 180:
-        engine.reset_observations(ticker)
-    price = current_price(prices.latest, now)
-    def preflight():
-        check_now = now_local()
-        if not fresh(stamp, check_now) or current_price(prices.latest, check_now) is None:
-            raise TradingError('加碼行情或游擊已過期，不追單')
-    engine.store.audit('guerrilla_observed', dict(ticker=ticker, bar_at=stamp.isoformat(),
-                       high=str(value), price=str(price) if price is not None else None))
-    engine.on_sample(ticker, value, stamp.isoformat(), price, preflight)
-
-
 def startup_notice(state, unit):
-    return ('【API_KEY｜H3游擊策略啟動】\n'
-            f'帳本部位：{position_text(state.expected)}；本輪已加碼：{"是" if state.added else "否"}。\n'
-            '沿用已保存部位與加碼紀錄，不補歷史訊號；換月窗口內依保存進度自動換倉。\n'
-            '結算日13:25自動先平舊月、再以同方向同口數進次月；無須手動換倉。\n'
-            f'每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進H_UNIT={unit}口；空手訊號只全平。\n'
-            '加碼：第一口當下浮盈≥500點＋股威近月或次月游擊high穿越；'
-            '多單向上穿越−1250，空單向下穿越＋1250；每輪僅加1口。')
+    return ('【API_KEY｜H3 MDD加口策略啟動】\n'
+            f'帳本部位：{position_text(state.expected)}；Unit={unit}。\n'
+            '每筆新H3訊號先全平，再依MDD狀態進場；空手訊號只全平。\n'
+            '每次進場讀取 h_trade.csv，以完整H3輪次的單口毛點數計算回撤。\n'
+            '回撤超過1000點用Unit+1，維持到回前高；結算日13:25按原口數自動換月。')
 
 
 def watch(engine, poll=2):
@@ -152,9 +99,6 @@ def watch(engine, poll=2):
     # arriving during the wait still receive the normal 30-second age check.
     stat = SOURCE.stat()
     offset, identity = stat.st_size, stat.st_ino
-    prices = CsvTail(PRICES, latest_only=True)
-    # Historical observations are deliberately not actionable on startup.
-    prices.read()
     while engine.broker.rollover is not None and not engine.broker.rollover.synchronize():
         engine.broker.check()
         time.sleep(poll)
@@ -163,24 +107,17 @@ def watch(engine, poll=2):
     engine.validate_position(require_match=False)
     engine.reset_observations()
     engine.notify(startup_notice(engine.state(), engine.broker.unit))
-    # API polling is asynchronous so an eight-second HTTP timeout cannot delay H3 exits.
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        watch_loop(engine, prices, offset, identity, executor, poll, inventory)
+    watch_loop(engine, offset, identity, poll, inventory)
 
 
-def watch_loop(engine, prices, offset, identity, executor, poll, inventory):
-    pending = {}
-    next_poll = 0
-    feed_interval = max(5, float(os.getenv('H3_GUERRILLA_POLL_SECONDS', '30')))
-    following_live_round = bool((engine.state().round_key or '').startswith(('manual-roll:', 'auto-roll:')))
+def watch_loop(engine, offset, identity, poll, inventory):
+    console = ConsoleStatus('永豐1 H3 MDD加口')
     while True:
         engine.broker.check()
-        previous_symbol = engine.symbol
         if engine.broker.rollover is not None and not engine.broker.rollover.synchronize():
             time.sleep(poll)
             continue
-        if engine.symbol != previous_symbol:
-            following_live_round = True
+        console.heartbeat(engine)
         stat = SOURCE.stat()
         if stat.st_ino != identity or stat.st_size < offset:
             raise TradingError('Relay訊號檔被替換或截斷，停止核對')
@@ -197,34 +134,12 @@ def watch_loop(engine, prices, offset, identity, executor, poll, inventory):
                 except (ValueError, UnicodeError):
                     continue
                 try:
-                    if engine.on_signal(event):
-                        following_live_round = True
+                    console.received(event)
+                    engine.on_signal(event)
                 except RolloverPause:
                     offset = previous_offset
                     break  # The next loop processes automatic rollover first.
         inventory.daily(now_local())
-        prices.read()
-        for ticker, future in list(pending.items()):
-            if not future.done():
-                continue
-            del pending[ticker]
-            try:
-                history = future.result()
-            except Exception as exc:
-                engine.reset_observations(ticker)
-                engine.store.audit('guerrilla_fetch_failed', dict(ticker=ticker, error=type(exc).__name__))
-                continue
-            if following_live_round:
-                try:
-                    poll_guerrilla(engine, ticker, history, prices, offset)
-                except RolloverPause:
-                    pass
-        if time.monotonic() >= next_poll:
-            for ticker in GOODWAY_GUERRILLA_SYMBOLS:
-                if ticker not in pending:
-                    pending[ticker] = executor.submit(fetch_goodway_history, ticker,
-                                                      datetime.now(ZoneInfo('Asia/Taipei')))
-            next_poll = time.monotonic() + feed_interval
         time.sleep(poll)
 
 
@@ -270,7 +185,7 @@ def supervise(store, notify, poll):
             if failure != last_failure or last_notice_at is None or notice_at - last_notice_at >= 300:
                 store.audit('pyramid_recovering', dict(reason=reason, pending=pending, retry_seconds=retry_seconds))
                 try:
-                    notify('【API_KEY｜H3游擊策略復原中】' + reason
+                    notify('【API_KEY｜H3 MDD加口策略復原中】' + reason
                            + f'；程序仍在，{retry_seconds:g}秒後重新連線核對；未確認委託不重送。')
                 except Exception:
                     print('復原通知失敗，服務仍繼續重試', flush=True)
@@ -287,7 +202,9 @@ def main(argv=None):
     load_env()
     check_config()
     if args.check_config:
-        print('API_KEY H3游擊策略本機設定通過；本次未登入、未送單。', flush=True)
+        mdd = historical_mdd()
+        print(f'H3 歷史回撤 {mdd.drawdown:g} 點；進場 {auto_trade.position_unit() + int(mdd.boosted)} 口。')
+        print('API_KEY H3 MDD加口策略本機設定通過；本次未登入、未送單。', flush=True)
         return
     from filelock import FileLock
     LOCK.parent.mkdir(parents=True, exist_ok=True)
@@ -295,8 +212,10 @@ def main(argv=None):
     with FileLock(str(LOCK), timeout=0):
         check_legacy()
         store = Store(STATE_PATH)
-        notify = Notifications(lambda: os.getenv('DISCORD_H3_GUERRILLA_WEBHOOK_URL', ''),
-                               RECORDS / 'notifications.jsonl')
+        console = ConsoleStatus('永豐1 H3 MDD加口')
+        console.write('服務啟動，準備連線及核對；進入監控後每60秒輸出心跳。')
+        notify = console.notifications(Notifications(lambda: os.getenv('DISCORD_H3_GUERRILLA_WEBHOOK_URL', ''),
+                               RECORDS / 'notifications.jsonl'))
         try:
             supervise(store, notify, max(0.1, float(os.getenv('H3_REENTRY_POLL_SECONDS', '0.25'))))
         finally:
