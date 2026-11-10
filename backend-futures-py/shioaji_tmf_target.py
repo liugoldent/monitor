@@ -159,7 +159,8 @@ def tmf_contract_code(api: Any) -> str:
     return code
 
 
-def validate_tmf_account(api: Any, positions: list | None = None, *, contract_code: str | None = None) -> None:
+def validate_tmf_account(api: Any, positions: list | None = None, *, contract_code: str | None = None,
+                         allow_working_orders: bool = False) -> None:
     """Reject ambiguous inventory/orders before either EF account reconciles."""
     if contract_code is None:
         contract_code = tmf_contract_code(api)
@@ -170,7 +171,7 @@ def validate_tmf_account(api: Any, positions: list | None = None, *, contract_co
         raise BrokerOrderError("委託查詢未回傳有效清單")
     for trade in trades:
         code = _position_code(_position_value(trade, "contract"))
-        if code.startswith("TMF") and _status_text(trade).lower() not in {
+        if not allow_working_orders and code.startswith("TMF") and _status_text(trade).lower() not in {
             "filled", "cancelled", "failed", "inactive",
         }:
             raise BrokerOrderError("有未確認結束的 TMF 委託；不重複下單")

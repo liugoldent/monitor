@@ -112,17 +112,25 @@ class Engine:
     def entry_quantity(self):
         return self.broker.unit
 
+    def entry_plan(self):
+        return self.entry_quantity(), ''
+
+    def signal_entry_plan(self, event, direction):
+        return self.entry_plan()
+
     def prepare_order(self, payload):
         pass
 
     def confirmed_order(self, old, planned, payload):
         return planned
 
-    def order(self, target, phase, key, planned, preflight=None):
+    def order(self, target, phase, key, planned, preflight=None, *, entry_note=''):
         self.validate_position()
         previous = self.state().expected
         payload = dict(trigger=key, phase=phase, previous=previous, target=target,
                        side='buy' if target > previous else 'sell', quantity=abs(target - previous))
+        if entry_note:
+            payload['entry_note'] = entry_note
         self.prepare_order(payload)
         self.store.begin(payload)
         self.store.audit('pyramid_prepared', payload)
@@ -155,7 +163,11 @@ class Engine:
             self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
                 (datetime.now(timezone.utc).isoformat(), 'pyramid_confirmed', json.dumps(payload)))
         label = {'flatten': '跟隨H3全平', 'entry': '跟隨H3進場', 'add': '游擊穿越加碼'}[phase]
-        self.notify(f'【API_KEY｜{self.strategy_label}】{label}：{previous} → {target} 口（成交及庫存已確認）')
+        message = f'【API_KEY｜{self.strategy_label}】{label}：{previous} → {target} 口（成交及庫存已確認）'
+        self.notify(f'{message}。{entry_note}。' if entry_note else message)
+
+    def prepare_signal(self, key, preflight):
+        pass
 
     def on_signal(self, event, *, now=None):
         parsed = signal(event, now)
@@ -169,11 +181,17 @@ class Engine:
                 raise RolloverPause('H3 訊號已超過30秒，不追單')
         try:
             fresh()
+            self.prepare_signal(key, fresh)
+            fresh()
             self.adopt_signal_inventory(key)
             if self.state().expected:
                 self.order(0, 'flatten', key, self.state_type(round_key=key), fresh)
             if direction:
-                self.order(direction * self.entry_quantity(), 'entry', key, self.state_type(round_key=key), fresh)
+                plan = self.signal_entry_plan(event, direction)
+                if plan is None:
+                    return True
+                quantity, note = plan
+                self.order(direction * quantity, 'entry', key, self.state_type(round_key=key), fresh, entry_note=note)
                 if self.state().first_price is None:
                     self.notify('【API_KEY｜H3游擊策略】缺少第一口實際成交價，本輪停用加碼；出場仍跟隨H3。')
         except RolloverPause:

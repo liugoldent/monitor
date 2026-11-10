@@ -40,7 +40,7 @@ run-windows-services.cmd
 也使用 Shioaji 模擬帳戶（`simulation=True`），不以 `EF_PURE_FLAT_ENABLE_ORDERS` 切換。
 兩套策略移至 `ef-simulation` profile，現在都不自動啟動；程式、設定與紀錄保留。
 
-Windows 一鍵啟動會啟用 `h3-shane` profile，啟動 API_KEY 與 Shane 的 H3 策略，並停止 API_KEY2 的舊 H3 策略。Shane 使用獨立的 `backend-futures-py/h3-shane-use/.env`，須設定 `H3_SHANE_ENABLE_ORDERS=true`；目前為模擬交易，憑證路徑可設為 `CA_PATH=Sinopac_shane.pfx`：
+Windows 一鍵啟動會啟用 `h3-protection` 和 `h3-shane` profile，同時啟動 API_KEY、API_KEY2 與 Shane 的 H3 策略，並為每個策略開啟日誌分頁。API_KEY2 須設定 `H3_PROTECTION_ENABLE_ORDERS=true`。Shane 使用獨立的 `backend-futures-py/h3-shane-use/.env`，須設定 `H3_SHANE_ENABLE_ORDERS=true`，憑證路徑可設為 `CA_PATH=Sinopac_shane.pfx`。一鍵停止會停止這三個策略，券商帳戶的現有持倉仍保留。
 
 | 服務 | 用途 |
 | --- | --- |
@@ -49,9 +49,9 @@ Windows 一鍵啟動會啟用 `h3-shane` profile，啟動 API_KEY 與 Shane 的 
 | `monitor-mxf` | 籌碼、游擊資料監控與記錄 |
 | `webhook-server` | 接收並保存 TradingView 行情 |
 | `cloudflared` | 維持 TradingView webhook 對外連線 |
-| `h3-flatten-reentry-strategy` | API_KEY／SECRET_KEY H3 游擊加碼（正式帳戶） |
-| `h3-profit-protection-strategy` | API_KEY2 舊 H3 跟單，已停用 |
-| `h3-shane-use` | Shane H3 跟單（模擬帳戶），每筆新的方向訊號先平再進 SHANE_UNIT 口 |
+| `h3-flatten-reentry-strategy` | API_KEY H3 歷史回撤分級進場 |
+| `h3-profit-protection-strategy` | API_KEY2 H3 連輸分級進場 |
+| `h3-shane-use` | Shane H3 跟單，每筆新的方向訊號先平再進 SHANE_UNIT 口 |
 
 第一次取得新版啟動器，請先在 Windows 專案目錄執行一次 `git pull --ff-only`，再雙擊啟動器。之後可直接執行啟動器完成拉取與建置。拉取失敗時保留現有服務，不會自動 reset、stash 或覆蓋本機修改。
 

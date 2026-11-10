@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -13,7 +12,7 @@ from h_core import Store
 from runtime import Engine
 from broker import PyramidBroker
 from strategy import State
-from auto_trade import position_unit
+from auto_trade import POSITION_UNIT
 from auto_rollover import AutomaticRollover
 
 
@@ -30,6 +29,9 @@ class FakeBroker:
 
     def check_rollover(self):
         pass
+
+    def cancel_working_orders(self, trigger, preflight):
+        preflight()
 
     def position(self):
         return self.actual
@@ -125,13 +127,8 @@ class ConfiguredUnitTests(unittest.TestCase):
         self.assertTrue(broker.valid_transition(8, -8, 'flatten', 0))
         self.assertFalse(broker.valid_transition(8, -1, 'flatten', 0))
 
-    def test_positive_integer_config(self):
-        for value in ['', '0', '-1', '1.5', 'True']:
-            with self.subTest(value=value), patch.dict(os.environ, H_UNIT=value):
-                with self.assertRaises(ValueError):
-                    position_unit()
-        with patch.dict(os.environ, H_UNIT='3'):
-            self.assertEqual(position_unit(), 3)
+    def test_production_base_unit(self):
+        self.assertEqual(POSITION_UNIT, 1)
 
     def test_rollover_preserves_larger_round(self):
         rollover = AutomaticRollover.__new__(AutomaticRollover)

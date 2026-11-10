@@ -14,6 +14,7 @@ $services = @(
     'webhook-server',
     'cloudflared',
     'h3-flatten-reentry-strategy',
+    'h3-profit-protection-strategy',
     'h3-shane-use'
 )
 function Get-RootEnvValue([string]$Name) {
@@ -166,7 +167,6 @@ Push-Location $projectDir
 try {
     # Preserve signal/data collection while keeping all other strategies paused.
     $pausedServices = @(
-        'h3-profit-protection-strategy',
         'ef-strong-consensus-morning-flat-strategy',
         'ef-hysteresis-total-breakout-strategy',
         'ef-hysteresis-again-strategy',
@@ -188,7 +188,8 @@ try {
             }
         }
     }
-    $composeArgs = @('compose', '--profile', 'h3-shane', '--progress', 'plain', 'up', '--detach', '--no-build')
+    $composeArgs = @('compose', '--profile', 'h3-protection', '--profile', 'h3-shane',
+        '--progress', 'plain', 'up', '--detach', '--no-build')
     $composeArgs += $services
     & docker @composeArgs
     if ($LASTEXITCODE -ne 0) { throw "docker compose failed: $LASTEXITCODE" }
@@ -212,6 +213,7 @@ $logWindows = @(
     @{ Title = 'Webhook Server'; Service = 'webhook-server' },
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'H3 Follow Add LIVE - API KEY'; Service = 'h3-flatten-reentry-strategy' },
+    @{ Title = 'H3 Follow - API KEY2'; Service = 'h3-profit-protection-strategy' },
     @{ Title = 'H3 Shane - see log for broker mode'; Service = 'h3-shane-use' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
@@ -253,4 +255,4 @@ foreach ($item in $logWindows) {
     Start-Sleep -Milliseconds 300
 }
 
-Write-Host '7 Docker services launched: Concord/TG H3 router, data collection, Cloudflare, API_KEY H3 Follow Add (LIVE), and Shane H3 Follow (see startup logs for broker mode). API_KEY2 H3 Follow and EF/Capital/KGI startup are disabled. Closing log tabs does not stop Docker services.' -ForegroundColor Green
+Write-Host "$($services.Count) Docker services launched, including API_KEY, API_KEY2, and Shane. See each strategy log for broker mode. Docker services keep running after log tabs close." -ForegroundColor Green

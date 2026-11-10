@@ -24,7 +24,7 @@ class InventoryReporter:
     def _report(self, now, label):
         snapshot = dict(checked_at=now.isoformat(), kind=label)
         try:
-            actual = self.engine.broker.position()
+            actual = self.engine.broker.startup_position()
             expected = self.engine.state().expected
             snapshot.update(status='success', actual=actual, expected=expected, matches=actual == expected)
             match = '一致' if actual == expected else '不一致；等待新H3訊號時按券商實際庫存全平，再依UNIT進場'

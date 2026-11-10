@@ -12,6 +12,7 @@ import shioaji_tmf_target as shared
 _api = None
 _sj = None
 _failed_apis = []
+POSITION_UNIT = 1
 
 
 def required(name):
@@ -19,13 +20,6 @@ def required(name):
     if not value:
         raise RuntimeError(f'缺少必要環境變數: {name}')
     return value
-
-
-def position_unit():
-    value = os.getenv('H_UNIT', '2')
-    if not value.isascii() or not value.isdigit() or int(value) < 1:
-        raise ValueError('H_UNIT 必須是正整數')
-    return int(value)
 
 
 def initialize_broker_session():

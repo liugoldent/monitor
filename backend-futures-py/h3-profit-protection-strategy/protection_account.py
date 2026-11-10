@@ -12,6 +12,7 @@ from protection_policy import number
 
 # Explicit broker mode; environment flags do not override this selection.
 BROKER_SIMULATION = False
+POSITION_UNIT = 1
 _api = _sj = None
 
 
@@ -20,13 +21,6 @@ def required(name):
     if not value:
         raise ValueError('缺少設定：'+name)
     return value
-
-
-def position_unit():
-    value = required('H_UNIT_KEY2')
-    if not value.isascii() or not value.isdigit() or int(value) < 1:
-        raise ValueError('H_UNIT_KEY2 必須是正整數')
-    return int(value)
 
 
 def credentials():
@@ -79,14 +73,14 @@ class ProtectionBroker(PyramidBroker):
     account_label = 'API_KEY2'
 
     def __init__(self, *args, **kwargs):
-        self.unit = position_unit()
+        self.unit = POSITION_UNIT
         self.entry_quantity = self.unit
         self.confirmed_price = None
         super().__init__(*args, **kwargs)
 
     def valid_transition(self, previous, delta, phase, target):
         return ((phase == 'entry' and previous == 0
-                 and self.entry_quantity in (self.unit, self.unit + 1)
+                 and self.unit <= self.entry_quantity <= self.unit + 2
                  and abs(target) == abs(delta) == self.entry_quantity)
                 or (phase == 'flatten' and target == 0 and previous != 0 and delta == -previous))
 

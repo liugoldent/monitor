@@ -1,4 +1,4 @@
-"""API_KEY H3 follow strategy with sizing after six consecutive losses."""
+"""API_KEY H3 follow strategy with drawdown-based entry sizing."""
 from __future__ import annotations
 
 import argparse
@@ -75,7 +75,6 @@ def check_config():
     if len(auto_trade.required('API_KEY')) < 10:
         raise TradingError('API_KEY 格式無效（少於10字元）')
     auto_trade.required('SECRET_KEY')
-    auto_trade.position_unit()
     ca = Path(os.getenv('CA_PATH') or BACKEND / 'Sinopac.pfx')
     if not ca.is_file():
         raise TradingError('找不到 API_KEY 憑證')
@@ -87,11 +86,11 @@ def check_config():
 
 
 def startup_notice(state, unit):
-    return ('【API_KEY｜H3 連輸加口策略啟動】\n'
+    return ('【API_KEY｜H3 回撤加口策略啟動】\n'
             f'帳本部位：{position_text(state.expected)}；Unit={unit}。\n'
-            '每筆新H3訊號先全平，再依連輸狀態進場；空手訊號只全平。\n'
-            '依本帳戶完整H3輪次的成交毛點數計算連輸。\n'
-            '連輸6筆後下一筆用Unit+1，維持到回前高；結算日13:25按原口數自動換月。')
+            '每筆新H3訊號先全平，再依 h_trade.csv 歷史已平倉單口回撤決定進場口數；空手訊號只全平。\n'
+            '執行前先取消本帳戶、策略目前微台月份掛單，確認結束再查倉；取消失敗或不明則不送單。\n'
+            '回撤達750點加1口，達1000點加2口，維持最高級距直到回前高；結算日13:25按原口數自動換月。')
 
 
 def watch(engine, poll=2):
@@ -104,14 +103,14 @@ def watch(engine, poll=2):
         time.sleep(poll)
     inventory = InventoryReporter(engine)
     inventory.startup(now_local())
-    engine.validate_position(require_match=False)
+    engine.broker.startup_position()
     engine.reset_observations()
     engine.notify(startup_notice(engine.state(), engine.broker.unit))
     watch_loop(engine, offset, identity, poll, inventory)
 
 
 def watch_loop(engine, offset, identity, poll, inventory):
-    console = ConsoleStatus('永豐1 H3 連輸加口')
+    console = ConsoleStatus('永豐1 H3 回撤加口')
     while True:
         engine.broker.check()
         if engine.broker.rollover is not None and not engine.broker.rollover.synchronize():
@@ -157,7 +156,7 @@ def run_session(store, notify, poll):
             print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
         broker = PyramidBroker(api, auto_trade._sj, store, watchdog, records=RECORDS,
                                allow_pending=rollover_pending)
-        broker.unit = auto_trade.position_unit()
+        broker.unit = auto_trade.POSITION_UNIT
         symbol = ledger_symbol(store, auto_trade.shared.tmf_contract_code(api))
         broker.contract_code = symbol
         engine = Engine(store, broker, symbol, notify)
@@ -185,7 +184,7 @@ def supervise(store, notify, poll):
             if failure != last_failure or last_notice_at is None or notice_at - last_notice_at >= 300:
                 store.audit('pyramid_recovering', dict(reason=reason, pending=pending, retry_seconds=retry_seconds))
                 try:
-                    notify('【API_KEY｜H3 連輸加口策略復原中】' + reason
+                    notify('【API_KEY｜H3 回撤加口策略復原中】' + reason
                            + f'；程序仍在，{retry_seconds:g}秒後重新連線核對；未確認委託不重送。')
                 except Exception:
                     print('復原通知失敗，服務仍繼續重試', flush=True)
@@ -202,8 +201,8 @@ def main(argv=None):
     load_env()
     check_config()
     if args.check_config:
-        print(f'H3 基準進場 {auto_trade.position_unit()} 口；連輸6筆後加1口。')
-        print('API_KEY H3 連輸加口策略本機設定通過；本次未登入、未送單。', flush=True)
+        print(f'H3 基準進場 {auto_trade.POSITION_UNIT} 口；回撤達750點加1口，達1000點加2口。')
+        print('API_KEY H3 回撤加口策略本機設定通過；本次未登入、未送單。', flush=True)
         return
     from filelock import FileLock
     LOCK.parent.mkdir(parents=True, exist_ok=True)
@@ -211,7 +210,7 @@ def main(argv=None):
     with FileLock(str(LOCK), timeout=0):
         check_legacy()
         store = Store(STATE_PATH)
-        console = ConsoleStatus('永豐1 H3 連輸加口')
+        console = ConsoleStatus('永豐1 H3 回撤加口')
         console.write('服務啟動，準備連線及核對；進入監控後每60秒輸出心跳。')
         notify = console.notifications(Notifications(lambda: os.getenv('DISCORD_H3_GUERRILLA_WEBHOOK_URL', ''),
                                RECORDS / 'notifications.jsonl'))

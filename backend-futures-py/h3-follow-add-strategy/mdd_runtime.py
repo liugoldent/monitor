@@ -1,12 +1,33 @@
-"""API_KEY entry sizing from complete broker fills."""
+"""API_KEY entry sizing from H3 history and broker-fill reconciliation."""
+import csv
 from dataclasses import asdict, replace
+import time
 
-from runtime import Engine, LedgerError
-from mdd_sizing import MddSizing, read_sizing, save_sizing
+from runtime import Engine, LedgerError, signal
+from mdd_sizing import H3_TRADE_HISTORY, MddSizing, read_historical_mdd, read_sizing, save_sizing
+
+
+def read_history(path):
+    try:
+        return read_historical_mdd(path)
+    except (OSError, TypeError, ValueError, csv.Error) as exc:
+        raise LedgerError(f'無法讀取 H3 歷史回撤，暫停新進場：{exc}') from exc
+
+
+def wait_for_signal_history(path, event, direction):
+    # The router can publish a reversal before the relay appends the close and
+    # the next open. Read both the direction and sizing from one CSV snapshot.
+    while signal(event) is not None:
+        history = read_history(path)
+        if history.direction == direction:
+            return history
+        time.sleep(0.25)
+    return None
 
 
 class MddEngine(Engine):
-    strategy_label = 'H3 連輸加口'
+    strategy_label = 'H3 回撤加口'
+    history_path = H3_TRADE_HISTORY
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -20,7 +41,7 @@ class MddEngine(Engine):
                 save_sizing(self.store, MddSizing())
                 self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES '
                     "(datetime('now'),'mdd_initialized',?)",
-                    ('初始化券商成交連輸帳本',))
+                    ('初始化券商成交回撤帳本',))
         self.sizing()
 
     def sizing(self):
@@ -30,16 +51,34 @@ class MddEngine(Engine):
             raise LedgerError('MDD帳本無效，停止送單並保留原始紀錄') from exc
 
     def entry_quantity(self):
-        return self.sizing().quantity(self.broker.unit)
+        return self.entry_plan()[0]
+
+    def entry_plan(self):
+        return self.plan_from_history(read_history(self.history_path))
+
+    def signal_entry_plan(self, event, direction):
+        history = wait_for_signal_history(self.history_path, event, direction)
+        if history is None:
+            self.notify('【API_KEY｜H3 回撤加口】H3 歷史未在訊號有效期間同步，本筆跳過進場。')
+            return None
+        return self.plan_from_history(history)
+
+    def plan_from_history(self, history):
+        sizing = history.sizing
+        return sizing.quantity(self.broker.unit), f'目前回撤 {sizing.drawdown:f} 點'
 
     def on_external_inventory(self, actual):
         save_sizing(self.store, replace(self.sizing(), tracking=False, carry='0'))
+
+    def prepare_signal(self, key, preflight):
+        self.sizing()
+        self.broker.cancel_working_orders(key, preflight)
 
     def prepare_order(self, payload):
         if payload['phase'] not in {'entry', 'flatten'}:
             raise LedgerError('MDD策略只允許H3進場與全平')
         if payload['phase'] == 'entry':
-            # Use the quantity already selected from the confirmed fill ledger.
+            # Use the quantity already selected from the synchronized H3 history.
             self.broker.entry_quantity = payload['quantity']
         payload['mdd_before'] = asdict(self.sizing())
 

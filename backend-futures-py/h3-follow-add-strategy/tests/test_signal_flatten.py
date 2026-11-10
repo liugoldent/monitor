@@ -11,10 +11,12 @@ BACKEND = BASE.parent
 sys.path[:0] = [str(BASE), str(BACKEND), str(BACKEND / 'h3-common'),
                str(BACKEND / 'h3-shane-use'), str(BACKEND / 'h3-profit-protection-strategy')]
 from h_core import Store, TradingError
+from mdd_runtime import wait_for_signal_history
+from mdd_sizing import H3History, MddSizing
 from runtime import Engine
 from shane_runtime import ShaneEngine
 from protection_runtime import ProtectionEngine
-from protection_account import ProtectionBroker
+from protection_account import POSITION_UNIT, ProtectionBroker
 from recovery_sizing import RecoverySizing
 
 
@@ -37,6 +39,11 @@ class Broker:
     def check_rollover(self):
         pass
 
+    def cancel_working_orders(self, trigger, preflight):
+        preflight()
+        if self.guard.get('pending'):
+            raise TradingError('pending order')
+
     def valid_transition(self, *args):
         return ProtectionBroker.valid_transition(self, *args)
 
@@ -49,6 +56,12 @@ class Broker:
 
 
 class SignalFlattenTests(unittest.TestCase):
+    def setUp(self):
+        wait = patch('protection_runtime.wait_for_signal_history',
+                     side_effect=lambda path, event, direction: H3History(MddSizing(), direction, None))
+        self.addCleanup(wait.stop)
+        wait.start()
+
     def event(self, key, direction):
         return dict(event='received', route='h', source='h3_dual_source',
                     signal_key='h3-dual:' + str(key), source_kind='concord_sqlite',
@@ -134,6 +147,7 @@ class SignalFlattenTests(unittest.TestCase):
             store = Store(Path(root) / 'state.sqlite')
             try:
                 broker = Broker()
+                broker.unit = POSITION_UNIT
                 engine = ProtectionEngine(store, broker, 'TMFK6')
                 sizing = RecoverySizing()
                 for _ in range(6):
@@ -171,19 +185,82 @@ class SignalFlattenTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
-    def test_protection_six_confirmed_rounds_activate_next_entry_boost(self):
+    def test_protection_four_and_six_confirmed_losses_boost_until_recovery(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(Path(root) / 'state.sqlite')
             try:
                 broker = Broker()
-                engine = ProtectionEngine(store, broker, 'TMFK6')
-                for key in range(1, 8):
-                    engine.on_signal(self.event(key, 1))
+                broker.unit = POSITION_UNIT
+                notices = []
+                engine = ProtectionEngine(store, broker, 'TMFK6', notices.append)
+                engine.on_signal(self.event(1, 1))
+                self.assertIn('目前連輸 0 次', notices[-1])
+                previous = 1
+                for losses, quantity in enumerate([1, 1, 1, 2, 2, 3], start=1):
+                    with self.subTest(losses=losses):
+                        engine.on_signal(self.event(losses + 1, 1))
+                        self.assertEqual(engine.sizing().loss_streak, losses)
+                        self.assertEqual(broker.orders[-2:], [('flatten', previous, 0), ('entry', 0, quantity)])
+                        self.assertIn(f'目前連輸 {losses} 次', notices[-1])
+                        previous = quantity
                 self.assertEqual(engine.sizing().closed_trades, 6)
-                self.assertEqual(engine.sizing().loss_streak, 6)
-                self.assertTrue(engine.sizing().boosted)
-                self.assertEqual(engine.state().expected, 3)
-                self.assertEqual(broker.orders[-2:], [('flatten', 2, 0), ('entry', 0, 3)])
+                broker.confirmed_price = '20010'
+                engine.on_signal(self.event(8, 1))
+                self.assertEqual(engine.sizing().loss_streak, 0)
+                self.assertEqual(broker.orders[-2:], [('flatten', 3, 0), ('entry', 0, 3)])
+                broker.confirmed_price = '20030'
+                engine.on_signal(self.event(9, -1))
+                self.assertEqual(broker.orders[-2:], [('flatten', 3, 0), ('entry', 0, -1)])
+            finally:
+                store.db.close()
+
+    def test_protection_legacy_boost_preserves_six_loss_tier(self):
+        sizing = RecoverySizing.from_payload(dict(equity_points='-10', closed_trades=7,
+                                                  loss_streak=0, boosted=True))
+        self.assertEqual(sizing.quantity(1), 3)
+
+    def test_protection_shared_h3_recovery_clears_boost_once_even_without_a_broker_close(self):
+        with tempfile.TemporaryDirectory() as root:
+            history = Path(root) / 'h_trade.csv'
+            history.write_text(
+                'timestamp,action,side,price\n'
+                '2026-11-04 19:01:02,enter,bull,20000\n'
+                '2026-11-04 23:44:02,exiting,bull,17304\n'
+                '2026-11-04 23:44:02,enter,bear,20000\n', encoding='utf-8')
+            store = Store(Path(root) / 'state.sqlite')
+            try:
+                broker = Broker()
+                broker.unit = 1
+                engine = ProtectionEngine(store, broker, 'TMFK6')
+                engine.history_path = history
+                sizing = RecoverySizing()
+                for _ in range(4):
+                    sizing = sizing.close(-10, 1)
+                with store.db:
+                    engine.save_sizing(sizing)
+
+                def relay_append(_):
+                    self.assertEqual(broker.orders, [])
+                    with history.open('a', encoding='utf-8') as handle:
+                        handle.write('2026-11-06 08:46:05,exiting,bear,14890\n'
+                                     '2026-11-06 08:46:05,enter,bull,14890\n')
+
+                with patch('protection_runtime.wait_for_signal_history', wraps=wait_for_signal_history), \
+                        patch('mdd_runtime.time.sleep', side_effect=relay_append):
+                    engine.on_signal(self.event(1, 1))
+                self.assertEqual(broker.orders, [('entry', 0, 1)])
+                self.assertEqual(engine.sizing().loss_streak, 0)
+                self.assertEqual(engine.sizing().extra_contracts, 0)
+                self.assertEqual(engine.sizing().equity_points, sizing.equity_points)
+                self.assertEqual(engine.sizing().closed_trades, sizing.closed_trades)
+
+                newer_loss = engine.sizing().close(-10, 1)
+                with store.db:
+                    engine.save_sizing(newer_loss)
+                restarted = ProtectionEngine(store, broker, 'TMFK6')
+                restarted.history_path = history
+                restarted.sync_h3_recovery()
+                self.assertEqual(restarted.sizing(), newer_loss)
             finally:
                 store.db.close()
 

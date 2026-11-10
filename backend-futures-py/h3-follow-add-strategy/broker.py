@@ -18,6 +18,21 @@ class PyramidBroker(ShioajiRecoveryBroker):
     contract_code = None
     rollover = None
 
+    def cancel_working_orders(self, trigger, preflight):
+        from cancel_working import cancel_working_orders
+        cancel_working_orders(self, trigger, preflight)
+
+    def startup_position(self):
+        # Manual orders wait for a fresh H3 signal; startup never cancels them.
+        self.check()
+        if self.store.pending() or self.guard.get('pending'):
+            raise TradingError(f'{self.account_label} 有未確認委託，停止啟動核對')
+        shared._refresh_status(self.api)
+        positions = shared._read_positions(self.api)
+        shared.validate_tmf_account(self.api, positions, contract_code=self.contract_code,
+                                    allow_working_orders=True)
+        return shared._net_position(positions)
+
     def position(self):
         self.check()
         shared._refresh_status(self.api)
@@ -37,7 +52,7 @@ class PyramidBroker(ShioajiRecoveryBroker):
             raise TradingError('游擊策略委託與 guard 不符')
         previous = payload['previous']
         if not self.valid_transition(previous, delta, phase, target):
-            raise TradingError('游擊策略僅允許按H_UNIT跟單、加碼1口或原口數全平')
+            raise TradingError('策略委託口數與進場設定或全平庫存不符')
 
         def before_order():
             self.check_rollover()

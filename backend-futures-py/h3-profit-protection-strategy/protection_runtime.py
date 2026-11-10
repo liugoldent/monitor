@@ -1,4 +1,4 @@
-"""Configured-quantity H3 following; retain legacy ledger fields for compatibility."""
+"""H3 following with entry sizing from complete broker fills."""
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
@@ -6,6 +6,8 @@ import json
 import protection_bootstrap
 from h_core import TradingError
 from runtime import Engine as BaseEngine, LedgerError, RolloverPause, signal
+from mdd_runtime import read_history, wait_for_signal_history
+from mdd_sizing import H3_TRADE_HISTORY
 from follow_state import FollowState as State
 from protection_policy import Protection
 from protection_policy import number
@@ -14,6 +16,7 @@ from recovery_sizing import RecoverySizing
 
 class ProtectionEngine(BaseEngine):
     state_type = State
+    history_path = H3_TRADE_HISTORY
 
     def __init__(self, store, broker, symbol, notify=lambda message: None):
         # Reuse established concrete-contract ledger shape for rollover/broker.
@@ -42,7 +45,7 @@ class ProtectionEngine(BaseEngine):
     def sizing(self):
         try:
             row = self.store.db.execute('SELECT payload FROM h3_profit_sizing WHERE id=1').fetchone()
-            return RecoverySizing(**json.loads(row[0])).validate()
+            return RecoverySizing.from_payload(json.loads(row[0]))
         except (ValueError, TypeError, KeyError, IndexError) as exc:
             raise LedgerError('永豐2連輸加口帳本無效，停止送單並保留原始狀態') from exc
 
@@ -53,6 +56,37 @@ class ProtectionEngine(BaseEngine):
 
     def entry_quantity(self):
         return self.sizing().quantity(self.broker.unit)
+
+    def sync_h3_recovery(self, history=None):
+        if history is None:
+            history = read_history(self.history_path)
+        recovered_at = history.recovered_at
+        if recovered_at is None:
+            return
+        with self.store.db:
+            previous = self.store.db.execute(
+                "SELECT detail FROM audit WHERE event='sizing_h3_recovery' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if previous and recovered_at <= json.loads(previous[0])['recovered_at']:
+                return
+            if self.store.pending() or self.broker.guard.get('pending'):
+                raise LedgerError('永豐2有未確認委託，暫停同步 H3 歸零')
+            # On first use, do not clear losses from rounds closed after an
+            # old H3 recovery. Use the signal time so the recovery's own
+            # flatten still counts as part of the round being reset.
+            last_flatten = None
+            if previous is None:
+                last_flatten, = self.store.db.execute("""
+                    SELECT MAX(signals.received) FROM audit JOIN signals
+                    ON signals.id=json_extract(audit.detail, '$.payload.trigger')
+                    WHERE audit.event='protection_confirmed'
+                    AND json_extract(audit.detail, '$.payload.phase')='flatten'
+                """).fetchone()
+            applied = last_flatten is None or last_flatten <= recovered_at
+            if applied:
+                self.save_sizing(replace(self.sizing(), loss_streak=0, extra_contracts=0))
+            self.audit_in_transaction('sizing_h3_recovery', dict(
+                recovered_at=recovered_at, applied=applied))
 
     def on_external_inventory(self, actual):
         self.save_protection(Protection(h3_direction=(1 if actual > 0 else -1) if actual else 0))
@@ -93,7 +127,7 @@ class ProtectionEngine(BaseEngine):
         old_protection = self.protection()
         self.broker.entry_quantity = sizing.quantity(self.broker.unit)
         if not self.broker.valid_transition(previous, target-previous, phase, target):
-            raise TradingError('永豐2只允許依連輸狀態以Unit或Unit+1進場，或原口數全平')
+            raise TradingError('永豐2委託口數與進場級距或全平庫存不符')
         protection.validate()
         payload = dict(trigger=key, phase=phase, previous=previous, target=target,
             side='buy' if target > previous else 'sell', quantity=abs(target-previous),
@@ -141,14 +175,16 @@ class ProtectionEngine(BaseEngine):
                 state=asdict(self.state()), protection=asdict(protection), sizing=asdict(sizing),
                 confirmed_price=str(price)))
         label = f'跟隨H3進場{abs(target)}口' if phase == 'entry' else '跟隨H3全平'
-        self.notify(f'【永豐2｜H3跟單】{label}：{previous:+d} → {target:+d}口，成交與庫存已確認。')
+        message = f'【永豐2｜H3跟單】{label}：{previous:+d} → {target:+d}口，成交與庫存已確認。'
+        if phase == 'entry':
+            message += f'目前連輸 {sizing.loss_streak} 次。'
+        self.notify(message)
         if phase == 'flatten':
             if old_state.first_price is None:
                 self.notify('【永豐2｜連輸加口】本輪缺少完整進出場損益，不計輸贏；保留既有連輸與加口狀態。')
             self.notify(f'【永豐2｜連輸加口】連輸{sizing.loss_streak}筆；'
                         f'已平倉回撤{number(sizing.peak_points)-number(sizing.equity_points)}點×口；'
-                        f'下筆{self.entry_quantity()}口（Unit={self.broker.unit}，'
-                        f'{"已加1口，維持至回前高" if sizing.boosted else "基準口數"}）。')
+                        f'同步 H3 歸零前的級距：基準{self.broker.unit}口，加{sizing.extra_contracts}口。')
 
     def on_signal(self, event, *, now=None):
         parsed = signal(event, now)
@@ -167,10 +203,17 @@ class ProtectionEngine(BaseEngine):
             preflight()
             self.protection()
             self.sizing()
+            self.broker.cancel_working_orders(key, preflight)
+            preflight()
             self.adopt_signal_inventory(key)
             if self.state().expected:
                 self.order(0, 'flatten', key, State(round_key=key), next_protection, preflight)
             if direction:
+                history = wait_for_signal_history(self.history_path, event, direction)
+                if history is None:
+                    self.notify('【永豐2｜H3跟單】H3 歷史未在訊號有效期間同步，本筆跳過進場。')
+                    return True
+                self.sync_h3_recovery(history)
                 self.order(direction*self.entry_quantity(), 'entry', key, State(round_key=key), next_protection, preflight)
             else:
                 with self.store.db:

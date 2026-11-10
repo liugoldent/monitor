@@ -1,5 +1,5 @@
 """Offline tests: no broker connection or real orders."""
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 import sys
 import json
@@ -10,7 +10,7 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(BASE), str(BASE.parent), str(BASE.parent / 'h3-common')]
 import test_configured_unit as fixtures
 from mdd_runtime import MddEngine
-from mdd_sizing import MddSizing, save_sizing, average_fill
+from mdd_sizing import MddSizing, matches_order_snapshot, save_sizing, average_fill
 from runtime import LedgerError
 from strategy import State
 from broker import PyramidBroker
@@ -25,39 +25,86 @@ class MddTests(unittest.TestCase):
     def setUp(self):
         fixtures.ConfiguredUnitTests.setUp(self)
         self.broker.confirmed_price = '20000'
-        self.engine = MddEngine(self.store, self.broker, 'TMFK6')
-        self.broker.unit = 2
+        self.notices = []
+        self.engine = MddEngine(self.store, self.broker, 'TMFK6', self.notices.append)
+        self.history = Path(self.temp.name) / 'h_trade.csv'
+        self.history.write_text('timestamp,action,side,price\n'
+                                '2026-11-04 19:01:02,enter,bull,20000\n', encoding='utf-8')
+        self.engine.history_path = self.history
+        self.broker.unit = 1
 
-    def test_sixth_loss_boosts_next_entry_until_recovery(self):
+    def add_history_round(self, points, next_side='bull'):
+        with self.history.open('a', encoding='utf-8') as handle:
+            handle.write(f'2026-11-04 23:44:02,exiting,bull,{20000 + points}\n'
+                         f'2026-11-04 23:44:02,enter,{next_side},20000\n')
+
+    def test_drawdown_thresholds_boost_next_entry_until_recovery(self):
+        self.add_history_round(100)
+        self.add_history_round(-749)
         self.engine.on_signal(self.event('1', 1))
-        for loss in range(1, 7):
-            self.assertEqual(self.engine.state().expected, 2)
-            self.broker.confirmed_price = str(20000 - loss)
-            self.engine.on_signal(self.event(str(loss + 1), 1))
-            self.assertEqual(self.engine.sizing().loss_streak, loss)
-        self.assertEqual(self.engine.state().expected, 3)
-        self.broker.confirmed_price = '19995'
-        self.engine.on_signal(self.event('8', 1))
-        self.assertEqual(self.engine.sizing().loss_streak, 0)
-        self.assertEqual(self.engine.state().expected, 3)
-        self.broker.confirmed_price = '20000'
-        self.engine.on_signal(self.event('9', -1))
+        self.assertIn('目前回撤 749 點', self.notices[-1])
+        previous = 1
+        for key, points, drawdown, quantity in [(2, -1, 750, 2), (3, -249, 999, 2),
+                                                 (4, -1, 1000, 3), (5, 999, 1, 3), (6, 1, 0, 1)]:
+            with self.subTest(drawdown=drawdown):
+                self.add_history_round(points)
+                self.engine.on_signal(self.event(str(key), 1))
+                self.assertEqual(self.broker.orders[-2:], [('flatten', -previous, 0), ('entry', quantity, quantity)])
+                self.assertIn(f'目前回撤 {drawdown} 點', self.notices[-1])
+                previous = quantity
         self.assertEqual(self.engine.sizing().equity, '0')
-        self.assertEqual(self.engine.state().expected, -2)
 
-    def test_legacy_ledger_starts_at_base_unit_and_preserves_open_round(self):
-        legacy = dict(equity='-1200', peak='100', boosted=True,
+    def test_missing_history_allows_full_exit_and_blocks_reentry(self):
+        self.engine.on_signal(self.event('1', 1))
+        self.history.unlink()
+        with self.assertRaisesRegex(LedgerError, '暫停新進場'):
+            self.engine.on_signal(self.event('2', 1))
+        self.assertEqual(self.broker.orders, [('entry', 1, 1), ('flatten', -1, 0)])
+        self.assertIsNone(self.store.pending())
+
+    def test_reversal_waits_for_csv_recovery_before_sizing(self):
+        self.add_history_round(-2696)
+        def relay_append(_):
+            self.assertEqual(self.broker.orders, [])
+            self.add_history_round(5110, next_side='bear')
+        with patch('mdd_runtime.time.sleep', side_effect=relay_append) as wait:
+            self.engine.on_signal(self.event('1', -1))
+        wait.assert_called_once()
+        self.assertEqual(self.broker.orders, [('entry', -1, -1)])
+        self.assertIn('目前回撤 0 點', self.notices[-1])
+
+    def test_expiry_waiting_for_csv_skips_entry(self):
+        self.add_history_round(-2696)
+        with patch('mdd_runtime.signal', side_effect=[True, None]), patch('mdd_runtime.time.sleep'):
+            self.engine.on_signal(self.event('1', -1))
+        self.assertEqual(self.broker.orders, [])
+        self.assertIn('本筆跳過進場', self.notices[-1])
+
+    def test_legacy_ledger_preserves_previous_drawdown_tier_and_open_round(self):
+        legacy = dict(equity='-500', peak='100', boosted=True,
                       closed_rounds=8, tracking=True, carry='-10')
         with self.store.db:
             self.store.db.execute('UPDATE h3_mdd_sizing SET payload=?', (json.dumps(legacy),))
         sizing = self.engine.sizing()
-        self.assertEqual(sizing.loss_streak, 0)
-        self.assertEqual(sizing.quantity(2), 2)
+        self.assertEqual(sizing.quantity(1), 3)
         self.assertTrue(sizing.tracking)
         self.assertEqual(sizing.carry, '-10')
-    def test_no_intraround_add_and_no_tiers(self):
+
+    def test_streak_ledger_migrates_using_existing_drawdown(self):
+        legacy = dict(equity='-650', peak='100', boosted=False,
+                      closed_rounds=8, tracking=True, carry='-10', loss_streak=0)
         with self.store.db:
-            save_sizing(self.store, MddSizing(equity='-3000', boosted=True))
+            self.store.db.execute('UPDATE h3_mdd_sizing SET payload=?', (json.dumps(legacy),))
+        sizing = self.engine.sizing()
+        self.assertEqual(sizing.quantity(1), 2)
+        self.assertEqual(sizing.carry, '-10')
+        self.assertTrue(matches_order_snapshot(self.store, legacy))
+        self.assertFalse(matches_order_snapshot(self.store, dict(legacy, loss_streak=1)))
+
+    def test_no_intraround_add(self):
+        self.add_history_round(-1000)
+        with self.store.db:
+            save_sizing(self.store, MddSizing(equity='-3000', extra_contracts=2))
         self.engine.on_signal(self.event('1', 1))
         self.assertEqual(self.engine.state().expected, 3)
         for value in [-1300, -1200]:
@@ -65,7 +112,7 @@ class MddTests(unittest.TestCase):
         self.assertEqual(len(self.broker.orders), 1)
 
     def test_restart_preserves_peak_boost_and_round(self):
-        self.test_no_intraround_add_and_no_tiers()
+        self.test_no_intraround_add()
         before = self.engine.sizing()
         self.engine = MddEngine(self.store, self.broker, 'TMFK6')
         self.assertEqual(self.engine.sizing(), before)
@@ -87,12 +134,13 @@ class MddTests(unittest.TestCase):
 
     def test_external_inventory_round_excluded(self):
         self.engine.on_signal(self.event('1', 1))
-        self.broker.actual = 1
+        self.broker.actual = 5
         self.broker.confirmed_price = '18000'
+        self.add_history_round(0, next_side='bear')
         self.engine.on_signal(self.event('2', -1))
         self.assertEqual(self.engine.sizing().equity, '0')
         self.assertEqual(self.engine.sizing().closed_rounds, 0)
-        self.assertEqual(self.engine.state().expected, -2)
+        self.assertEqual(self.broker.orders[-2:], [('flatten', -5, 0), ('entry', -1, -1)])
 
     def test_rollover_single_round_single_contract_points(self):
         sizing = replace(MddSizing(), tracking=True)
@@ -102,7 +150,7 @@ class MddTests(unittest.TestCase):
         sizing = sizing.filled('roll_open', State(), '19700')
         sizing = sizing.filled('flatten', State(expected=4, first_price='19700'), '19100')
         self.assertEqual(sizing.equity, '-1000')
-        self.assertEqual(sizing.quantity(2), 2)
+        self.assertEqual(sizing.quantity(1), 3)
         self.assertEqual(sizing.closed_rounds, 1)
 
     def test_weighted_fill_price(self):
@@ -122,17 +170,16 @@ class MddTests(unittest.TestCase):
         self.broker.confirmed_price = None
         with self.assertRaises(LedgerError):
             self.engine.on_signal(self.event('2', 0))
-        payload = self.store.pending()
-        pending = dict(previous_position=2, target_position=0, quantity=2,
+        pending = dict(previous_position=1, target_position=0, quantity=1,
                        side='sell', trade_id='original', contract_code='TMFK6')
         with self.store.db:
             self.store.db.execute('CREATE TABLE shioaji_order_state (id INTEGER PRIMARY KEY, payload TEXT)')
             self.store.db.execute('INSERT INTO shioaji_order_state VALUES (1,?)',
                                   (json.dumps(dict(pending=pending)),))
-        trade = dict(order=dict(id='original', action='sell', quantity=2),
+        trade = dict(order=dict(id='original', action='sell', quantity=1),
                      contract=dict(code='TMFK6'),
-                     status=dict(status='Filled', deal_quantity=2,
-                                 deals=[dict(price=19000, quantity=2, ts=1793700000)]))
+                     status=dict(status='Filled', deal_quantity=1,
+                                 deals=[dict(price=19000, quantity=1, ts=1793700000)]))
         api = MagicMock()
         api.list_trades.return_value = [trade]
         with patch.object(shared, '_refresh_status'), patch.object(shared, '_contract'), \
@@ -142,7 +189,8 @@ class MddTests(unittest.TestCase):
                                    Path(self.temp.name)/'records')
         self.assertEqual(self.engine.sizing().equity, '-1000.0')
         self.assertEqual(self.engine.sizing().closed_rounds, 1)
-        self.assertEqual(self.engine.entry_quantity(), 2)
+        self.assertEqual(self.engine.sizing().quantity(1), 3)
+        self.assertEqual(self.engine.entry_quantity(), 1)
         self.assertIsNone(self.store.pending())
         self.assertEqual(len(self.broker.orders), 2)
         self.assertEqual(self.engine.state().expected, 0)
