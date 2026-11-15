@@ -13,6 +13,7 @@ from protection_rollover import ProtectionRollover
 from h_core import Store, TradingError
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
+from mdd_runtime import read_history
 from rollover import ledger_symbol
 from auto_rollover import ROLLOVER_PHASES
 from ef_trade_runtime import Notifications
@@ -80,14 +81,20 @@ def check_config():
 
 def startup_notice(engine):
     state = engine.state()
+    try:
+        history = read_history(engine.history_path)
+        source = (f'H3 訊號源目前{history.streak_text}；已平倉回撤{history.sizing.drawdown:f}點；'
+                  f'目前級距{engine.entry_quantity(history)}口。\n')
+    except LedgerError:
+        source = 'H3 訊號源交易紀錄目前無法讀取。\n'
     return ('【永豐2｜H3跟單啟動】\n'
         f'模式：Shioaji simulation={account.BROKER_SIMULATION}（{"模擬委託" if account.BROKER_SIMULATION else "真實下單"}）。\n'
         f'帳本部位{state.expected:+d}口。\n'
-        f'基準{engine.broker.unit}口；連輸4筆後加1口，連輸6筆後加2口；H3 回撤歸零時清除連輸與加口。\n'
-        f'目前連輸{engine.sizing().loss_streak}筆，下筆{engine.entry_quantity()}口；每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進場；空手訊號只全平。\n'
+        f'基準{engine.broker.unit}口；依 H3 訊號源連輸4筆後加1口，連輸6筆後加2口；回撤歸零時清除加口。\n'
+        f'{source}'
+        '每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進場；空手訊號只全平。\n'
         '新H3訊號執行前先取消本帳戶、策略目前微台月份掛單，確認結束再查倉；取消失敗或不明則不送單。\n'
-        '手動改倉導致庫存不同時，該輪完整損益不明，不計連輸；尚未設定日K均線出場；重啟不補歷史訊號；'
-        '結算日沿用13:25自動換月。')
+        '重啟後等待新訊號；結算日沿用13:25自動換月。')
 
 
 def watch(engine, poll=2):
@@ -98,10 +105,6 @@ def watch(engine, poll=2):
         engine.broker.check()
         time.sleep(poll)
     engine.broker.startup_position()
-    try:
-        engine.sync_h3_recovery()
-    except LedgerError as exc:
-        engine.notify(f'【永豐2｜H3跟單】啟動時未能同步 H3 歸零：{exc}')
     notice = startup_notice(engine)
     engine.notify(notice)
     while True:

@@ -1,11 +1,9 @@
 """Cancel the strategy account's current-month TMF orders on a fresh H3 signal."""
 import time
+from datetime import datetime
 
 from h_core import TradingError
 import shioaji_tmf_target as shared
-
-TERMINAL = {'filled', 'cancelled', 'failed', 'inactive'}
-CANCELLABLE = {'submitted', 'presubmitted', 'partfilled'}
 
 
 def cancel_working_orders(broker, trigger, preflight, *, attempts=20, delay=0.25):
@@ -26,10 +24,11 @@ def cancel_working_orders(broker, trigger, preflight, *, attempts=20, delay=0.25
         if not isinstance(trades, list):
             raise TradingError(f'{label} 掛單清單無效，不送單')
         found = {}
+        now = datetime.now(shared.TAIPEI)
         for trade in trades:
             if shared._position_code(shared._position_value(trade, 'contract')) != broker.contract_code:
                 continue
-            if shared._status_text(trade).lower() in TERMINAL:
+            if not shared._is_working_tmf_trade(trade, now):
                 continue
             account = shared._position_value(shared._position_value(trade, 'order'), 'account')
             identity = tuple(shared._position_value(account, field) for field in ('broker_id', 'account_id'))
@@ -39,7 +38,7 @@ def cancel_working_orders(broker, trigger, preflight, *, attempts=20, delay=0.25
             if identity != expected:
                 continue
             key = shared._trade_id(trade)
-            if not key or key in found or shared._status_text(trade).lower() not in CANCELLABLE:
+            if not key or key in found or shared._status_text(trade).lower() not in shared.WORKING_ORDER_STATUSES:
                 raise TradingError(f'{label} 掛單尚未確認可取消，不送單')
             found[key] = trade
         return found
@@ -72,7 +71,7 @@ def cancel_working_orders(broker, trigger, preflight, *, attempts=20, delay=0.25
                 raise TradingError(f'{label} 取消後找不到唯一原委託，不送單')
             evidence[key] = shared._status_text(matches[0]).lower()
         # Filled during cancellation is also final; caller re-reads actual inventory.
-        if all(status in TERMINAL for status in evidence.values()):
+        if all(status in shared.TERMINAL_ORDER_STATUSES for status in evidence.values()):
             if working():
                 raise TradingError(f'{label} 取消期間新增掛單，本筆不送單')
             audit('confirmed', orders=evidence)

@@ -1,4 +1,4 @@
-"""H3 following with entry sizing from complete broker fills."""
+"""H3 source-based entry sizing with separate broker-fill accounting."""
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
@@ -54,39 +54,10 @@ class ProtectionEngine(BaseEngine):
         self.store.db.execute('INSERT OR REPLACE INTO h3_profit_sizing VALUES (1,?)',
                               (json.dumps(asdict(value)),))
 
-    def entry_quantity(self):
-        return self.sizing().quantity(self.broker.unit)
-
-    def sync_h3_recovery(self, history=None):
+    def entry_quantity(self, history=None):
         if history is None:
             history = read_history(self.history_path)
-        recovered_at = history.recovered_at
-        if recovered_at is None:
-            return
-        with self.store.db:
-            previous = self.store.db.execute(
-                "SELECT detail FROM audit WHERE event='sizing_h3_recovery' ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if previous and recovered_at <= json.loads(previous[0])['recovered_at']:
-                return
-            if self.store.pending() or self.broker.guard.get('pending'):
-                raise LedgerError('永豐2有未確認委託，暫停同步 H3 歸零')
-            # On first use, do not clear losses from rounds closed after an
-            # old H3 recovery. Use the signal time so the recovery's own
-            # flatten still counts as part of the round being reset.
-            last_flatten = None
-            if previous is None:
-                last_flatten, = self.store.db.execute("""
-                    SELECT MAX(signals.received) FROM audit JOIN signals
-                    ON signals.id=json_extract(audit.detail, '$.payload.trigger')
-                    WHERE audit.event='protection_confirmed'
-                    AND json_extract(audit.detail, '$.payload.phase')='flatten'
-                """).fetchone()
-            applied = last_flatten is None or last_flatten <= recovered_at
-            if applied:
-                self.save_sizing(replace(self.sizing(), loss_streak=0, extra_contracts=0))
-            self.audit_in_transaction('sizing_h3_recovery', dict(
-                recovered_at=recovered_at, applied=applied))
+        return self.broker.unit + history.loss_extra_contracts
 
     def on_external_inventory(self, actual):
         self.save_protection(Protection(h3_direction=(1 if actual > 0 else -1) if actual else 0))
@@ -119,20 +90,25 @@ class ProtectionEngine(BaseEngine):
         self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
             (datetime.now(timezone.utc).isoformat(), event, json.dumps(detail, ensure_ascii=False)))
 
-    def order(self, target, phase, key, planned, protection, preflight=None, *, reason='H3'):
+    def order(self, target, phase, key, planned, protection, preflight=None, *, history=None):
         self.validate_position()
         old_state = self.state()
         previous = old_state.expected
         sizing = self.sizing()
         old_protection = self.protection()
-        self.broker.entry_quantity = sizing.quantity(self.broker.unit)
+        if phase == 'entry':
+            self.broker.entry_quantity = self.entry_quantity(history)
         if not self.broker.valid_transition(previous, target-previous, phase, target):
             raise TradingError('永豐2委託口數與進場級距或全平庫存不符')
         protection.validate()
         payload = dict(trigger=key, phase=phase, previous=previous, target=target,
             side='buy' if target > previous else 'sell', quantity=abs(target-previous),
-            reason=reason, planned_state=asdict(planned), planned_protection=asdict(protection))
+            reason='H3', planned_state=asdict(planned), planned_protection=asdict(protection))
         payload['sizing_before'] = asdict(sizing)
+        if phase == 'entry':
+            payload['h3_source'] = dict(win_streak=history.win_streak, loss_streak=history.loss_streak,
+                                       drawdown=str(history.sizing.drawdown),
+                                       extra_contracts=history.loss_extra_contracts)
         # Check before creating the durable intent AND again at the broker gate.
         if preflight:
             preflight()
@@ -177,14 +153,8 @@ class ProtectionEngine(BaseEngine):
         label = f'跟隨H3進場{abs(target)}口' if phase == 'entry' else '跟隨H3全平'
         message = f'【永豐2｜H3跟單】{label}：{previous:+d} → {target:+d}口，成交與庫存已確認。'
         if phase == 'entry':
-            message += f'目前連輸 {sizing.loss_streak} 次。'
+            message += f'H3 訊號源目前{history.streak_text}。'
         self.notify(message)
-        if phase == 'flatten':
-            if old_state.first_price is None:
-                self.notify('【永豐2｜連輸加口】本輪缺少完整進出場損益，不計輸贏；保留既有連輸與加口狀態。')
-            self.notify(f'【永豐2｜連輸加口】連輸{sizing.loss_streak}筆；'
-                        f'已平倉回撤{number(sizing.peak_points)-number(sizing.equity_points)}點×口；'
-                        f'同步 H3 歸零前的級距：基準{self.broker.unit}口，加{sizing.extra_contracts}口。')
 
     def on_signal(self, event, *, now=None):
         parsed = signal(event, now)
@@ -213,8 +183,9 @@ class ProtectionEngine(BaseEngine):
                 if history is None:
                     self.notify('【永豐2｜H3跟單】H3 歷史未在訊號有效期間同步，本筆跳過進場。')
                     return True
-                self.sync_h3_recovery(history)
-                self.order(direction*self.entry_quantity(), 'entry', key, State(round_key=key), next_protection, preflight)
+                quantity = self.entry_quantity(history)
+                self.order(direction*quantity, 'entry', key, State(round_key=key), next_protection,
+                           preflight, history=history)
             else:
                 with self.store.db:
                     self.save(State(round_key=key))

@@ -1,4 +1,5 @@
 """Offline cancellation and signal-ordering regression tests; no broker login."""
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -98,6 +99,35 @@ class CancelTests(unittest.TestCase):
         self.orders.clear()
         self.run_cancel()
         self.api.cancel_order.assert_not_called()
+
+    def test_expired_day_rod_is_ignored_for_cancellation_and_order_validation(self):
+        self.orders[0]['order']['order_type'] = 'ROD'
+        self.orders[0]['status']['order_datetime'] = datetime(2020, 11, 12, 5, 14, tzinfo=timezone.utc)
+        self.run_cancel()
+        with patch.object(shared, '_contract'):
+            shared.validate_tmf_account(self.api, [], contract_code='TMFK6', ignore_expired_rod=True)
+            with self.assertRaises(shared.BrokerOrderError):
+                shared.validate_tmf_account(self.api, [], contract_code='TMFK6')
+        self.api.cancel_order.assert_not_called()
+
+    def test_day_rod_is_expired_in_same_dates_night_session(self):
+        order = self.orders[0]
+        order['order']['order_type'] = 'ROD'
+        order['status']['order_datetime'] = datetime(2026, 11, 12, 5, 14, tzinfo=timezone.utc)
+        now = datetime(2026, 11, 12, 23, 16, tzinfo=shared.TAIPEI)
+        self.assertFalse(shared._is_working_tmf_trade(order, now))
+
+    def test_night_rod_stays_working_until_next_morning_close(self):
+        order = self.orders[0]
+        order['order']['order_type'] = 'ROD'
+        order['status']['order_datetime'] = datetime(2026, 11, 12, 15, 20)
+        self.assertTrue(shared._is_working_tmf_trade(
+            order, datetime(2026, 11, 13, 4, 59, tzinfo=shared.TAIPEI)))
+        self.assertFalse(shared._is_working_tmf_trade(
+            order, datetime(2026, 11, 13, 5, 1, tzinfo=shared.TAIPEI)))
+        del order['status']['order_datetime']
+        self.assertTrue(shared._is_working_tmf_trade(
+            order, datetime(2026, 11, 13, 5, 1, tzinfo=shared.TAIPEI)))
 
     def test_startup_waits_with_working_orders_without_cancelling(self):
         self.api.list_positions = Mock(return_value=[])

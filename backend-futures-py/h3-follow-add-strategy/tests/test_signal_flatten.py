@@ -11,7 +11,7 @@ BACKEND = BASE.parent
 sys.path[:0] = [str(BASE), str(BACKEND), str(BACKEND / 'h3-common'),
                str(BACKEND / 'h3-shane-use'), str(BACKEND / 'h3-profit-protection-strategy')]
 from h_core import Store, TradingError
-from mdd_runtime import wait_for_signal_history
+from mdd_runtime import read_history, wait_for_signal_history
 from mdd_sizing import H3History, MddSizing
 from runtime import Engine
 from shane_runtime import ShaneEngine
@@ -149,17 +149,14 @@ class SignalFlattenTests(unittest.TestCase):
                 broker = Broker()
                 broker.unit = POSITION_UNIT
                 engine = ProtectionEngine(store, broker, 'TMFK6')
-                sizing = RecoverySizing()
-                for _ in range(6):
-                    sizing = sizing.close(-10, 2)
-                with store.db:
-                    engine.save_sizing(sizing)
-                engine.on_signal(self.event(1, 1))
-                self.assertEqual(engine.state().expected, 3)
-                broker.actual = 1  # User takes profit on two of three contracts.
-                engine.on_signal(self.event(2, -1))
+                source = H3History(MddSizing(), 1, None, loss_streak=6, loss_extra_contracts=2)
+                with patch('protection_runtime.wait_for_signal_history', return_value=source):
+                    engine.on_signal(self.event(1, 1))
+                    self.assertEqual(engine.state().expected, 3)
+                    broker.actual = 1
+                    engine.on_signal(self.event(2, -1))
                 self.assertEqual(broker.orders[-2:], [('flatten', 1, 0), ('entry', 0, -3)])
-                self.assertEqual(engine.sizing(), sizing)
+                self.assertEqual(engine.sizing().closed_trades, 0)
                 self.assertIsNotNone(store.db.execute(
                     "SELECT 1 FROM audit WHERE event='sizing_external_round_excluded'").fetchone())
             finally:
@@ -185,7 +182,7 @@ class SignalFlattenTests(unittest.TestCase):
                 finally:
                     store.db.close()
 
-    def test_protection_four_and_six_confirmed_losses_boost_until_recovery(self):
+    def test_protection_source_losses_boost_independently_of_broker_fills(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(Path(root) / 'state.sqlite')
             try:
@@ -193,23 +190,42 @@ class SignalFlattenTests(unittest.TestCase):
                 broker.unit = POSITION_UNIT
                 notices = []
                 engine = ProtectionEngine(store, broker, 'TMFK6', notices.append)
+                history = Path(root) / 'h_trade.csv'
+                history.write_text('timestamp,action,side,price\n'
+                                   '2026-11-04 19:01:02,enter,bull,20000\n', encoding='utf-8')
+                engine.history_path = history
+                wait = patch('protection_runtime.wait_for_signal_history',
+                             side_effect=lambda path, *_: read_history(path))
+                self.addCleanup(wait.stop)
+                wait.start()
                 engine.on_signal(self.event(1, 1))
-                self.assertIn('目前連輸 0 次', notices[-1])
+                self.assertIn('連輸0筆', notices[-1])
                 previous = 1
+                broker.confirmed_price = '20010'
                 for losses, quantity in enumerate([1, 1, 1, 2, 2, 3], start=1):
                     with self.subTest(losses=losses):
+                        with history.open('a', encoding='utf-8') as handle:
+                            handle.write(f'2026-11-04 23:44:0{losses},exiting,bull,19990\n'
+                                         f'2026-11-04 23:44:0{losses},enter,bull,20000\n')
                         engine.on_signal(self.event(losses + 1, 1))
-                        self.assertEqual(engine.sizing().loss_streak, losses)
                         self.assertEqual(broker.orders[-2:], [('flatten', previous, 0), ('entry', 0, quantity)])
-                        self.assertIn(f'目前連輸 {losses} 次', notices[-1])
+                        self.assertIn(f'連輸{losses}筆', notices[-1])
                         previous = quantity
                 self.assertEqual(engine.sizing().closed_trades, 6)
-                broker.confirmed_price = '20010'
+                self.assertEqual(engine.sizing().loss_streak, 5)
+                broker.actual = 0
+                with history.open('a', encoding='utf-8') as handle:
+                    handle.write('2026-11-05 08:45:00,exiting,bull,20020\n'
+                                 '2026-11-05 08:45:00,enter,bull,20000\n')
                 engine.on_signal(self.event(8, 1))
-                self.assertEqual(engine.sizing().loss_streak, 0)
-                self.assertEqual(broker.orders[-2:], [('flatten', 3, 0), ('entry', 0, 3)])
-                broker.confirmed_price = '20030'
+                self.assertIn('連贏1筆、連輸0筆', notices[-1])
+                self.assertEqual(broker.orders[-1], ('entry', 0, 3))
+                self.assertEqual(engine.sizing().closed_trades, 6)
+                with history.open('a', encoding='utf-8') as handle:
+                    handle.write('2026-11-05 08:50:00,exiting,bull,20040\n'
+                                 '2026-11-05 08:50:00,enter,bear,20040\n')
                 engine.on_signal(self.event(9, -1))
+                self.assertIn('連贏2筆、連輸0筆', notices[-1])
                 self.assertEqual(broker.orders[-2:], [('flatten', 3, 0), ('entry', 0, -1)])
             finally:
                 store.db.close()
@@ -219,7 +235,7 @@ class SignalFlattenTests(unittest.TestCase):
                                                   loss_streak=0, boosted=True))
         self.assertEqual(sizing.quantity(1), 3)
 
-    def test_protection_shared_h3_recovery_clears_boost_once_even_without_a_broker_close(self):
+    def test_protection_source_recovery_leaves_broker_accounting_intact(self):
         with tempfile.TemporaryDirectory() as root:
             history = Path(root) / 'h_trade.csv'
             history.write_text(
@@ -249,18 +265,11 @@ class SignalFlattenTests(unittest.TestCase):
                         patch('mdd_runtime.time.sleep', side_effect=relay_append):
                     engine.on_signal(self.event(1, 1))
                 self.assertEqual(broker.orders, [('entry', 0, 1)])
-                self.assertEqual(engine.sizing().loss_streak, 0)
-                self.assertEqual(engine.sizing().extra_contracts, 0)
-                self.assertEqual(engine.sizing().equity_points, sizing.equity_points)
-                self.assertEqual(engine.sizing().closed_trades, sizing.closed_trades)
-
-                newer_loss = engine.sizing().close(-10, 1)
-                with store.db:
-                    engine.save_sizing(newer_loss)
+                self.assertEqual(engine.sizing(), sizing)
                 restarted = ProtectionEngine(store, broker, 'TMFK6')
                 restarted.history_path = history
-                restarted.sync_h3_recovery()
-                self.assertEqual(restarted.sizing(), newer_loss)
+                self.assertEqual(restarted.entry_quantity(), 1)
+                self.assertEqual(restarted.sizing(), sizing)
             finally:
                 store.db.close()
 

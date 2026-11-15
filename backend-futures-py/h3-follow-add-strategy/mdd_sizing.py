@@ -15,6 +15,10 @@ def drawdown_tier(drawdown):
     return int(drawdown >= 750) + int(drawdown >= 1000)
 
 
+def loss_tier(streak):
+    return int(streak >= 4) + int(streak >= 6)
+
+
 @dataclass(frozen=True)
 class MddSizing:
     equity: str = '0'
@@ -76,12 +80,20 @@ class H3History:
     sizing: MddSizing
     direction: int
     recovered_at: float | None
+    win_streak: int = 0
+    loss_streak: int = 0
+    loss_extra_contracts: int = 0
+
+    @property
+    def streak_text(self):
+        return f'連贏{self.win_streak}筆、連輸{self.loss_streak}筆'
 
 
 def read_historical_mdd(path):
     sizing = MddSizing()
     entry = None
     recovered_at = None
+    wins = losses = loss_extra = 0
     with path.open(encoding='utf-8-sig', newline='') as handle:
         rows = csv.DictReader(handle, strict=True)
         if not {'timestamp', 'action', 'side', 'price'}.issubset(rows.fieldnames or ()):
@@ -95,7 +107,13 @@ def read_historical_mdd(path):
                     points = number(row['price'], positive=True) - number(entry['price'], positive=True)
                 except ValueError as exc:
                     raise ValueError(f'h_trade.csv 第 {rows.line_num} 行的交易缺少有效價格') from exc
-                updated = sizing.close(points if side == 'bull' else -points)
+                if side == 'bear':
+                    points = -points
+                updated = sizing.close(points)
+                wins = wins + 1 if points > 0 else 0
+                losses = losses + 1 if points < 0 else 0
+                loss_extra = (max(loss_extra, loss_tier(losses))
+                              if updated.drawdown else 0)
                 if sizing.drawdown and not updated.drawdown:
                     stamp = datetime.fromisoformat(row['timestamp'])
                     recovered_at = (stamp if stamp.tzinfo else stamp.replace(tzinfo=TAIPEI)).timestamp()
@@ -104,7 +122,7 @@ def read_historical_mdd(path):
             else:
                 raise ValueError(f'h_trade.csv 第 {rows.line_num} 行的交易無法配對')
     direction = 0 if entry is None else {'bull': 1, 'bear': -1}[entry['side']]
-    return H3History(sizing, direction, recovered_at)
+    return H3History(sizing, direction, recovered_at, wins, losses, loss_extra)
 
 
 def decode_sizing(payload):

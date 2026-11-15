@@ -34,6 +34,8 @@ class ShaneEngine(Engine):
 
         try:
             fresh()
+            self.broker.cancel_working_orders(key, fresh)
+            fresh()
             self.adopt_signal_inventory(key)
             if self.state().expected:
                 self.order(0, 'flatten', key, ShaneState(round_key=key), fresh)

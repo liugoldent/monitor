@@ -65,7 +65,8 @@ class MddEngine(Engine):
 
     def plan_from_history(self, history):
         sizing = history.sizing
-        return sizing.quantity(self.broker.unit), f'目前回撤 {sizing.drawdown:f} 點'
+        return (sizing.quantity(self.broker.unit),
+                f'H3 訊號源目前回撤 {sizing.drawdown:f} 點，{history.streak_text}')
 
     def on_external_inventory(self, actual):
         save_sizing(self.store, replace(self.sizing(), tracking=False, carry='0'))

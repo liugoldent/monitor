@@ -24,11 +24,16 @@ class FakeBroker:
     def __init__(self):
         self.actual = 0
         self.orders = []
+        self.cancelled_for = []
         self.guard = {}
         self.preflight = None
 
     def check_rollover(self):
         pass
+
+    def cancel_working_orders(self, trigger, preflight):
+        preflight()
+        self.cancelled_for.append(trigger)
 
     def position(self):
         return self.actual
@@ -72,6 +77,7 @@ class ShaneRuntimeTests(unittest.TestCase):
         self.assertTrue(self.engine.on_signal(event))
         self.assertFalse(self.engine.on_signal(event))
         self.assertEqual(self.broker.orders, [('entry', 0, 1)])
+        self.assertEqual(self.broker.cancelled_for, ['h3-dual:1'])
 
     def test_actual_inventory_is_fully_closed_before_entry(self):
         self.broker.actual = 7

@@ -64,7 +64,7 @@ def watch(engine, poll):
     while not engine.broker.rollover.synchronize():
         engine.broker.check()
         time.sleep(poll)
-    engine.validate_position(require_match=False)
+    engine.broker.startup_position()
     engine.notify(f'【Shane｜H3跟單啟動】simulation={account.BROKER_SIMULATION}；'
                   f'帳本部位 {engine.state().expected:+d} 口；'
                   f'每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進 SHANE_UNIT={engine.broker.unit} 口；空手訊號只全平。')

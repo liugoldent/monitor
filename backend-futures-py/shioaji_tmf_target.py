@@ -12,14 +12,19 @@ import sys
 import time
 import traceback
 from dataclasses import dataclass
+from datetime import datetime, time as wall_time, timedelta
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 
 BACKEND_DIR = Path(__file__).resolve().parent
 ORDER_TIMEOUT_MS = 30_000
 POSITION_VERIFY_ATTEMPTS = 20
 POSITION_VERIFY_DELAY_SECONDS = 0.5
+TAIPEI = ZoneInfo("Asia/Taipei")
+TERMINAL_ORDER_STATUSES = {"filled", "cancelled", "failed", "inactive"}
+WORKING_ORDER_STATUSES = {"submitted", "presubmitted", "partfilled"}
 
 
 class BrokerOrderError(RuntimeError):
@@ -160,7 +165,7 @@ def tmf_contract_code(api: Any) -> str:
 
 
 def validate_tmf_account(api: Any, positions: list | None = None, *, contract_code: str | None = None,
-                         allow_working_orders: bool = False) -> None:
+                         allow_working_orders: bool = False, ignore_expired_rod: bool = False) -> None:
     """Reject ambiguous inventory/orders before either EF account reconciles."""
     if contract_code is None:
         contract_code = tmf_contract_code(api)
@@ -169,11 +174,10 @@ def validate_tmf_account(api: Any, positions: list | None = None, *, contract_co
     trades = api.list_trades()
     if not isinstance(trades, list):
         raise BrokerOrderError("委託查詢未回傳有效清單")
+    now = datetime.now(TAIPEI) if ignore_expired_rod else None
     for trade in trades:
         code = _position_code(_position_value(trade, "contract"))
-        if not allow_working_orders and code.startswith("TMF") and _status_text(trade).lower() not in {
-            "filled", "cancelled", "failed", "inactive",
-        }:
+        if not allow_working_orders and code.startswith("TMF") and _is_working_tmf_trade(trade, now):
             raise BrokerOrderError("有未確認結束的 TMF 委託；不重複下單")
     sides = set()
     for position in _read_positions(api) if positions is None else positions:
@@ -203,6 +207,38 @@ def _status_text(trade: Any) -> str:
     status = _position_value(_position_value(trade, "status"), "status", "")
     value = getattr(status, "value", status)
     return str(value).strip()
+
+
+def _is_working_tmf_trade(trade: Any, now: datetime | None) -> bool:
+    status = _status_text(trade).lower()
+    if status in TERMINAL_ORDER_STATUSES:
+        return False
+    if now is None:
+        return True
+    order = _position_value(trade, "order")
+    order_type = _position_value(order, "order_type")
+    if status not in WORKING_ORDER_STATUSES or getattr(order_type, "value", order_type) != "ROD":
+        return True
+
+    placed = _position_value(_position_value(trade, "status"), "order_datetime")
+    if not isinstance(placed, datetime):
+        return True
+    # Older Shioaji versions report exchange timestamps as naive Taipei time.
+    placed = placed.replace(tzinfo=TAIPEI) if placed.tzinfo is None else placed.astimezone(TAIPEI)
+    if placed > now:
+        return True
+
+    order_time = placed.time()
+    close_date = placed.date()
+    if wall_time(8, 30) <= order_time <= wall_time(13, 45):
+        close_time = wall_time(13, 45)
+    elif order_time >= wall_time(14, 50) or order_time <= wall_time(5):
+        close_time = wall_time(5)
+        if order_time >= wall_time(14, 50):
+            close_date += timedelta(days=1)
+    else:
+        return True  # Session cannot be determined from the exchange timestamp.
+    return now <= datetime.combine(close_date, close_time, tzinfo=TAIPEI)
 
 
 def _status_message(trade: Any) -> str:
@@ -307,7 +343,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
                             persist_guard: Callable[[], None] | None = None,
                             submission_only: bool = False,
                             contract_code: str | None = None,
-                            intent_id: str | None = None) -> OrderResult:
+                            intent_id: str | None = None,
+                            ignore_expired_rod: bool = False) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
@@ -329,7 +366,7 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
         _resolve_pending(api, guard, persist_guard, **route)
         positions = _read_positions(api)
         if strict_tmf:
-            validate_tmf_account(api, positions, **route)
+            validate_tmf_account(api, positions, ignore_expired_rod=ignore_expired_rod, **route)
 
         previous = _net_position(positions)
         delta = target_position - previous

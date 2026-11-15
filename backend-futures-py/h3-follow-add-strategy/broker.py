@@ -38,7 +38,7 @@ class PyramidBroker(ShioajiRecoveryBroker):
         shared._refresh_status(self.api)
         positions = shared._read_positions(self.api)
         route = dict(contract_code=self.contract_code) if self.contract_code else {}
-        shared.validate_tmf_account(self.api, positions, **route)
+        shared.validate_tmf_account(self.api, positions, ignore_expired_rod=True, **route)
         return shared._net_position(positions)
 
     def check_rollover(self):
@@ -67,6 +67,7 @@ class PyramidBroker(ShioajiRecoveryBroker):
         try:
             result = shared.execute_target_position(
                 target, api=self.api, sj=self.sj, strict_tmf=True,
+                ignore_expired_rod=True,
                 before_order=before_order, guard=self.guard, persist_guard=self.persist,
                 **(dict(contract_code=self.contract_code) if self.contract_code else {}))
         except shared.BrokerOrderError:

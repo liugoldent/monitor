@@ -1,13 +1,10 @@
-"""Increase entry size after four or six net losing H3 rounds."""
+"""Broker-fill accounting retained for execution audit and reconciliation."""
 from dataclasses import dataclass, replace
 
+from mdd_sizing import loss_tier
 from protection_policy import number
 
 ROUNDTRIP_COST = '4.8'  # estimated points per contract, same research convention
-
-
-def loss_tier(streak):
-    return int(streak >= 4) + int(streak >= 6)
 
 
 @dataclass(frozen=True)
@@ -20,12 +17,25 @@ class RecoverySizing:
     closed_trades: int = 0
     roll_cost_points: str = '0'
     cost_points_roundtrip: str = ROUNDTRIP_COST
+    win_streak: int | None = None
+
+    @property
+    def drawdown(self):
+        return number(self.peak_points) - number(self.equity_points)
+
+    @property
+    def streak_text(self):
+        wins = '連贏未核對' if self.win_streak is None else f'連贏{self.win_streak}筆'
+        return f'{wins}、連輸{self.loss_streak}筆'
 
     def validate(self):
         equity, peak = number(self.equity_points), number(self.peak_points)
         if (type(self.version) is not int or self.version != 1
                 or type(self.loss_streak) is not int or self.loss_streak < 0
                 or type(self.closed_trades) is not int or self.closed_trades < self.loss_streak
+                or (self.win_streak is not None and (type(self.win_streak) is not int
+                    or not 0 <= self.win_streak <= self.closed_trades
+                    or (self.win_streak and self.loss_streak)))
                 or peak < max(0, equity)
                 or type(self.extra_contracts) is not int or not loss_tier(self.loss_streak) <= self.extra_contracts <= 2
                 or (self.extra_contracts and peak == equity)
@@ -62,9 +72,10 @@ class RecoverySizing:
         equity = number(self.equity_points) + net
         peak = max(number(self.peak_points), equity)
         streak = self.loss_streak + 1 if net < 0 else 0
+        wins = (self.win_streak or 0) + 1 if net > 0 else 0
         extra = 0 if equity == peak else max(self.extra_contracts, loss_tier(streak))
         return replace(self, equity_points=str(equity), peak_points=str(peak),
-                       loss_streak=streak, extra_contracts=extra,
+                       loss_streak=streak, win_streak=wins, extra_contracts=extra,
                        closed_trades=self.closed_trades+1, roll_cost_points='0').validate()
 
     def rolled(self):
