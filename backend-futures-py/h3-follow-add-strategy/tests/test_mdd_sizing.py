@@ -33,19 +33,22 @@ class MddTests(unittest.TestCase):
         self.engine.history_path = self.history
         self.broker.unit = 1
 
-    def add_history_round(self, points, next_side='bull'):
+    def add_history_round(self, points, next_side='bull', *, closed_at='2026-11-04 23:44:02'):
         with self.history.open('a', encoding='utf-8') as handle:
-            handle.write(f'2026-11-04 23:44:02,exiting,bull,{20000 + points}\n'
-                         f'2026-11-04 23:44:02,enter,{next_side},20000\n')
+            handle.write(f'{closed_at},exiting,bull,{20000 + points}\n'
+                         f'{closed_at},enter,{next_side},20000\n')
 
-    def test_drawdown_thresholds_boost_next_entry_until_recovery(self):
+    def test_signal_source_adds_at_2000_and_4000_and_holds_until_recovery(self):
         self.add_history_round(100)
-        self.add_history_round(-749)
+        self.add_history_round(-999)
         self.engine.on_signal(self.event('1', 1))
-        self.assertIn('目前回撤 749 點', self.notices[-1])
+        self.assertIn('目前回撤 999 點', self.notices[-1])
+        self.assertEqual(self.broker.orders, [('entry', 1, 1)])
         previous = 1
-        for key, points, drawdown, quantity in [(2, -1, 750, 2), (3, -249, 999, 2),
-                                                 (4, -1, 1000, 3), (5, 999, 1, 3), (6, 1, 0, 1)]:
+        for key, points, drawdown, quantity in [
+            (2, -1000, 1999, 1), (3, -1, 2000, 2), (4, -1999, 3999, 2),
+            (5, -1, 4000, 3), (6, 3999, 1, 3), (7, 1, 0, 1),
+        ]:
             with self.subTest(drawdown=drawdown):
                 self.add_history_round(points)
                 self.engine.on_signal(self.event(str(key), 1))
@@ -53,6 +56,23 @@ class MddTests(unittest.TestCase):
                 self.assertIn(f'目前回撤 {drawdown} 點', self.notices[-1])
                 previous = quantity
         self.assertEqual(self.engine.sizing().equity, '0')
+
+    def test_single_loss_counts_only_from_cutoff_and_stacks_once_until_recovery(self):
+        self.add_history_round(-1000, closed_at='2026-11-18 14:16:19')
+        self.assertEqual(self.engine.entry_quantity(), 1)
+        self.add_history_round(-1000, closed_at='2026-11-18 14:16:20')
+        self.engine.on_signal(self.event('1', 1))
+        self.assertEqual(self.broker.orders, [('entry', 3, 3)])
+        self.assertIn('累計回撤加 1 口，單筆虧損加 1 口', self.notices[-1])
+        self.add_history_round(-2000, closed_at='2026-11-18 14:17:00')
+        self.assertEqual(self.engine.entry_quantity(), 4)
+        self.add_history_round(3999, closed_at='2026-11-18 14:18:00')
+        restarted = MddEngine(self.store, self.broker, 'TMFK6')
+        restarted.history_path = self.history
+        self.assertEqual(restarted.entry_quantity(), 4)
+        self.add_history_round(1, closed_at='2026-11-18 14:19:00')
+        self.add_history_round(-999, closed_at='2026-11-18 14:20:00')
+        self.assertEqual(restarted.entry_quantity(), 1)
 
     def test_missing_history_allows_full_exit_and_blocks_reentry(self):
         self.engine.on_signal(self.event('1', 1))
@@ -102,11 +122,11 @@ class MddTests(unittest.TestCase):
         self.assertFalse(matches_order_snapshot(self.store, dict(legacy, loss_streak=1)))
 
     def test_no_intraround_add(self):
-        self.add_history_round(-1000)
+        self.add_history_round(-3000)
         with self.store.db:
             save_sizing(self.store, MddSizing(equity='-3000', extra_contracts=2))
         self.engine.on_signal(self.event('1', 1))
-        self.assertEqual(self.engine.state().expected, 3)
+        self.assertEqual(self.engine.state().expected, 2)
         for value in [-1300, -1200]:
             self.assertFalse(self.engine.on_sample('near', value, '2026-11-03T10:00:00', 21000))
         self.assertEqual(len(self.broker.orders), 1)
@@ -164,6 +184,38 @@ class MddTests(unittest.TestCase):
         self.assertFalse(broker.valid_transition(0, 3, 'entry', 3))
         self.assertFalse(broker.valid_transition(4, 1, 'add', 5))
         self.assertTrue(broker.valid_transition(8, -8, 'flatten', 0))
+
+    def test_reconcile_zero_fill_requires_matching_inventory_and_keeps_consumed_signal(self):
+        event = self.event('1', -1)
+        self.engine.consume_signal(('h3-dual:1', -1, 0))
+        payload = dict(trigger='h3-dual:1', phase='entry', previous=0, target=-3, side='sell', quantity=3)
+        self.engine.prepare_order(payload)
+        self.store.begin(payload)
+        before = self.engine.sizing()
+        api = MagicMock()
+        result = dict(previous_position=0, target_position=-3, quantity=3, side='sell',
+                      trade_id='original', contract_code='TMFK6', status='failed',
+                      filled_quantity=0, actual_position=0)
+        broker = PyramidBroker(api, None, self.store, MagicMock(), records=self.temp.name)
+        broker.guard = dict(last_resolved=result)
+        broker.persist()
+        api.list_trades.return_value = [dict(order=dict(id='original', action='sell', quantity=3),
+            contract=dict(code='TMFK6'), status=dict(status='Failed', deal_quantity=0, msg='可委託金額不足'))]
+        backup = Path(self.temp.name) / 'backup.sqlite'
+        with patch.object(shared, '_refresh_status'), patch.object(shared, '_contract'), \
+                patch.object(shared, '_read_positions', return_value=[]), \
+                patch.object(shared, 'validate_tmf_account'), \
+                patch.object(shared, '_net_position', side_effect=[-3, 0]):
+            with self.assertRaisesRegex(Exception, '券商庫存 -3 口'):
+                reconcile_filled_order(self.store, api, backup, self.temp.name, allow_rejected=True)
+            self.assertEqual(self.store.pending(), payload)
+            evidence = reconcile_filled_order(self.store, api, backup, self.temp.name, allow_rejected=True)
+        self.assertTrue(evidence['rejected'])
+        self.assertEqual(evidence['message'], '可委託金額不足')
+        self.assertIsNone(self.store.pending())
+        self.assertEqual(self.engine.sizing(), before)
+        self.assertFalse(self.engine.on_signal(event))
+        api.place_order.assert_not_called()
 
     def test_reconcile_filled_close_updates_mdd_once_without_resubmitting(self):
         self.engine.on_signal(self.event('1', 1))

@@ -1,8 +1,10 @@
 """Offline execution checks shared by all three account policies."""
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -11,11 +13,13 @@ BACKEND = BASE.parent
 sys.path[:0] = [str(BASE), str(BACKEND), str(BACKEND / 'h3-common'),
                str(BACKEND / 'h3-shane-use'), str(BACKEND / 'h3-profit-protection-strategy')]
 from h_core import Store, TradingError
-from mdd_runtime import read_history, wait_for_signal_history
+from auto_rollover import AutomaticRollover
+from mdd_runtime import MddEngine, read_history, wait_for_signal_history
 from mdd_sizing import H3History, MddSizing
 from runtime import Engine
 from shane_runtime import ShaneEngine
 from protection_runtime import ProtectionEngine
+from protection_rollover import ProtectionRollover
 from protection_account import POSITION_UNIT, ProtectionBroker
 from recovery_sizing import RecoverySizing
 
@@ -57,8 +61,12 @@ class Broker:
 
 class SignalFlattenTests(unittest.TestCase):
     def setUp(self):
+        history_start = patch.object(ProtectionEngine, 'history_start',
+                                     datetime.fromisoformat('2026-11-04T19:01:00+08:00'))
+        self.addCleanup(history_start.stop)
+        history_start.start()
         wait = patch('protection_runtime.wait_for_signal_history',
-                     side_effect=lambda path, event, direction: H3History(MddSizing(), direction, None))
+                     side_effect=lambda path, event, direction, **kwargs: H3History(MddSizing(), direction, None))
         self.addCleanup(wait.stop)
         wait.start()
 
@@ -68,6 +76,51 @@ class SignalFlattenTests(unittest.TestCase):
                     source_reference=dict(rowid=key, signal_id=key), direction=direction,
                     received_at=datetime.now(timezone.utc).isoformat(),
                     text=f'浩克3V3 訊號通知 (B={int(direction == 1)} S={int(direction == -1)})')
+
+    def test_external_rollover_routes_next_h3_signal_to_new_month(self):
+        contracts = [
+            SimpleNamespace(code='TMFK6', delivery_month='202611', delivery_date='2026-11-18'),
+            SimpleNamespace(code='TMFL6', delivery_month='202612', delivery_date='2026-12-16'),
+        ]
+        for policy, rollover_type, old_qty, actual in [
+            (MddEngine, AutomaticRollover, -4, 0),
+            (ProtectionEngine, ProtectionRollover, -1, -1),
+        ]:
+            with (self.subTest(policy=policy.__name__), tempfile.TemporaryDirectory() as root,
+                  ExitStack() as cleanup):
+                store = Store(Path(root) / 'state.sqlite')
+                cleanup.callback(store.db.close)
+                broker = Broker()
+                broker.contract_code = 'TMFK6'
+                broker.actual = actual
+                broker.api = SimpleNamespace(
+                    Contracts=SimpleNamespace(Futures=SimpleNamespace(TMF=contracts)),
+                    futopt_account=object(), update_status=lambda *args, **kwargs: None,
+                    list_trades=lambda: [], list_positions=lambda account: [
+                        dict(code='TMFL6', direction='Sell', quantity=abs(actual))
+                    ] if actual else [],
+                )
+                engine = policy(store, broker, 'TMFK6')
+                with store.db:
+                    engine.save(engine.state_type(expected=old_qty, first_price='20000'))
+                    engine.on_external_inventory(old_qty)
+                rollover = rollover_type(engine, root, follow_external_rollover=True,
+                                         clock=lambda: datetime(2026, 11, 18, 13, 31))
+                self.assertFalse(rollover.synchronize(allow_adopt=False))
+                self.assertTrue(rollover.synchronize())
+                self.assertTrue(rollover.synchronize())
+                self.assertEqual(engine.state().expected, actual)
+                self.assertEqual(broker.orders, [])
+                def send_on_next_month(delta, phase, target):
+                    self.assertEqual(broker.contract_code, 'TMFL6')
+                    return Broker.send_and_confirm(broker, delta, phase, target)
+
+                with (patch.object(broker, 'send_and_confirm', side_effect=send_on_next_month),
+                      patch('mdd_runtime.wait_for_signal_history',
+                            return_value=H3History(MddSizing(), 1, None))):
+                    engine.on_signal(self.event(1, 1))
+                self.assertEqual(broker.orders,
+                                 ([('flatten', actual, 0)] if actual else []) + [('entry', 0, 2)])
 
     def test_all_policies_close_actual_then_enter_unit(self):
         for policy in [Engine, ShaneEngine, ProtectionEngine]:
@@ -195,7 +248,7 @@ class SignalFlattenTests(unittest.TestCase):
                                    '2026-11-04 19:01:02,enter,bull,20000\n', encoding='utf-8')
                 engine.history_path = history
                 wait = patch('protection_runtime.wait_for_signal_history',
-                             side_effect=lambda path, *_: read_history(path))
+                             side_effect=lambda path, *_, **kwargs: read_history(path, **kwargs))
                 self.addCleanup(wait.stop)
                 wait.start()
                 engine.on_signal(self.event(1, 1))
@@ -234,6 +287,41 @@ class SignalFlattenTests(unittest.TestCase):
         sizing = RecoverySizing.from_payload(dict(equity_points='-10', closed_trades=7,
                                                   loss_streak=0, boosted=True))
         self.assertEqual(sizing.quantity(1), 3)
+
+    def test_protection_each_qualifying_loss_stacks_until_h3_drawdown_recovers(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(':memory:')
+            self.addCleanup(store.db.close)
+            broker = Broker()
+            broker.unit = POSITION_UNIT
+            engine = ProtectionEngine(store, broker, 'TMFK6')
+            history = Path(root) / 'h_trade.csv'
+            history.write_text('timestamp,action,side,price\n'
+                               '2026-11-04 18:00:00,enter,bear,20000\n'
+                               '2026-11-04 18:30:00,exiting,bear,22000\n'
+                               '2026-11-04 19:00:00,enter,bear,20000\n', encoding='utf-8')
+            engine.history_path = history
+            self.assertEqual(engine.entry_quantity(), 1)
+            previous = 0
+            with patch('protection_runtime.wait_for_signal_history', wraps=wait_for_signal_history):
+                for key, (points, quantity) in enumerate([
+                    (-999, 1), (-1000, 2), (-1500, 3), (-1, 4), (-1, 4),
+                    (-1, 5), (3501, 5), (1, 1), (-1, 1),
+                ], start=1):
+                    with self.subTest(points=points, quantity=quantity):
+                        with history.open('a', encoding='utf-8') as handle:
+                            stamp = f'2026-11-04 19:0{key}:00'
+                            handle.write(f'{stamp},exiting,bear,{20000 - points}\n'
+                                         f'{stamp},enter,bear,20000\n')
+                        broker.orders.clear()
+                        engine.on_signal(self.event(key, -1))
+                        orders = [('flatten', -previous, 0)] if previous else []
+                        self.assertEqual(broker.orders, orders + [('entry', 0, -quantity)])
+                        previous = quantity
+                        if key == 7:
+                            engine = ProtectionEngine(store, broker, 'TMFK6')
+                            engine.history_path = history
+                            self.assertEqual(engine.entry_quantity(), 5)
 
     def test_protection_source_recovery_leaves_broker_accounting_intact(self):
         with tempfile.TemporaryDirectory() as root:

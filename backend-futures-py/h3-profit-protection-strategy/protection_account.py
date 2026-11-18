@@ -80,7 +80,7 @@ class ProtectionBroker(PyramidBroker):
 
     def valid_transition(self, previous, delta, phase, target):
         return ((phase == 'entry' and previous == 0
-                 and self.unit <= self.entry_quantity <= self.unit + 2
+                 and type(self.entry_quantity) is int and self.entry_quantity >= self.unit
                  and abs(target) == abs(delta) == self.entry_quantity)
                 or (phase == 'flatten' and target == 0 and previous != 0 and delta == -previous))
 

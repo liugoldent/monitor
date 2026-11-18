@@ -2,6 +2,7 @@
 import csv
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import json
 from pathlib import Path
 
@@ -9,6 +10,15 @@ from strategy import number
 
 H3_TRADE_HISTORY = Path(__file__).resolve().parents[1] / 'tv_doc' / 'h_trade.csv'
 TAIPEI = timezone(timedelta(hours=8))
+H3_DRAWDOWN_THRESHOLDS = (2000, 4000)
+H3_SINGLE_LOSS_THRESHOLD = 1000
+API_KEY_SINGLE_LOSS_SINCE = datetime(2026, 11, 18, 14, 16, 20, tzinfo=TAIPEI)
+H3_ENTRY_RULE = (
+    'H3 加口｜累計回撤達 '
+    + '／'.join(f'{threshold:,}' for threshold in H3_DRAWDOWN_THRESHOLDS)
+    + f' 點各 +1 口｜自 {API_KEY_SINGLE_LOSS_SINCE:%Y-%m-%d %H:%M:%S}（台北）'
+    f'起平倉的單筆虧損達 {H3_SINGLE_LOSS_THRESHOLD:,} 點再 +1 口｜回撤歸零重置'
+)
 
 
 def drawdown_tier(drawdown):
@@ -83,17 +93,34 @@ class H3History:
     win_streak: int = 0
     loss_streak: int = 0
     loss_extra_contracts: int = 0
+    peak_drawdown: Decimal = Decimal(0)
+    single_loss_count: int = 0
+
+    @property
+    def single_loss_triggered(self):
+        return self.single_loss_count > 0
+
+    @property
+    def drawdown_extra_contracts(self):
+        return sum(self.peak_drawdown >= threshold for threshold in H3_DRAWDOWN_THRESHOLDS)
 
     @property
     def streak_text(self):
         return f'連贏{self.win_streak}筆、連輸{self.loss_streak}筆'
 
 
-def read_historical_mdd(path):
+def trade_timestamp(value):
+    stamp = datetime.fromisoformat(value)
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=TAIPEI)
+
+
+def read_historical_mdd(path, *, closed_since=None, single_loss_since=None):
     sizing = MddSizing()
     entry = None
     recovered_at = None
     wins = losses = loss_extra = 0
+    peak_drawdown = Decimal(0)
+    single_loss_count = 0
     with path.open(encoding='utf-8-sig', newline='') as handle:
         rows = csv.DictReader(handle, strict=True)
         if not {'timestamp', 'action', 'side', 'price'}.issubset(rows.fieldnames or ()):
@@ -103,6 +130,9 @@ def read_historical_mdd(path):
             if action == 'enter' and side in {'bull', 'bear'} and entry is None:
                 entry = row
             elif action == 'exiting' and entry is not None and side == entry['side']:
+                if closed_since is not None and trade_timestamp(row['timestamp']) < closed_since:
+                    entry = None
+                    continue
                 try:
                     points = number(row['price'], positive=True) - number(entry['price'], positive=True)
                 except ValueError as exc:
@@ -110,19 +140,26 @@ def read_historical_mdd(path):
                 if side == 'bear':
                     points = -points
                 updated = sizing.close(points)
+                drawdown = updated.drawdown
+                peak_drawdown = max(peak_drawdown, drawdown) if drawdown else Decimal(0)
+                if not drawdown:
+                    single_loss_count = 0
+                elif (points <= -H3_SINGLE_LOSS_THRESHOLD
+                      and (single_loss_since is None or trade_timestamp(row['timestamp']) >= single_loss_since)):
+                    single_loss_count += 1
                 wins = wins + 1 if points > 0 else 0
                 losses = losses + 1 if points < 0 else 0
                 loss_extra = (max(loss_extra, loss_tier(losses))
-                              if updated.drawdown else 0)
-                if sizing.drawdown and not updated.drawdown:
-                    stamp = datetime.fromisoformat(row['timestamp'])
-                    recovered_at = (stamp if stamp.tzinfo else stamp.replace(tzinfo=TAIPEI)).timestamp()
+                              if drawdown else 0)
+                if sizing.drawdown and not drawdown:
+                    recovered_at = trade_timestamp(row['timestamp']).timestamp()
                 sizing = updated
                 entry = None
             else:
                 raise ValueError(f'h_trade.csv 第 {rows.line_num} 行的交易無法配對')
     direction = 0 if entry is None else {'bull': 1, 'bear': -1}[entry['side']]
-    return H3History(sizing, direction, recovered_at, wins, losses, loss_extra)
+    return H3History(sizing, direction, recovered_at, wins, losses, loss_extra,
+                     peak_drawdown=peak_drawdown, single_loss_count=single_loss_count)
 
 
 def decode_sizing(payload):

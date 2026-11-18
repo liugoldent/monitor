@@ -10,8 +10,7 @@ Cloudflare 與 API_KEY H3 游擊策略，共 5 個服務。EF 系列停止自動
 `simulation=True`；群益、凱基原生策略不自動啟動。Relay 仍持續記錄 H3 與 EF 原始訊號。
 
 [H3 MDD加口策略](h3-follow-add-strategy/README.md) 使用API_KEY／SECRET_KEY正式帳戶。
-依H_UNIT跟隨H3；已平倉單口累計毛點數距前高回撤達1000點，下一筆Unit+1，
-維持至回前高恢復Unit，不累進加口。已移除浮盈500點＋游擊穿越加碼。
+以 1 口為基準跟隨 H3。訊號源已平倉單口累計回撤達 2,000／4,000 點各加 1 口，自 2026-11-18 14:16:20（台北）起平倉的單筆單口虧損達 1,000 點再加 1 口。下次進場套用加口，回撤歸零恢復 1 口。
 Compose 沿用 `h3-flatten-reentry-strategy` 服務名，已改接新策略；舊修復策略保留並共用執行鎖。
 原 API_KEY3 帳本保留，新帳戶使用獨立 `runtime/api_key.sqlite` 與 `records/api_key/`，不接管第三帳戶紀錄。
 
@@ -19,7 +18,7 @@ Compose 沿用 `h3-flatten-reentry-strategy` 服務名，已改接新策略；�
 
 `telegram_signal_relay.py` 在可信 H3 bot 的原訊號後附上目前游擊策略規則，送至既有
 `DISCORD_H_TRADE_WEBHOOK_URL`。附註僅確認訊號接收，不代表交易服務已啟動、已成交或
-當下已符合加口條件。加口依已平倉單口MDD達1000點判定。
+當下已符合加口條件。實際進場口數由 API_KEY 策略成交通知確認。
 Relay啟動通知也只確認轉送服務，交易策略另行查倉及通知啟動。
 
 ## 舊版 H3 單口回撤研究（目前通知及游擊策略不使用）

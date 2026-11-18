@@ -21,6 +21,7 @@ from h_core import Store, TradingError
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
 from mdd_runtime import MddEngine as Engine
+from mdd_sizing import H3_ENTRY_RULE
 from inventory import InventoryReporter
 from ef_trade_runtime import Notifications, now_local, position_text
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
@@ -86,11 +87,9 @@ def check_config():
 
 
 def startup_notice(state, unit):
-    return ('【API_KEY｜H3 回撤加口策略啟動】\n'
-            f'帳本部位：{position_text(state.expected)}；Unit={unit}。\n'
-            '每筆新H3訊號先全平，再依 H3 訊號源已平倉單口回撤決定進場口數；空手訊號只全平。\n'
-            '執行前先取消本帳戶、策略目前微台月份掛單，確認結束再查倉；取消失敗或不明則不送單。\n'
-            '回撤達750點加1口，達1000點加2口，維持最高級距直到回前高；結算日13:25按原口數自動換月。')
+    return ('【API_KEY｜H3 跟單啟動｜實盤】\n'
+            f'帳本 {position_text(state.expected)}｜基準 {unit} 口\n'
+            f'{H3_ENTRY_RULE}')
 
 
 def watch(engine, poll=2):
@@ -152,15 +151,20 @@ def run_session(store, notify, poll):
         rollover_pending = bool(store.pending() and store.pending().get('phase') in ROLLOVER_PHASES)
         if store.pending() and not rollover_pending:
             backup = RUNTIME / ('api_key.before_recovery_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f') + '.sqlite')
-            evidence = reconcile_filled_order(store, api, backup, RECORDS)
-            print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
+            evidence = reconcile_filled_order(store, api, backup, RECORDS, allow_rejected=True)
+            if evidence.get('rejected'):
+                reason = evidence['message'] or '券商委託已終止'
+                notify(f'【API_KEY｜H3 回撤加口】原委託已確認零成交（{reason}），'
+                       f'庫存 {evidence["actual"]:+d} 口與帳本一致，等待新訊號。')
+            else:
+                print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
         broker = PyramidBroker(api, auto_trade._sj, store, watchdog, records=RECORDS,
                                allow_pending=rollover_pending)
         broker.unit = auto_trade.POSITION_UNIT
         symbol = ledger_symbol(store, auto_trade.shared.tmf_contract_code(api))
         broker.contract_code = symbol
         engine = Engine(store, broker, symbol, notify)
-        broker.rollover = AutomaticRollover(engine, RUNTIME)
+        broker.rollover = AutomaticRollover(engine, RUNTIME, follow_external_rollover=True)
         watch(engine, poll)
     finally:
         auto_trade.close_broker_session()
@@ -201,7 +205,7 @@ def main(argv=None):
     load_env()
     check_config()
     if args.check_config:
-        print(f'H3 基準進場 {auto_trade.POSITION_UNIT} 口；回撤達750點加1口，達1000點加2口。')
+        print(f'H3 基準進場 {auto_trade.POSITION_UNIT} 口\n{H3_ENTRY_RULE}')
         print('API_KEY H3 回撤加口策略本機設定通過；本次未登入、未送單。', flush=True)
         return
     from filelock import FileLock

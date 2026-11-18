@@ -14,9 +14,10 @@ from h_core import Store, TradingError
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
 from mdd_runtime import read_history
+from mdd_sizing import H3_SINGLE_LOSS_THRESHOLD
 from rollover import ledger_symbol
 from auto_rollover import ROLLOVER_PHASES
-from ef_trade_runtime import Notifications
+from ef_trade_runtime import Notifications, position_text
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
 
 SOURCE = BACKEND / 'telegram-relay-records/h3_signal_events.jsonl'
@@ -81,20 +82,19 @@ def check_config():
 
 def startup_notice(engine):
     state = engine.state()
+    mode = '模擬' if account.BROKER_SIMULATION else '實盤'
     try:
-        history = read_history(engine.history_path)
-        source = (f'H3 訊號源目前{history.streak_text}；已平倉回撤{history.sizing.drawdown:f}點；'
-                  f'目前級距{engine.entry_quantity(history)}口。\n')
+        history = read_history(engine.history_path, closed_since=engine.history_start)
+        source = (f'H3 {history.streak_text}｜回撤 {history.sizing.drawdown:f} 點'
+                  f'｜目前級距 {engine.entry_quantity(history)} 口')
     except LedgerError:
-        source = 'H3 訊號源交易紀錄目前無法讀取。\n'
-    return ('【永豐2｜H3跟單啟動】\n'
-        f'模式：Shioaji simulation={account.BROKER_SIMULATION}（{"模擬委託" if account.BROKER_SIMULATION else "真實下單"}）。\n'
-        f'帳本部位{state.expected:+d}口。\n'
-        f'基準{engine.broker.unit}口；依 H3 訊號源連輸4筆後加1口，連輸6筆後加2口；回撤歸零時清除加口。\n'
-        f'{source}'
-        '每筆新H3多空訊號（含同方向）先按券商實際庫存全平，確認空手後再進場；空手訊號只全平。\n'
-        '新H3訊號執行前先取消本帳戶、策略目前微台月份掛單，確認結束再查倉；取消失敗或不明則不送單。\n'
-        '重啟後等待新訊號；結算日沿用13:25自動換月。')
+        source = 'H3 交易紀錄暫時無法讀取'
+    return (f'【API_KEY2｜H3 跟單啟動｜{mode}】\n'
+            f'帳本 {position_text(state.expected)}｜基準 {engine.broker.unit} 口\n'
+            f'H3 損益起算 {engine.history_start:%Y-%m-%d %H:%M:%S} 台北時間\n'
+            f'{source}\n'
+            f'H3 加口｜連輸 4 筆 +1 口、6 筆合計 +2 口｜每筆單口虧損達 {H3_SINGLE_LOSS_THRESHOLD:,} 點各 +1 口'
+            '｜H3 回撤歸零重置')
 
 
 def watch(engine, poll=2):
@@ -152,7 +152,7 @@ def run_session(store, notify, poll):
         symbol = ledger_symbol(store, account.shared.tmf_contract_code(api))
         broker.contract_code = symbol
         engine = ProtectionEngine(store, broker, symbol, notify)
-        broker.rollover = ProtectionRollover(engine, RUNTIME)
+        broker.rollover = ProtectionRollover(engine, RUNTIME, follow_external_rollover=True)
         watch(engine, poll)
     finally:
         account.close()

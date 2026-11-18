@@ -91,6 +91,7 @@ services:
       - ./backend-futures-py/goodway_guerrilla.py:/app/backend-futures-py/goodway_guerrilla.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
+      - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records:ro
 
   webhook-server:
     <<: *runtime-safety

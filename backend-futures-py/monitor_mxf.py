@@ -19,6 +19,7 @@ LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
 WEBHOOK_DATA_1MIN_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
+H3_SIGNAL_PATH = Path(__file__).resolve().parent / "telegram-relay-records" / "h3_signal_events.jsonl"
 MTX_BVAV_AVG_WINDOW = 23
 MXF_CSV_HEADER = ["time", "tx_bvav", "mtx_bvav", "mtx_tbta", "mtx_bvav_avg", "signal", "trend"]
 
@@ -181,7 +182,7 @@ class GoodwayGuerrillaAlerts:
         self.pending: deque[str] = deque()
 
     def observe(self, histories: dict) -> None:
-        crossings = {}
+        crossings = set()
         for ticker in GOODWAY_GUERRILLA_SYMBOLS:
             history = histories.get(ticker, {})
             samples = []
@@ -200,29 +201,28 @@ class GoodwayGuerrillaAlerts:
                 prev_stamp, prev_value = self.previous[ticker]
                 if stamp < prev_stamp or (stamp == prev_stamp and value == prev_value):
                     continue
-                for threshold in GOODWAY_GUERRILLA_THRESHOLDS:
-                    direction = None
+                for threshold in reversed(GOODWAY_GUERRILLA_THRESHOLDS):
                     if prev_value <= threshold < value:
                         direction = f"向上突破 +{threshold}"
                     elif prev_value >= -threshold > value:
                         direction = f"向下跌破 -{threshold}"
-                    if direction:
-                        # The two prefixes can return one identical aggregate.
-                        key = (stamp, direction, prev_value, value)
-                        crossings.setdefault(key, []).append(ticker)
+                    else:
+                        continue
+                    # Keep the furthest crossed threshold and deduplicate identical prefix values.
+                    crossings.add((stamp, direction, prev_value, value))
+                    break
                 self.previous[ticker] = (stamp, value)
 
-        for (stamp, direction, prev_value, value), tickers in sorted(crossings.items()):
+        if not crossings:
+            return
+        market_context = build_goodway_market_context()
+        for stamp, direction, prev_value, value in sorted(crossings):
             bar_time = datetime.fromtimestamp(stamp / 1000, TZ)
-            contracts = "、".join(
-                f"{'近月' if ticker.startswith('TX-1#') else '次月'} {ticker}"
-                for ticker in tickers
-            )
             self.pending.append(
                 f"📣 台指籌碼游擊隊 {direction}\n"
-                f"{contracts}\n"
                 f"資料時間 {bar_time:%Y-%m-%d %H:%M:%S}\n"
-                f"游擊隊（high）：{prev_value:g} → {value:g}"
+                f"游擊隊（high）：{prev_value:g} → {value:g}\n"
+                f"{market_context}"
             )
 
     def flush(self) -> None:
@@ -254,6 +254,7 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
         value = _to_float((snapshot or {}).get("mtx_bvav"))
         if value is None or not math.isfinite(value):
             return
+        messages = []
         previous = self.last_value
         self.last_value = value
         nonzero = self.last_nonzero_value
@@ -261,7 +262,7 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
             self.last_nonzero_value = value
             if nonzero is not None and (nonzero > 0) != (value > 0):
                 direction = "負轉正（向上穿越 0）" if value > 0 else "正轉負（向下穿越 0）"
-                self.pending.append(
+                messages.append(
                     f"📣 mxf_value 游擊隊 {direction}\n"
                     f"資料時間 {snapshot.get('time') or now.strftime('%Y-%m-%d %H:%M:%S')}\n"
                     f"游擊隊（mtx_bvav）：{nonzero:g} → {value:g}"
@@ -280,7 +281,7 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
                 direction = f"向下跌破 {boundary}"
             else:
                 continue
-            self.pending.append(
+            messages.append(
                 f"📣 mxf_value 游擊隊 {direction}\n"
                 f"資料時間 {snapshot.get('time') or now.strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"游擊隊（mtx_bvav）：{baseline:g} → {value:g}"
@@ -293,37 +294,51 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
             direction = f"向下跌破 -{threshold}" if previous is not None else f"目前低於 -{threshold}"
         if direction:
             change = f"{previous:g} → {value:g}" if previous is not None else f"{value:g}"
-            self.pending.append(
+            messages.append(
                 f"📣 mxf_value 游擊隊 {direction}\n"
                 f"資料時間 {snapshot.get('time') or now.strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"游擊隊（mtx_bvav）：{change}"
             )
+        if messages:
+            market_context = build_goodway_market_context()
+            self.pending.extend(f"{message}\n{market_context}" for message in messages)
+
+
+def read_complete_tail(handle, data_start: int = 0) -> str:
+    """Read recent complete lines from an append-only file."""
+    handle.seek(0, os.SEEK_END)
+    tail_start = max(data_start, handle.tell() - 65536)
+    handle.seek(tail_start)
+    if tail_start > data_start:
+        handle.readline()  # Discard a partial first row.
+    tail = handle.read()
+    if tail and not tail.endswith(b"\n"):
+        tail = tail.rpartition(b"\n")[0]  # Ignore a row still being appended.
+    return tail.decode("utf-8")
+
+
+def read_recent_csv_rows(path: Path):
+    try:
+        with path.open("rb") as handle:
+            header = next(csv.reader([handle.readline().decode("utf-8-sig")]))
+            tail = read_complete_tail(handle, handle.tell())
+    except FileNotFoundError:
+        return
+    yield from csv.DictReader(io.StringIO(tail), fieldnames=header)
+
+
+def read_mxf_price_rows():
+    for row in read_recent_csv_rows(WEBHOOK_DATA_1MIN_PATH):
+        if row.get("Symbol") == "MXF1!" and row.get("Timeframe") == "1":
+            yield row
 
 
 def read_opening_price_bar(bar_time: datetime) -> tuple[float, float] | None:
     """Read the matching MXF 1m close and MA, never a different minute's row."""
-    if not WEBHOOK_DATA_1MIN_PATH.exists():
-        return None
-    # Only recent rows are needed; do not load the growing price archive.
-    with WEBHOOK_DATA_1MIN_PATH.open("rb") as handle:
-        header = next(csv.reader([handle.readline().decode("utf-8-sig")]))
-        data_start = handle.tell()
-        handle.seek(0, os.SEEK_END)
-        tail_start = max(data_start, handle.tell() - 65536)
-        handle.seek(tail_start)
-        if tail_start > data_start:
-            handle.readline()  # Discard a partial first row.
-        tail = handle.read().decode("utf-8")
-    if tail and not tail.endswith("\n"):
-        tail = tail.rpartition("\n")[0]  # Ignore a row still being appended.
     matched = None
     timestamp = bar_time.strftime("%Y-%m-%d %H:%M:%S")
-    for row in csv.DictReader(io.StringIO(tail), fieldnames=header):
-        if (
-            row.get("TradingView Time") == timestamp
-            and row.get("Symbol") == "MXF1!"
-            and row.get("Timeframe") == "1"
-        ):
+    for row in read_mxf_price_rows():
+        if row.get("TradingView Time") == timestamp:
             matched = row
     if matched is None:
         return None
@@ -331,6 +346,83 @@ def read_opening_price_bar(bar_time: datetime) -> tuple[float, float] | None:
     if close is None or ma is None or not math.isfinite(close) or not math.isfinite(ma):
         return None
     return close, ma
+
+
+def read_latest_mxf_close() -> tuple[datetime, float] | None:
+    latest = None
+    for row in read_mxf_price_rows():
+        close = _to_float(row.get("Close"))
+        if close is None or not math.isfinite(close) or close <= 0:
+            continue
+        try:
+            bar_time = datetime.fromisoformat(row.get("TradingView Time") or "")
+            recorded_at = datetime.fromisoformat(row.get("Record Time") or "")
+        except ValueError:
+            continue
+        key = (bar_time, recorded_at)
+        if latest is None or key >= latest[0]:
+            latest = (key, close)
+    return None if latest is None else (latest[0][0], latest[1])
+
+
+def read_recent_h3_signals():
+    try:
+        with H3_SIGNAL_PATH.open("rb") as handle:
+            tail = read_complete_tail(handle)
+    except FileNotFoundError:
+        return
+    for line in reversed(tail.splitlines()):
+        if line.strip():
+            yield json.loads(line)
+
+
+def build_h3_pnl_line(close: float | None) -> str:
+    prefix = "H3 單口未實現損益："
+    trade = None
+    for row in read_recent_csv_rows(H_TRADE_CSV_PATH):
+        if row.get("action") in {"enter", "exiting"}:
+            trade = row
+
+    trade_time = datetime.fromisoformat(trade["timestamp"]).replace(tzinfo=TZ) if trade else None
+    for index, signal in enumerate(read_recent_h3_signals()):
+        signal_time = datetime.fromisoformat(signal["received_at"]).astimezone(TZ)
+        if trade_time is not None and signal_time < trade_time:
+            break
+        if index == 0 and signal["direction"] == 0:
+            return prefix + "空手"
+        side = {0: None, 1: "bull", -1: "bear"}[signal["direction"]]
+        if trade is None or trade["action"] != "enter" or trade["side"] != side:
+            return prefix + "等待進場紀錄同步"
+
+    if trade is None:
+        return prefix + "無交易紀錄"
+    if trade["action"] == "exiting":
+        return prefix + "空手"
+    entry = _to_float(trade.get("price"))
+    if entry is None or not math.isfinite(entry) or entry <= 0:
+        return prefix + "缺少進場價"
+    if close is None:
+        return prefix + "缺少收盤價"
+    side, direction = {"bull": ("多單", 1), "bear": ("空單", -1)}[trade["side"]]
+    points = (close - entry) * direction if close != entry else 0
+    return f"{prefix}{points:+,.2f} 點（{side}，進場 {entry:g}）"
+
+
+def build_goodway_market_context() -> str:
+    try:
+        quote = read_latest_mxf_close()
+    except (OSError, ValueError, csv.Error):
+        quote = None
+    if quote is None:
+        price_line = "TradingView MXF1! 1 分鐘 close：無可用行情"
+    else:
+        bar_time, close = quote
+        price_line = f"TradingView MXF1! 1 分鐘 close：{close:g}（{bar_time:%Y-%m-%d %H:%M:%S}）"
+    try:
+        pnl_line = build_h3_pnl_line(quote[1] if quote else None)
+    except (OSError, ValueError, TypeError, KeyError, csv.Error):
+        pnl_line = "H3 單口未實現損益：交易紀錄無法讀取"
+    return f"{price_line}\n{pnl_line}"
 
 
 class GoodwayOpeningAlerts:
@@ -863,6 +955,7 @@ if __name__ == "__main__":
         "游擊隊跨越通知｜TX-1/TX-2#goodway_chip960.high"
         "｜突破 +1000/+1100/+1200/+1300/+1400/+1500"
         " 或跌破 -1000/-1100/-1200/-1300/-1400/-1500"
+        "｜同一次變動只通知跨過的最遠門檻"
         f"｜Discord {'已設定' if WEBHOOK_URL else '未設定'}｜沿用每分鐘輪詢",
         flush=True,
     )

@@ -7,7 +7,7 @@ import protection_bootstrap
 from h_core import TradingError
 from runtime import Engine as BaseEngine, LedgerError, RolloverPause, signal
 from mdd_runtime import read_history, wait_for_signal_history
-from mdd_sizing import H3_TRADE_HISTORY
+from mdd_sizing import H3_TRADE_HISTORY, TAIPEI
 from follow_state import FollowState as State
 from protection_policy import Protection
 from protection_policy import number
@@ -17,6 +17,7 @@ from recovery_sizing import RecoverySizing
 class ProtectionEngine(BaseEngine):
     state_type = State
     history_path = H3_TRADE_HISTORY
+    history_start = datetime(2026, 11, 18, 14, 24, 50, tzinfo=TAIPEI)
 
     def __init__(self, store, broker, symbol, notify=lambda message: None):
         # Reuse established concrete-contract ledger shape for rollover/broker.
@@ -56,8 +57,8 @@ class ProtectionEngine(BaseEngine):
 
     def entry_quantity(self, history=None):
         if history is None:
-            history = read_history(self.history_path)
-        return self.broker.unit + history.loss_extra_contracts
+            history = read_history(self.history_path, closed_since=self.history_start)
+        return self.broker.unit + history.loss_extra_contracts + history.single_loss_count
 
     def on_external_inventory(self, actual):
         self.save_protection(Protection(h3_direction=(1 if actual > 0 else -1) if actual else 0))
@@ -108,7 +109,10 @@ class ProtectionEngine(BaseEngine):
         if phase == 'entry':
             payload['h3_source'] = dict(win_streak=history.win_streak, loss_streak=history.loss_streak,
                                        drawdown=str(history.sizing.drawdown),
-                                       extra_contracts=history.loss_extra_contracts)
+                                       loss_extra_contracts=history.loss_extra_contracts,
+                                       single_loss_triggered=history.single_loss_triggered,
+                                       single_loss_count=history.single_loss_count,
+                                       extra_contracts=self.broker.entry_quantity - self.broker.unit)
         # Check before creating the durable intent AND again at the broker gate.
         if preflight:
             preflight()
@@ -153,7 +157,9 @@ class ProtectionEngine(BaseEngine):
         label = f'跟隨H3進場{abs(target)}口' if phase == 'entry' else '跟隨H3全平'
         message = f'【永豐2｜H3跟單】{label}：{previous:+d} → {target:+d}口，成交與庫存已確認。'
         if phase == 'entry':
-            message += f'H3 訊號源目前{history.streak_text}。'
+            message += (f'H3 訊號源目前{history.streak_text}，回撤 {history.sizing.drawdown:f} 點，'
+                        f'連輸加 {history.loss_extra_contracts} 口，'
+                        f'單筆虧損累計加 {history.single_loss_count} 口。')
         self.notify(message)
 
     def on_signal(self, event, *, now=None):
@@ -179,7 +185,8 @@ class ProtectionEngine(BaseEngine):
             if self.state().expected:
                 self.order(0, 'flatten', key, State(round_key=key), next_protection, preflight)
             if direction:
-                history = wait_for_signal_history(self.history_path, event, direction)
+                history = wait_for_signal_history(self.history_path, event, direction,
+                                                  closed_since=self.history_start)
                 if history is None:
                     self.notify('【永豐2｜H3跟單】H3 歷史未在訊號有效期間同步，本筆跳過進場。')
                     return True

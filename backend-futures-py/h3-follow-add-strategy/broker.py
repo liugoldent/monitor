@@ -69,11 +69,12 @@ class PyramidBroker(ShioajiRecoveryBroker):
                 target, api=self.api, sj=self.sj, strict_tmf=True,
                 ignore_expired_rod=True,
                 before_order=before_order, guard=self.guard, persist_guard=self.persist,
+                intent_id=payload['trigger'],
                 **(dict(contract_code=self.contract_code) if self.contract_code else {}))
-        except shared.BrokerOrderError:
+        except shared.BrokerOrderError as exc:
             evidence = self.rejected_evidence(payload)
             if evidence:
-                raise OrderRejected('API_KEY 整筆零成交拒單已核對', evidence) from None
+                raise OrderRejected(f'整筆零成交拒單已核對（{exc}）', evidence) from None
             raise
         filled = shared._position_value(shared._position_value(result.trade, 'status'), 'deal_quantity')
         if (not result.confirmed or result.previous_position != previous

@@ -701,9 +701,7 @@ def build_h3_strategy_notice(direction: int, *, new_transition: bool = True) -> 
     return (
         '【H3 MDD加口｜訊號接收】\n'
         f'狀態：{status}\n'
-        '進出場：新H3先全平，再依MDD狀態以Unit或Unit+1進場；空手訊號全平。\n'
-        '加口：已平倉單口累計毛點數距前高回撤達1000點，下一筆Unit+1；回前高恢復Unit。\n'
-        '只多1口，不累進；已移除浮盈500點與游擊穿越的盤中加碼。\n'
+        '進出場：新H3先全平，再依H3訊號源已平倉累計回撤決定進場口數；空手訊號全平。\n'
         '本通知只表示接收訊號，不代表交易服務已啟動、已成交或已符合加碼條件；'
         '實際執行以API_KEY策略成交及庫存核對通知為準。'
     )
@@ -718,8 +716,6 @@ def send_startup_notifications() -> None:
             f"接收路由：{route.upper()}\n"
             "模式：接收、記錄並轉送，不下單；Relay啟動不代表API_KEY交易策略已啟動。"
         )
-        if route == 'h':
-            content += '\nAPI_KEY H3依Unit跟單；已平倉單口回撤達1000點，下一筆Unit+1，回前高恢復Unit。'
         delivered, detail = send_discord_notice(webhook_url, content)
         append_event(
             {

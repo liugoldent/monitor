@@ -1,4 +1,4 @@
-"""Record an already fully filled order after read-only broker reconciliation.
+"""Record the original order's verified outcome after read-only broker reconciliation.
 
 This module has no submission path. It never replays a signal or starts trading.
 """
@@ -23,7 +23,7 @@ def reconcile_filled_entry(store, api, backup_path, records):
     return reconcile_filled_order(store, api, backup_path, records)
 
 
-def reconcile_filled_order(store, api, backup_path, records):
+def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=False):
     payload = store.pending()
     row = store.db.execute('SELECT payload FROM shioaji_order_state WHERE id=1').fetchone()
     guard = json.loads(row[0]) if row else {}
@@ -47,7 +47,8 @@ def reconcile_filled_order(store, api, backup_path, records):
     if (not valid or payload.get('quantity') != quantity or payload.get('side') != side
             or pending.get('previous_position') != previous
             or pending.get('target_position') != target or pending.get('quantity') != quantity
-            or pending.get('side') != side or not pending.get('trade_id')):
+            or pending.get('side') != side or not pending.get('trade_id')
+            or pending.get('intent_id', payload['trigger']) != payload['trigger']):
         raise TradingError('兩份待確認委託紀錄不一致，保持阻擋')
     shared._refresh_status(api)
     code = (shared.tmf_contract_code(api) if state_row[0] == 'TMFR1' else state_row[0])
@@ -71,15 +72,43 @@ def reconcile_filled_order(store, api, backup_path, records):
     order = shared._position_value(trade, 'order')
     action = shared._position_value(order, 'action')
     action = str(getattr(action, 'value', action)).lower()
-    if (shared._status_text(trade).lower() not in {'filled', 'cancelled'}
-            or type(filled) is not int or filled != quantity
+    status = shared._status_text(trade).lower()
+    if (type(filled) is not int
             or shared._position_code(shared._position_value(trade, 'contract')) != code
             or action != side or shared._position_value(order, 'quantity') != quantity):
-        raise TradingError('原委託商品、方向或完整成交未確認，保持阻擋')
+        raise TradingError('原委託商品、方向或口數未確認，保持阻擋')
+    rejected = allow_rejected and status in {'failed', 'inactive', 'cancelled'} and filled == 0
+    if not rejected and (status not in {'filled', 'cancelled'} or filled != quantity):
+        raise TradingError('原委託未確認為完整成交或整筆零成交終止，保持阻擋')
     positions = shared._read_positions(api)
     shared.validate_tmf_account(api, positions, contract_code=code)
-    if shared._net_position(positions) != target:
+    actual = shared._net_position(positions)
+    if actual != (previous if rejected else target):
+        if rejected:
+            raise TradingError(f'原委託已確認零成交，但券商庫存 {actual:+d} 口與策略帳本 '
+                               f'{previous:+d} 口不符，保持阻擋')
         raise TradingError('已成交委託與目前庫存不一致，保持阻擋')
+    if rejected:
+        mdd_before = payload.get('mdd_before')
+        with store.db:
+            store.db.execute('BEGIN IMMEDIATE')
+            if (store.db.execute('SELECT symbol,payload FROM pyramid_state WHERE id=1').fetchone() != state_row
+                    or store.db.execute('SELECT payload FROM shioaji_order_state WHERE id=1').fetchone() != row
+                    or (mdd_before is not None and not matches_order_snapshot(store, mdd_before))):
+                raise TradingError('核對期間帳本已變動，保持阻擋')
+            resolved = dict(pending, status=status, filled_quantity=0, actual_position=actual,
+                            message=shared._status_message(trade))
+            guard.pop('pending', None)
+            guard['last_resolved'] = resolved
+            store.db.execute('UPDATE shioaji_order_state SET payload=? WHERE id=1', (json.dumps(guard),))
+            if store.pending() != payload:
+                raise TradingError('待核對委託已變動，保持阻擋')
+            store.db.execute('DELETE FROM guard WHERE id=1')
+            store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
+                (datetime.now(timezone.utc).isoformat(), 'pyramid_order_rejected',
+                 json.dumps(dict(pending=payload, evidence=resolved), ensure_ascii=False)))
+        return dict(contract=code, actual=actual, trade_id=pending['trade_id'], rejected=True,
+                    message=resolved['message'])
     result = shared.OrderResult(previous, target, target, side, quantity, trade)
     mdd_before = payload.get('mdd_before')
     mdd_entry = entry_record(result, payload['trigger'], datetime.now().isoformat()) if mdd_before else None

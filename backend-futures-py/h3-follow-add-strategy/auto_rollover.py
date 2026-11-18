@@ -24,8 +24,9 @@ ROLLOVER_PHASES = {'roll_close', 'roll_open'}
 
 
 class AutomaticRollover(ManualRollover):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, follow_external_rollover=False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.follow_external_rollover = follow_external_rollover
         with self.store.db:
             self.store.db.execute('CREATE TABLE IF NOT EXISTS h3_auto_rollover '
                                   '(id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)')
@@ -94,6 +95,10 @@ class AutomaticRollover(ManualRollover):
         old = self.engine.symbol
         shared._refresh_status(self.broker.api)
         positions = shared._read_positions(self.broker.api)
+        if self.follow_external_rollover and not any(
+                shared._position_code(position) == old and shared._position_quantity(position)
+                for position in positions):
+            return self.switch_external(target, row, state, positions)
         shared.validate_tmf_account(self.broker.api, positions, contract_code=old)
         if shared._net_position(positions) != state.expected:
             raise LedgerError('自動換月前庫存與帳本不符，不擅自接管或調整部位')
@@ -111,6 +116,37 @@ class AutomaticRollover(ManualRollover):
             self.save_plan(plan)
             self.audit('pyramid_auto_rollover_started', plan)
         self.announce(f'開始自動換月：{old} → {target}，維持{state.expected:+d}口；先平舊月，確認後才進次月。')
+        return plan
+
+    def switch_external(self, target, row, old_state, positions):
+        # The broker must be flat or hold only the next TMF contract.
+        # Working orders and mixed directions still block the switch.
+        shared.validate_tmf_account(self.broker.api, positions, contract_code=target)
+        actual = shared._net_position(positions)
+        key = 'auto-roll:' + uuid.uuid4().hex
+        state = self.engine.state_type(expected=actual, round_key=key).validate()
+        previous_plan = self.plan()
+        backup = self.backup()
+        shared._refresh_status(self.broker.api)
+        positions = shared._read_positions(self.broker.api)
+        shared.validate_tmf_account(self.broker.api, positions, contract_code=target)
+        if shared._net_position(positions) != actual:
+            raise LedgerError('次月銜接前券商庫存已變動，重新核對')
+        plan = dict(key=key, old=row[0], new=target, quantity=old_state.expected,
+                    old_state=asdict(old_state), stage='done', actual=actual, backup=backup,
+                    completed_at=self.clock().isoformat(), external=True)
+        with self.store.db:
+            self.store.db.execute('BEGIN IMMEDIATE')
+            if (self.store.db.execute('SELECT symbol,payload FROM pyramid_state WHERE id=1').fetchone() != row
+                    or self.plan() != previous_plan or self.store.pending() or self.broker.guard.get('pending')):
+                raise LedgerError('次月銜接期間帳本或委託已變動')
+            self.engine.on_external_inventory(actual)
+            self.store.db.execute('UPDATE pyramid_state SET symbol=?,payload=? WHERE id=1',
+                                  (target, json.dumps(asdict(state))))
+            self.save_plan(plan)
+            self.audit('pyramid_auto_rollover_done', plan)
+        self.engine.symbol = self.broker.contract_code = target
+        self.announce(f'已按券商庫存切換至 {target}（{actual:+d}口）；未送換倉單，繼續接收新H3訊號。')
         return plan
 
     def announce(self, message):
@@ -279,6 +315,8 @@ class AutomaticRollover(ManualRollover):
             return False
         if not active:
             plan = self.start(target)
+            if plan['stage'] == 'done':
+                return True
         if plan['quantity'] == 0:
             self.switch_flat(plan)
             return True
