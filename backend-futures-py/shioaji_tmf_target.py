@@ -344,7 +344,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
                             submission_only: bool = False,
                             contract_code: str | None = None,
                             intent_id: str | None = None,
-                            ignore_expired_rod: bool = False) -> OrderResult:
+                            ignore_expired_rod: bool = False,
+                            expected_previous: int | None = None) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
@@ -369,6 +370,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
             validate_tmf_account(api, positions, ignore_expired_rod=ignore_expired_rod, **route)
 
         previous = _net_position(positions)
+        if expected_previous is not None and previous != expected_previous:
+            raise BrokerOrderError("庫存與原委託計畫不符，本筆不送單")
         delta = target_position - previous
         if delta == 0:
             return OrderResult(previous, target_position, previous, None, 0)

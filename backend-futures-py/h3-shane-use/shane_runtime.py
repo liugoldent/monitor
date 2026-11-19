@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 
 import shane_bootstrap
 from runtime import Engine, LedgerError, RolloverPause, signal
+from h3_signal_retry import signal_retry_used, signal_step
 from strategy import State
 
 
@@ -34,16 +35,18 @@ class ShaneEngine(Engine):
 
         try:
             fresh()
-            self.broker.cancel_working_orders(key, fresh)
+            signal_step(self.broker, 'cancel_working_orders',
+                        lambda: self.broker.cancel_working_orders(key, fresh))
             fresh()
-            self.adopt_signal_inventory(key)
+            signal_step(self.broker, 'signal_inventory', lambda: self.adopt_signal_inventory(key))
             if self.state().expected:
                 self.order(0, 'flatten', key, ShaneState(round_key=key), fresh)
             if direction:
                 self.order(direction * self.broker.unit, 'entry', key,
                            ShaneState(round_key=key), fresh)
         except RolloverPause:
-            if not self.store.pending() and not self.broker.guard.get('pending'):
+            if (not signal_retry_used(self.broker)
+                    and not self.store.pending() and not self.broker.guard.get('pending')):
                 with self.store.db:
                     self.store.db.execute('DELETE FROM signals WHERE id=?', (key,))
             raise

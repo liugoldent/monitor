@@ -5,6 +5,7 @@ import json
 
 import protection_bootstrap
 from h_core import TradingError
+from h3_signal_retry import signal_retry_used, signal_step
 from runtime import Engine as BaseEngine, LedgerError, RolloverPause, signal
 from mdd_runtime import read_history, wait_for_signal_history
 from mdd_sizing import H3_TRADE_HISTORY, TAIPEI
@@ -92,7 +93,7 @@ class ProtectionEngine(BaseEngine):
             (datetime.now(timezone.utc).isoformat(), event, json.dumps(detail, ensure_ascii=False)))
 
     def order(self, target, phase, key, planned, protection, preflight=None, *, history=None):
-        self.validate_position()
+        signal_step(self.broker, phase + '_inventory', self.validate_position)
         old_state = self.state()
         previous = old_state.expected
         sizing = self.sizing()
@@ -179,9 +180,10 @@ class ProtectionEngine(BaseEngine):
             preflight()
             self.protection()
             self.sizing()
-            self.broker.cancel_working_orders(key, preflight)
+            signal_step(self.broker, 'cancel_working_orders',
+                        lambda: self.broker.cancel_working_orders(key, preflight))
             preflight()
-            self.adopt_signal_inventory(key)
+            signal_step(self.broker, 'signal_inventory', lambda: self.adopt_signal_inventory(key))
             if self.state().expected:
                 self.order(0, 'flatten', key, State(round_key=key), next_protection, preflight)
             if direction:
@@ -199,7 +201,8 @@ class ProtectionEngine(BaseEngine):
                     self.save_protection(next_protection)
                     self.audit_in_transaction('protection_round_flat', dict(key=key))
         except RolloverPause:
-            if not self.store.pending() and not self.broker.guard.get('pending'):
+            if (not signal_retry_used(self.broker)
+                    and not self.store.pending() and not self.broker.guard.get('pending')):
                 with self.store.db:
                     self.store.db.execute("DELETE FROM signals WHERE id=? AND status='consumed'", (key,))
             raise

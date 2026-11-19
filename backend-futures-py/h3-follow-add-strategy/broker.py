@@ -7,6 +7,7 @@ from ef_trade_runtime import append_order, now_local
 from trade_records import entry_record, append_entry
 from mdd_sizing import average_fill
 from runtime import RolloverPause
+from h3_signal_retry import SignalRetry, signal_step
 import shioaji_tmf_target as shared
 
 
@@ -61,20 +62,53 @@ class PyramidBroker(ShioajiRecoveryBroker):
             if self.preflight is not None:
                 self.preflight()
 
-        before_order()
         self.first_fill = None
         self.confirmed_price = None
-        try:
-            result = shared.execute_target_position(
+        original_evidence = self.guard.get('last_resolved')
+        retry_enabled = isinstance(getattr(self, 'signal_retry', None), SignalRetry)
+        retry_submitted = False
+
+        def submit():
+            before_order()
+            return shared.execute_target_position(
                 target, api=self.api, sj=self.sj, strict_tmf=True,
                 ignore_expired_rod=True,
                 before_order=before_order, guard=self.guard, persist_guard=self.persist,
-                intent_id=payload['trigger'],
+                intent_id=payload['trigger'], expected_previous=previous,
                 **(dict(contract_code=self.contract_code) if self.contract_code else {}))
-        except shared.BrokerOrderError as exc:
-            evidence = self.rejected_evidence(payload)
-            if evidence:
-                raise OrderRejected(f'整筆零成交拒單已核對（{exc}）', evidence) from None
+
+        def recover():
+            nonlocal original_evidence, retry_submitted
+            pending = self.guard.get('pending')
+            if not pending:
+                if self.guard.get('last_resolved') != original_evidence:
+                    raise TradingError('原委託證據已變動，本筆停止重送')
+            else:
+                result = self.reconcile_signal_order(payload, pending)
+                if result is not None:
+                    return result
+                original_evidence = self.guard['last_resolved']
+            retry_submitted = True
+            return submit()
+
+        try:
+            result = signal_step(self, phase, submit, recover=recover)
+        except RolloverPause:
+            raise
+        except Exception as exc:
+            if retry_enabled:
+                # An error before submission may leave the strategy intent in
+                # SQLite. Release it only when no broker request is outstanding.
+                if not self.guard.get('pending') and self.guard.get('last_resolved') == original_evidence:
+                    self.store.resolve_rejected(payload, dict(reason=type(exc).__name__, unsent=True))
+                elif retry_submitted and isinstance(exc, shared.BrokerOrderError):
+                    evidence = self.rejected_evidence(payload)
+                    if evidence:
+                        self.store.resolve_rejected(payload, evidence)
+            elif isinstance(exc, shared.BrokerOrderError):
+                evidence = self.rejected_evidence(payload)
+                if evidence:
+                    raise OrderRejected(f'整筆零成交拒單已核對（{exc}）', evidence) from None
             raise
         filled = shared._position_value(shared._position_value(result.trade, 'status'), 'deal_quantity')
         if (not result.confirmed or result.previous_position != previous
@@ -93,6 +127,45 @@ class PyramidBroker(ShioajiRecoveryBroker):
                      actual_position=result.actual_position, side=result.side, quantity=result.quantity,
                      detail='成交及庫存已確認')
         return result.actual_position
+
+    def reconcile_signal_order(self, payload, pending):
+        """Resolve the original order before allowing its one zero-fill retry."""
+        previous, target = payload['previous'], payload['target']
+        side, quantity = payload['side'], payload['quantity']
+        if ((pending.get('previous_position'), pending.get('target_position'),
+             pending.get('side'), pending.get('quantity'), pending.get('intent_id'),
+             pending.get('contract_code'))
+                != (previous, target, side, quantity, payload['trigger'], self.contract_code)):
+            raise TradingError('原委託與本次訊號不符，本筆停止重送')
+        trade_id = pending.get('trade_id')
+        if not trade_id:
+            raise TradingError('原委託未取得單號，無法排除已送達，本筆停止重送')
+        shared._refresh_status(self.api)
+        trades = self.api.list_trades()
+        matches = [trade for trade in trades if shared._trade_id(trade) == trade_id] if isinstance(trades, list) else []
+        if len(matches) != 1:
+            raise TradingError('無法唯一核對原委託，本筆停止重送')
+        trade = matches[0]
+        shared._refresh_status(self.api, trade=trade)
+        order = shared._position_value(trade, 'order')
+        action = shared._position_value(order, 'action')
+        if (shared._position_code(shared._position_value(trade, 'contract')) != self.contract_code
+                or str(getattr(action, 'value', action)).lower() != side
+                or shared._position_value(order, 'quantity') != quantity):
+            raise TradingError('券商原委託的合約、方向或口數不符，本筆停止重送')
+        status = shared._status_text(trade).lower()
+        filled = shared._position_value(shared._position_value(trade, 'status'), 'deal_quantity')
+        if type(filled) is not int or not (
+                (filled == 0 and status in {'cancelled', 'failed', 'inactive'})
+                or (filled == quantity and status in {'filled', 'cancelled'})):
+            raise TradingError('原委託未終結、部分成交或成交口數不明，本筆停止重送')
+        shared._resolve_pending(self.api, self.guard, self.persist, contract_code=self.contract_code)
+        resolved = self.guard['last_resolved']
+        if resolved['filled_quantity'] != filled:
+            raise TradingError('原委託成交證據變動，本筆停止重送')
+        if filled:
+            return shared.OrderResult(previous, target, resolved['actual_position'], side, quantity, trade)
+        return None
 
     def valid_transition(self, previous, delta, phase, target):
         return ((phase == 'flatten' and target == 0 and previous != 0 and delta == -previous)

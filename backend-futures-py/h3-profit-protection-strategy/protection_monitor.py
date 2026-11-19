@@ -11,6 +11,7 @@ import protection_account as account
 from protection_runtime import ProtectionEngine
 from protection_rollover import ProtectionRollover
 from h_core import Store, TradingError
+from h3_signal_retry import handle_signal, reconnect_broker
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
 from mdd_runtime import read_history
@@ -130,7 +131,7 @@ def watch(engine, poll=2):
                     continue
                 try:
                     console.received(event)
-                    engine.on_signal(event)
+                    handle_signal(engine, event)
                 except RolloverPause:
                     offset = before
                     break
@@ -149,6 +150,8 @@ def run_session(store, notify, poll):
         api.set_event_callback(watchdog.on_event)
         broker = ProtectionBroker(api, sj, store, watchdog, records=RECORDS,
                                   allow_pending=roll_pending)
+        broker.reconnect_for_signal = lambda: reconnect_broker(
+            broker, account.close, lambda: account.initialize()[0])
         symbol = ledger_symbol(store, account.shared.tmf_contract_code(api))
         broker.contract_code = symbol
         engine = ProtectionEngine(store, broker, symbol, notify)

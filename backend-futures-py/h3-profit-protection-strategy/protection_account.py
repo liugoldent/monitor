@@ -7,6 +7,7 @@ from protection_bootstrap import BACKEND
 import shioaji_tmf_target as shared
 from broker import PyramidBroker
 from h_core import TradingError
+from h3_signal_retry import signal_step
 from trade_records import entry_record
 from protection_policy import number
 
@@ -87,6 +88,11 @@ class ProtectionBroker(PyramidBroker):
     def send_and_confirm(self, delta, phase, target):
         self.confirmed_price = None
         actual = super().send_and_confirm(delta, phase, target)
+        self.confirmed_price = signal_step(self, phase + '_fills',
+                                           lambda: self.confirmed_fill_price(delta, target, actual))
+        return actual
+
+    def confirmed_fill_price(self, delta, target, actual):
         # Resolve only the exact confirmed order, never a quote or latest trade.
         evidence = self.guard.get('last_resolved', {})
         if (type(evidence.get('previous_position')) is not int
@@ -106,5 +112,4 @@ class ProtectionBroker(PyramidBroker):
                             side, abs(delta), trade), self.store.pending()['trigger'], '')
         if fill['fill_status'] != 'complete':
             raise TradingError('永豐2缺少完整成交明細，保留 guard，不推估損益')
-        self.confirmed_price = sum(number(f['price'])*f['quantity'] for f in fill['fills']) / abs(delta)
-        return actual
+        return sum(number(f['price'])*f['quantity'] for f in fill['fills']) / abs(delta)

@@ -12,6 +12,7 @@ from shane_account import ShaneBroker
 from shane_runtime import ShaneEngine
 from shane_status import StatusReporter, failure_status
 from h_core import Store
+from h3_signal_retry import handle_signal, reconnect_broker
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
 from rollover import ledger_symbol
@@ -91,7 +92,7 @@ def watch(engine, poll):
                     continue
                 try:
                     console.received(event)
-                    engine.on_signal(event)
+                    handle_signal(engine, event)
                 except RolloverPause:
                     offset = before
                     break
@@ -110,6 +111,7 @@ def run_session(store, notify, poll):
         api.set_event_callback(watchdog.on_event)
         broker = ShaneBroker(api, sj, store, watchdog, records=RECORDS,
                              allow_pending=rollover_pending)
+        broker.reconnect_for_signal = lambda: reconnect_broker(broker, account.close, account.initialize)
         symbol = ledger_symbol(store, shared.tmf_contract_code(api))
         broker.contract_code = symbol
         engine = ShaneEngine(store, broker, symbol,

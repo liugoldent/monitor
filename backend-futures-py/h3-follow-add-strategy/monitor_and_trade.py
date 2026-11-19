@@ -18,6 +18,7 @@ sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BASE))
 
 from h_core import Store, TradingError
+from h3_signal_retry import handle_signal, reconnect_broker
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
 from mdd_runtime import MddEngine as Engine
@@ -133,7 +134,7 @@ def watch_loop(engine, offset, identity, poll, inventory):
                     continue
                 try:
                     console.received(event)
-                    engine.on_signal(event)
+                    handle_signal(engine, event)
                 except RolloverPause:
                     offset = previous_offset
                     break  # The next loop processes automatic rollover first.
@@ -160,6 +161,8 @@ def run_session(store, notify, poll):
                 print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
         broker = PyramidBroker(api, auto_trade._sj, store, watchdog, records=RECORDS,
                                allow_pending=rollover_pending)
+        broker.reconnect_for_signal = lambda: reconnect_broker(
+            broker, auto_trade.close_broker_session, auto_trade.initialize_broker_session)
         broker.unit = auto_trade.POSITION_UNIT
         symbol = ledger_symbol(store, auto_trade.shared.tmf_contract_code(api))
         broker.contract_code = symbol

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 
 from h_core import TradingError, parse_signal
+from h3_signal_retry import signal_retry_used, signal_step
 from strategy import State, flat_direction, observe
 
 
@@ -125,7 +126,7 @@ class Engine:
         return planned
 
     def order(self, target, phase, key, planned, preflight=None, *, entry_note=''):
-        self.validate_position()
+        signal_step(self.broker, phase + '_inventory', self.validate_position)
         previous = self.state().expected
         payload = dict(trigger=key, phase=phase, previous=previous, target=target,
                        side='buy' if target > previous else 'sell', quantity=abs(target - previous))
@@ -181,9 +182,9 @@ class Engine:
                 raise RolloverPause('H3 訊號已超過30秒，不追單')
         try:
             fresh()
-            self.prepare_signal(key, fresh)
+            signal_step(self.broker, 'cancel_working_orders', lambda: self.prepare_signal(key, fresh))
             fresh()
-            self.adopt_signal_inventory(key)
+            signal_step(self.broker, 'signal_inventory', lambda: self.adopt_signal_inventory(key))
             if self.state().expected:
                 self.order(0, 'flatten', key, self.state_type(round_key=key), fresh)
             if direction:
@@ -198,7 +199,8 @@ class Engine:
             # Only a proven pre-submission pause reaches here without a guard.
             # Already confirmed phases remain in the ledger; retrying the same
             # fresh signal continues from that position instead of resending.
-            if not self.store.pending() and not self.broker.guard.get('pending'):
+            if (not signal_retry_used(self.broker)
+                    and not self.store.pending() and not self.broker.guard.get('pending')):
                 with self.store.db:
                     self.store.db.execute("DELETE FROM signals WHERE id=? AND status='consumed'", (key,))
             raise
