@@ -18,6 +18,18 @@ class PyramidBroker(ShioajiRecoveryBroker):
     confirmed_price = None
     contract_code = None
     rollover = None
+    close_all_months = False
+
+    def __init__(self, *args, allow_pending=False, close_all_months=False, **kwargs):
+        super().__init__(*args, allow_pending=allow_pending or close_all_months, **kwargs)
+        self.close_all_months = close_all_months
+        pending = self.guard.get('pending')
+        if close_all_months and pending and pending.get('close_only') is True:
+            self.check()
+            shared._refresh_status(self.api)
+            shared._resolve_pending(self.api, self.guard, self.persist)
+        elif pending and not allow_pending:
+            raise TradingError(f'永豐 {self.account_label} 有未確認委託，請核對；不重送')
 
     def cancel_working_orders(self, trigger, preflight):
         from cancel_working import cancel_working_orders
@@ -30,9 +42,72 @@ class PyramidBroker(ShioajiRecoveryBroker):
             raise TradingError(f'{self.account_label} 有未確認委託，停止啟動核對')
         shared._refresh_status(self.api)
         positions = shared._read_positions(self.api)
+        if getattr(self, 'close_all_months', False):
+            positions = shared._positions_for_contract(positions, self.contract_code)
         shared.validate_tmf_account(self.api, positions, contract_code=self.contract_code,
                                     allow_working_orders=True)
         return shared._net_position(positions)
+
+    def signal_month_positions(self):
+        self.check()
+        shared._refresh_status(self.api)
+        positions = shared._read_positions(self.api)
+        by_month = {}
+        for position in positions:
+            code = shared._position_code(position)
+            if not code.startswith('TMF'):
+                continue
+            quantity = shared._position_quantity(position)
+            if not quantity:
+                continue
+            signed = shared._position_side(position) * quantity
+            previous = by_month.get(code, 0)
+            if previous * signed < 0:
+                raise TradingError(f'{code} 同月有多空庫存，停止本筆訊號')
+            by_month[code] = previous + signed
+        return by_month
+
+    def close_signal_months(self, trigger, preflight):
+        if self.store.pending() or self.guard.get('pending'):
+            raise TradingError('有未確認委託，停止跨月平倉')
+        remaining = self.signal_month_positions()
+        if not (remaining.keys() - {self.contract_code}):
+            return
+        self.check_rollover()
+        if shared.tmf_contract_code(self.api) != self.contract_code:
+            raise TradingError('帳本合約與券商近月不符，停止跨月平倉及新倉')
+        # Verify every contract and outstanding order before closing any leg.
+        for code in remaining:
+            shared._contract(self.api, code)
+        shared.validate_tmf_account(self.api, [], contract_code=self.contract_code,
+                                    ignore_expired_rod=True)
+
+        def before_order():
+            self.check_rollover()
+            if self.signal_month_positions() != remaining:
+                raise TradingError('跨月庫存變動，停止平倉及新倉')
+            preflight()
+
+        # Keep the hedge in place if the near-month close does not fill.
+        for code in sorted(remaining, key=lambda code: (code != self.contract_code, code)):
+            previous = remaining[code]
+            before_order()
+            try:
+                result = shared.execute_target_position(
+                    0, api=self.api, sj=self.sj, strict_tmf=True, close_only=True,
+                    ignore_expired_rod=True, contract_code=code, expected_previous=previous,
+                    before_order=before_order, guard=self.guard, persist_guard=self.persist,
+                    intent_id=trigger)
+            except shared.BrokerOrderError as exc:
+                raise TradingError(f'{code} 跨月平倉未確認完成，本筆停止後續平倉及新倉') from exc
+            filled = shared._position_value(shared._position_value(result.trade, 'status'), 'deal_quantity')
+            if not result.confirmed or result.actual_position != 0 or filled != abs(previous):
+                raise TradingError(f'{code} 跨月平倉未確認全數成交，本筆不開新倉')
+            remaining.pop(code)
+            self.store.audit('h3_signal_month_closed', dict(trigger=trigger, contract=code,
+                                                           previous=previous, filled=filled))
+        if self.signal_month_positions():
+            raise TradingError('券商仍有微台庫存，本筆不開新倉')
 
     def position(self):
         self.check()

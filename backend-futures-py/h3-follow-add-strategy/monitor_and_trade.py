@@ -160,7 +160,7 @@ def run_session(store, notify, poll):
             else:
                 print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
         broker = PyramidBroker(api, auto_trade._sj, store, watchdog, records=RECORDS,
-                               allow_pending=rollover_pending)
+                               allow_pending=rollover_pending, close_all_months=True)
         broker.reconnect_for_signal = lambda: reconnect_broker(
             broker, auto_trade.close_broker_session, auto_trade.initialize_broker_session)
         broker.unit = auto_trade.POSITION_UNIT

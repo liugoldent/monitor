@@ -183,6 +183,8 @@ class ProtectionEngine(BaseEngine):
             signal_step(self.broker, 'cancel_working_orders',
                         lambda: self.broker.cancel_working_orders(key, preflight))
             preflight()
+            if getattr(self.broker, 'close_all_months', False) is True:
+                self.broker.close_signal_months(key, preflight)
             signal_step(self.broker, 'signal_inventory', lambda: self.adopt_signal_inventory(key))
             if self.state().expected:
                 self.order(0, 'flatten', key, State(round_key=key), next_protection, preflight)

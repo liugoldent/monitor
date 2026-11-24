@@ -149,7 +149,7 @@ def run_session(store, notify, poll):
         watchdog = BrokerReconnectWatchdog(120)
         api.set_event_callback(watchdog.on_event)
         broker = ProtectionBroker(api, sj, store, watchdog, records=RECORDS,
-                                  allow_pending=roll_pending)
+                                  allow_pending=roll_pending, close_all_months=True)
         broker.reconnect_for_signal = lambda: reconnect_broker(
             broker, account.close, lambda: account.initialize()[0])
         symbol = ledger_symbol(store, account.shared.tmf_contract_code(api))

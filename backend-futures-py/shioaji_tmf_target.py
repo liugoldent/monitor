@@ -191,14 +191,18 @@ def validate_tmf_account(api: Any, positions: list | None = None, *, contract_co
         raise BrokerOrderError("同時有多空庫存，不能僅以淨額判定已平倉")
 
 
-def _build_order(api: Any, sj: Any, side: str, quantity: int) -> Any:
+def _positions_for_contract(positions: list, contract_code: str) -> list:
+    return [position for position in positions if _position_code(position) == contract_code]
+
+
+def _build_order(api: Any, sj: Any, side: str, quantity: int, *, close_only: bool = False) -> Any:
     return api.Order(
         action=sj.constant.Action.Buy if side == "buy" else sj.constant.Action.Sell,
         price=0,
         quantity=quantity,
         price_type=sj.constant.FuturesPriceType.MKT,
         order_type=sj.constant.OrderType.IOC,
-        octype=sj.constant.FuturesOCType.Auto,
+        octype=sj.constant.FuturesOCType.Cover if close_only else sj.constant.FuturesOCType.Auto,
         account=api.futopt_account,
     )
 
@@ -259,15 +263,21 @@ def _refresh_status(api: Any, *, trade: Any = None) -> None:
         api.update_status()
 
 
-def _verify_target_position(api: Any, target_position: int, trade: Any) -> int:
-    actual = current_tmf_position(api)
+def _verify_target_position(api: Any, target_position: int, trade: Any,
+                            *, close_contract: str | None = None) -> int:
+    def position():
+        if close_contract is None:
+            return current_tmf_position(api)
+        return _net_position(_positions_for_contract(_read_positions(api), close_contract))
+
+    actual = position()
     for attempt in range(POSITION_VERIFY_ATTEMPTS):
         if actual == target_position and _status_text(trade).lower() in {"filled", "cancelled"}:
             return actual
         if attempt + 1 < POSITION_VERIFY_ATTEMPTS:
             time.sleep(POSITION_VERIFY_DELAY_SECONDS)
             _refresh_status(api, trade=trade)
-            actual = current_tmf_position(api)
+            actual = position()
 
     status = _status_text(trade) or "Unknown"
     message = _status_message(trade)
@@ -312,7 +322,13 @@ def _resolve_pending(api: Any, guard: dict, persist: Callable[[], None], *,
         raise BrokerOrderError("前筆成交口數未確認，本筆不送單")
     expected = pending["previous_position"] + (1 if pending["side"] == "buy" else -1) * filled
     positions = _read_positions(api)
-    validate_tmf_account(api, positions, contract_code=contract_code)
+    close_only = pending.get("close_only") is True
+    if close_only:
+        if not contract_code or pending["target_position"] != 0:
+            raise BrokerOrderError("跨月平倉委託缺少有效合約或目標")
+        positions = _positions_for_contract(positions, contract_code)
+    validate_tmf_account(api, positions, contract_code=contract_code,
+                         ignore_expired_rod=close_only)
     if _net_position(positions) != expected:
         raise BrokerOrderError("前筆成交與券商庫存尚未一致，本筆不送單")
     guard["last_resolved"] = dict(pending, status=status, filled_quantity=filled,
@@ -345,10 +361,15 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
                             contract_code: str | None = None,
                             intent_id: str | None = None,
                             ignore_expired_rod: bool = False,
-                            expected_previous: int | None = None) -> OrderResult:
+                            expected_previous: int | None = None,
+                            close_only: bool = False) -> OrderResult:
     """Reconcile the real TMF position to ``target_position`` with one IOC order."""
     if isinstance(target_position, bool) or not isinstance(target_position, int):
         raise ValueError(f"目標部位必須是整數，目前為 {target_position!r}")
+
+    if close_only and (target_position != 0 or not contract_code or not strict_tmf
+                       or expected_previous is None or submission_only):
+        raise ValueError("指定月份平倉必須確認原部位，且目標必須為零")
 
     owns_api = api is None
     if sj is None:
@@ -366,6 +387,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
         route = dict(contract_code=contract_code) if contract_code is not None else {}
         _resolve_pending(api, guard, persist_guard, **route)
         positions = _read_positions(api)
+        if close_only:
+            positions = _positions_for_contract(positions, contract_code)
         if strict_tmf:
             validate_tmf_account(api, positions, ignore_expired_rod=ignore_expired_rod, **route)
 
@@ -378,7 +401,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
 
         side = "buy" if delta > 0 else "sell"
         quantity = abs(delta)
-        order = _build_order(api, sj, side, quantity)
+        order = _build_order(api, sj, side, quantity, close_only=True) if close_only else _build_order(
+            api, sj, side, quantity)
         contract = _contract(api, contract_code) if contract_code is not None else _contract(api)
         if before_order is not None:
             before_order()
@@ -388,6 +412,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
             guard["pending"]["contract_code"] = contract_code
         if intent_id is not None:
             guard["pending"]["intent_id"] = intent_id
+        if close_only:
+            guard["pending"]["close_only"] = True
         persist_guard()  # Durable intent before a request can reach the broker.
         if before_order is not None:
             try:
@@ -396,7 +422,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
                 guard.pop("pending")  # The broker has not been called.
                 persist_guard()
                 raise
-        print(f"委託內容 {contract_code or 'TMFR1'} {side} {quantity}口 MKT IOC Auto", flush=True)
+        order_type = "Cover" if close_only else "Auto"
+        print(f"委託內容 {contract_code or 'TMFR1'} {side} {quantity}口 MKT IOC {order_type}", flush=True)
         trade = api.place_order(contract, order, timeout=0 if submission_only else ORDER_TIMEOUT_MS)
         print(f"委託回傳狀態：{_status_text(trade)}（非成交確認）", flush=True)
         if trade is None:
@@ -416,7 +443,8 @@ def execute_target_position(target_position: int, *, api: Any = None, sj: Any = 
             persist_guard()
             return OrderResult(previous, target_position, None, side, quantity, trade, confirmed=False)
 
-        actual = _verify_target_position(api, target_position, trade)
+        actual = (_verify_target_position(api, target_position, trade, close_contract=contract_code)
+                  if close_only else _verify_target_position(api, target_position, trade))
         _resolve_pending(api, guard, persist_guard, **route)
         return OrderResult(previous, target_position, actual, side, quantity, trade)
     finally:

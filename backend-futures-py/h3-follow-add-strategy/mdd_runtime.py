@@ -5,23 +5,28 @@ import time
 
 from runtime import Engine, LedgerError, signal
 from mdd_sizing import (
-    API_KEY_SINGLE_LOSS_SINCE, H3_TRADE_HISTORY, MddSizing,
+    API_KEY_DRAWDOWN_SINCE, API_KEY_SINGLE_LOSS_SINCE, H3_TRADE_HISTORY, MddSizing,
     read_historical_mdd, read_sizing, save_sizing,
 )
 
 
-def read_history(path, *, closed_since=None, single_loss_since=None):
+def read_history(path, *, closed_since=None, single_loss_since=None, drawdown_since=None):
     try:
-        return read_historical_mdd(path, closed_since=closed_since, single_loss_since=single_loss_since)
+        return read_historical_mdd(
+            path, closed_since=closed_since, single_loss_since=single_loss_since,
+            drawdown_since=drawdown_since,
+        )
     except (OSError, TypeError, ValueError, csv.Error) as exc:
         raise LedgerError(f'無法讀取 H3 歷史回撤，暫停新進場：{exc}') from exc
 
 
-def wait_for_signal_history(path, event, direction, *, closed_since=None, single_loss_since=None):
+def wait_for_signal_history(path, event, direction, *, closed_since=None,
+                            single_loss_since=None, drawdown_since=None):
     # The router can publish a reversal before the relay appends the close and
     # the next open. Read both the direction and sizing from one CSV snapshot.
     while signal(event) is not None:
-        history = read_history(path, closed_since=closed_since, single_loss_since=single_loss_since)
+        history = read_history(path, closed_since=closed_since, single_loss_since=single_loss_since,
+                               drawdown_since=drawdown_since)
         if history.direction == direction:
             return history
         time.sleep(0.25)
@@ -32,6 +37,7 @@ class MddEngine(Engine):
     strategy_label = 'H3 回撤加口'
     history_path = H3_TRADE_HISTORY
     single_loss_since = API_KEY_SINGLE_LOSS_SINCE
+    drawdown_since = API_KEY_DRAWDOWN_SINCE
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,11 +64,14 @@ class MddEngine(Engine):
         return self.entry_plan()[0]
 
     def entry_plan(self):
-        return self.plan_from_history(read_history(self.history_path, single_loss_since=self.single_loss_since))
+        history = read_history(self.history_path, single_loss_since=self.single_loss_since,
+                               drawdown_since=self.drawdown_since)
+        return self.plan_from_history(history)
 
     def signal_entry_plan(self, event, direction):
         history = wait_for_signal_history(
             self.history_path, event, direction, single_loss_since=self.single_loss_since,
+            drawdown_since=self.drawdown_since,
         )
         if history is None:
             self.notify('【API_KEY｜H3 回撤加口】H3 歷史未在訊號有效期間同步，本筆跳過進場。')

@@ -184,6 +184,8 @@ class Engine:
             fresh()
             signal_step(self.broker, 'cancel_working_orders', lambda: self.prepare_signal(key, fresh))
             fresh()
+            if getattr(self.broker, 'close_all_months', False) is True:
+                self.broker.close_signal_months(key, fresh)
             signal_step(self.broker, 'signal_inventory', lambda: self.adopt_signal_inventory(key))
             if self.state().expected:
                 self.order(0, 'flatten', key, self.state_type(round_key=key), fresh)

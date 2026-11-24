@@ -10,11 +10,13 @@ from strategy import number
 
 H3_TRADE_HISTORY = Path(__file__).resolve().parents[1] / 'tv_doc' / 'h_trade.csv'
 TAIPEI = timezone(timedelta(hours=8))
-H3_DRAWDOWN_THRESHOLDS = (2000, 4000)
+H3_DRAWDOWN_THRESHOLDS = (4000, 6000)
 H3_SINGLE_LOSS_THRESHOLD = 1000
+API_KEY_DRAWDOWN_SINCE = datetime(2026, 11, 19, 23, 31, 2, tzinfo=TAIPEI)
 API_KEY_SINGLE_LOSS_SINCE = datetime(2026, 11, 18, 14, 16, 20, tzinfo=TAIPEI)
 H3_ENTRY_RULE = (
-    'H3 加口｜累計回撤達 '
+    f'H3 加口｜自 {API_KEY_DRAWDOWN_SINCE:%Y-%m-%d %H:%M:%S}（台北）'
+    '起累計回撤達 '
     + '／'.join(f'{threshold:,}' for threshold in H3_DRAWDOWN_THRESHOLDS)
     + f' 點各 +1 口｜自 {API_KEY_SINGLE_LOSS_SINCE:%Y-%m-%d %H:%M:%S}（台北）'
     f'起平倉的單筆虧損達 {H3_SINGLE_LOSS_THRESHOLD:,} 點再 +1 口｜回撤歸零重置'
@@ -114,7 +116,7 @@ def trade_timestamp(value):
     return stamp if stamp.tzinfo else stamp.replace(tzinfo=TAIPEI)
 
 
-def read_historical_mdd(path, *, closed_since=None, single_loss_since=None):
+def read_historical_mdd(path, *, closed_since=None, single_loss_since=None, drawdown_since=None):
     sizing = MddSizing()
     entry = None
     recovered_at = None
@@ -141,7 +143,10 @@ def read_historical_mdd(path, *, closed_since=None, single_loss_since=None):
                     points = -points
                 updated = sizing.close(points)
                 drawdown = updated.drawdown
-                peak_drawdown = max(peak_drawdown, drawdown) if drawdown else Decimal(0)
+                if not drawdown:
+                    peak_drawdown = Decimal(0)
+                elif drawdown_since is None or trade_timestamp(row['timestamp']) >= drawdown_since:
+                    peak_drawdown = max(peak_drawdown, drawdown)
                 if not drawdown:
                     single_loss_count = 0
                 elif (points <= -H3_SINGLE_LOSS_THRESHOLD
