@@ -22,6 +22,7 @@ from telethon import TelegramClient, events
 from h2_trade_history import replay_h2_signals
 from h_signal import h2_direction, is_h_signal, parse_h_direction, parse_h_event_direction
 from h_signal import normalize_h_record_message as _normalize_h_record_message
+from chart_mongo import mirror_row
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -148,12 +149,25 @@ def classify_signal(text: str) -> str | None:
 def _append_csv(path: Path, fields: list[str], row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists() and path.stat().st_size > 0
+    source_order = 1
+    if exists and path.name == "six_strategy_signal_events.csv":
+        with path.open(encoding="utf-8") as existing:
+            source_order = sum(1 for _ in existing)
     with path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         if not exists:
             writer.writeheader()
         writer.writerow({field: row.get(field, "") for field in fields})
         handle.flush()
+    if path.name in {"six_strategy_signal_events.csv", "ef_position_events.csv", "h_position_events.csv", "h_trade.csv"}:
+        try:
+            document = {field: row.get(field, "") for field in fields}
+            if path.name == "six_strategy_signal_events.csv":
+                document["source_order"] = source_order
+            mirror_row(path.name, document)
+        except Exception as exc:
+            # A database outage must not stop Telegram receipt or Discord delivery.
+            print(f"MongoDB strategy mirror failed for {path.name}: {type(exc).__name__}", flush=True)
 
 
 def _parse_position(value: str) -> int | None:

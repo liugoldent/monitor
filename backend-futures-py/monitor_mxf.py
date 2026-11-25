@@ -12,6 +12,7 @@ from datetime import datetime, time as dt_time, timedelta
 from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 from goodway_guerrilla import fetch_goodway_history
+from chart_mongo import mirror_row
 
 DISCORD_MXF_ALERT_WEBHOOK_ENV = "DISCORD_MXF_ALERT_WEBHOOK_URL"
 DISCORD_MXF_VALUE_WEBHOOK_ENV = "DISCORD_MXF_VALUE_WEBHOOK_URL"
@@ -962,6 +963,11 @@ def main() -> None:
             try:
                 payload = fetch_tradeinfo()
                 snapshot = append_tradeinfo_csv(payload, now)
+                if snapshot:
+                    try:
+                        mirror_row("mxf_value.csv", snapshot)
+                    except Exception as exc:
+                        print(f"MongoDB chart mirror failed: {type(exc).__name__}", flush=True)
                 MXF_VALUE_GUERRILLA_ALERTS.observe_snapshot(snapshot, now)
                 collection_name = get_collection_name(now)
                 insert_tradeinfo(payload, collection_name, now)

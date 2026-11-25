@@ -82,6 +82,7 @@ h1 { font-size: 30px; font-weight: 650; letter-spacing: -1px; margin: 0 0 9px; l
 .chart-actions button { padding: 6px 9px; color: var(--secondary); font-size: 11px; white-space: nowrap; }
 .chart-actions button.active.follow-button { background: var(--accent-soft); color: var(--accent); }
 .chart-actions .auto-button.active { color: var(--secondary); }
+.chart-actions .strategy-markers-button.active { background: var(--accent-soft); color: var(--accent); }
 .separator { width: 1px; height: 18px; background: var(--separator); margin: 0 5px; }
 .price-legend { position: absolute; left: 20px; top: 72px; right: 95px; z-index: 2; pointer-events: none; }
 .ohlc { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 13px; min-height: 22px; color: var(--secondary); font-size: 11px; }
@@ -186,6 +187,8 @@ tbody tr:hover { background: var(--background); }
   .chart-title strong { font-size: 12px; } .chart-actions { gap: 2px; }
   .chart-actions button { min-height: 36px; padding: 6px; font-size: 11px; gap: 3px; }
   .chart-actions .auto-button { font-size: 0; gap: 0; min-width: 30px; }
+  .chart-actions .strategy-markers-button { min-width: 30px; }
+  .chart-actions .strategy-markers-button span { display: none; }
   .chart-actions .separator { display: none; }
   .chart-actions button[title='顯示全部當日資料']>span { display: none; }
   .chart-actions button[title='顯示全部當日資料'] { min-width: 30px; }

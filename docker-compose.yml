@@ -72,6 +72,7 @@ services:
     volumes:
       - ./backend-futures-py/telegram_signal_relay.py:/app/backend-futures-py/telegram_signal_relay.py:ro
       - ./backend-futures-py/h2_trade_history.py:/app/backend-futures-py/h2_trade_history.py:ro
+      - ./backend-futures-py/chart_mongo.py:/app/backend-futures-py/chart_mongo.py:ro
       - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
       - ./backend-futures-py/h3_entry_watch.py:/app/backend-futures-py/h3_entry_watch.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
@@ -97,6 +98,7 @@ services:
       PYTHONUNBUFFERED: "1"
     volumes:
       - ./backend-futures-py/monitor_mxf.py:/app/backend-futures-py/monitor_mxf.py:ro
+      - ./backend-futures-py/chart_mongo.py:/app/backend-futures-py/chart_mongo.py:ro
       - ./backend-futures-py/goodway_guerrilla.py:/app/backend-futures-py/goodway_guerrilla.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
@@ -119,6 +121,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
+      - ./backend-futures-py/chart_mongo.py:/app/backend-futures-py/chart_mongo.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
       - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc
 

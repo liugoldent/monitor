@@ -5,14 +5,16 @@ import { fileURLToPath } from 'node:url';
 
 const base = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../backend-futures-py/tv_doc');
 export const files = { candles: path.join(base, 'webhook_data_1min.csv'), chips: path.join(base, 'mxf_value.csv') };
-export const number = value => value === undefined || value.trim() === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+export const number = value => value == null || String(value).trim() === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 export function timestamp(value) {
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value ?? '')) return null;
   const result = Date.parse(value.replace(' ', 'T') + '+08:00') / 1000;
   return Number.isFinite(result) ? Math.floor(result / 60) * 60 : null;
 }
 export function normalize(text, kind) {
-  const rows = parse(text, { columns: true, bom: true, skip_empty_lines: true, relax_column_count: true });
+  return normalizeRecords(parse(text, { columns: true, bom: true, skip_empty_lines: true, relax_column_count: true }), kind);
+}
+export function normalizeRecords(rows, kind) {
   const byTime = new Map();
   let invalid = 0;
   for (const row of rows) {

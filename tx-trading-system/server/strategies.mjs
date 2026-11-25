@@ -4,10 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../backend-futures-py/tv_doc/six_strategy_signal_events.csv');
-const numeric = value => value == null || value.trim() === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+const numeric = value => value == null || String(value).trim() === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const direction = value => value > 0 ? 'long' : value < 0 ? 'short' : 'flat';
 export function summarizeStrategies(text) {
-  const rows = parse(text, { columns: true, bom: true, skip_empty_lines: true, relax_column_count: true });
+  return summarizeStrategyRows(parse(text, { columns: true, bom: true, skip_empty_lines: true, relax_column_count: true }));
+}
+export function summarizeStrategyRows(rows) {
   const strategies = new Map();
   let invalid = 0;
   for (const [index, row] of rows.entries()) {

@@ -2,8 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadData } from './data.mjs';
-import { loadStrategies } from './strategies.mjs';
+import { loadMongoMarket, loadMongoStrategies, loadMongoChartSignals } from './mongo-data.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const production = process.argv.includes('--production');
@@ -17,24 +16,20 @@ const server = http.createServer(async (req, res) => {
     try {
       if (url.pathname === '/api/health') { res.end(JSON.stringify({ app: 'tx-trading-system', status: 'ok' })); return; }
       if (url.pathname === '/api/strategies') {
-        try { res.end(JSON.stringify(await loadStrategies())); }
-        catch (error) { console.error(error.message); res.writeHead(500); res.end(JSON.stringify({ error: '無法讀取策略事件檔，請確認 six_strategy_signal_events.csv 存在且格式正確。' })); }
+        try { res.end(JSON.stringify(await loadMongoStrategies())); }
+        catch (error) { console.error(error.message); res.writeHead(500); res.end(JSON.stringify({ error: '無法讀取 MongoDB 策略資料。' })); }
+        return;
+      }
+      if (url.pathname === '/api/chart-signals') {
+        res.end(JSON.stringify(await loadMongoChartSignals(url.searchParams.get('date'))));
         return;
       }
       if (url.pathname !== '/api/market') { res.writeHead(404); res.end(JSON.stringify({ error: '找不到 API' })); return; }
-      const data = await loadData();
-      const date = url.searchParams.get('date') || data.dates[0];
-      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) { res.writeHead(400); res.end(JSON.stringify({ error: '日期格式錯誤' })); return; }
-      const rows = data.rows.filter(row => row.localTime.startsWith(date));
-      // Continuous multi-session history, bounded to keep polling lightweight.
-      const historyRows = url.searchParams.get('history') === '1'
-        ? data.rows.filter(row => row.localTime.slice(0, 10) <= date).slice(-10000)
-        : undefined;
-      const matched = rows.filter(row => row.candle && row.chip).length;
-      res.end(JSON.stringify({ date, dates: data.dates, rows, historyRows, sources: data.sources, stats: { candles: rows.filter(r => r.candle).length, chips: rows.filter(r => r.chip).length, matched }, refreshedAt: new Date().toISOString() }));
+      res.end(JSON.stringify(await loadMongoMarket(url.searchParams.get('date'), url.searchParams.get('history') === '1')));
     } catch (error) {
       console.error(error.message);
-      res.writeHead(500); res.end(JSON.stringify({ error: '無法讀取 CSV，請確認 backend-futures-py/tv_doc 中的兩份資料存在且格式正確。' }));
+      res.writeHead(error instanceof RangeError ? 400 : 500);
+      res.end(JSON.stringify({ error: error instanceof RangeError ? error.message : '無法讀取 MongoDB 行情資料。' }));
     }
     return;
   }

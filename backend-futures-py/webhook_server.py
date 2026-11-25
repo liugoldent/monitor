@@ -20,6 +20,7 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from strategy_common import TZ, ensure_csv_header
+from chart_mongo import mirror_row
 
 TV_DOC_DIR = os.path.join(BASE_DIR, "tv_doc")
 
@@ -142,6 +143,12 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
                 return
 
             _append_webhook_row(target_csv, webhook_row)
+            if timeframe == "1":
+                try:
+                    mirror_row("webhook_data_1min.csv", dict(zip(CSV_HEADER, webhook_row)))
+                except Exception as exc:
+                    # Keep the TradingView webhook and CSV recording available.
+                    print(f"MongoDB chart mirror failed: {type(exc).__name__}", flush=True)
 
             print(
                 f"✅ Received: {webhook_row[1]} @ {webhook_row[7]} "
