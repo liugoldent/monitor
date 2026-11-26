@@ -6,6 +6,7 @@ from h_core import TradingError, OrderRejected
 from ef_trade_runtime import append_order, now_local
 from trade_records import entry_record, append_entry
 from mdd_sizing import average_fill
+from net_positions import net_transition
 from runtime import RolloverPause
 from h3_signal_retry import SignalRetry, signal_step
 import shioaji_tmf_target as shared
@@ -127,7 +128,9 @@ class PyramidBroker(ShioajiRecoveryBroker):
                 or payload['previous'] + delta != target or payload['quantity'] != abs(delta)):
             raise TradingError('游擊策略委託與 guard 不符')
         previous = payload['previous']
-        if not self.valid_transition(previous, delta, phase, target):
+        if phase == 'net':
+            net_transition(self.store, payload)
+        elif not self.valid_transition(previous, delta, phase, target):
             raise TradingError('策略委託口數與進場設定或全平庫存不符')
 
         def before_order():

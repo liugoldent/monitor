@@ -21,8 +21,11 @@ from h_core import Store, TradingError
 from h3_signal_retry import handle_signal, reconnect_broker
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
-from mdd_runtime import MddEngine as Engine
+from portfolio_runtime import PortfolioEngine as Engine
+from signal_journal import SignalJournal
 from mdd_sizing import H3_ENTRY_RULE
+from mdd_runtime import MddEngine
+from net_positions import positions_initialized
 from inventory import InventoryReporter
 from ef_trade_runtime import Notifications, now_local, position_text
 from shioaji_reconnect_watchdog import BrokerReconnectWatchdog
@@ -33,6 +36,7 @@ from auto_rollover import AutomaticRollover, ROLLOVER_PHASES
 import auto_trade
 
 SOURCE = BACKEND / 'telegram-relay-records/h3_signal_events.jsonl'
+H2_SOURCE = BACKEND / 'telegram-relay-records/telegram_signal_events.jsonl'
 RUNTIME = BASE / 'runtime'
 STATE_PATH = RUNTIME / 'api_key.sqlite'
 RECORDS = BASE / 'records/api_key'
@@ -87,65 +91,61 @@ def check_config():
     check_legacy()
 
 
-def startup_notice(state, unit):
-    return ('【API_KEY｜H3 跟單啟動｜實盤】\n'
-            f'帳本 {position_text(state.expected)}｜基準 {unit} 口\n'
-            f'{H3_ENTRY_RULE}')
+def startup_notice(positions, unit):
+    return ('【API_KEY｜H3／H2 跟單啟動｜實盤】\n'
+            f'H3 {position_text(positions.h3)}｜基準 {unit} 口\n'
+            f'H2 {position_text(positions.h2)}｜固定 {auto_trade.H2_UNIT} 口\n'
+            f'帳戶淨部位 {position_text(positions.net)}\n{H3_ENTRY_RULE}')
 
 
-def watch(engine, poll=2):
-    # Capture the live cursor before processing rollover, so signals
-    # arriving during the wait still receive the normal 30-second age check.
-    stat = SOURCE.stat()
-    offset, identity = stat.st_size, stat.st_ino
+def watch(engine, journals, poll=2):
     while engine.broker.rollover is not None and not engine.broker.rollover.synchronize():
         engine.broker.check()
         time.sleep(poll)
     inventory = InventoryReporter(engine)
     inventory.startup(now_local())
-    engine.broker.startup_position()
-    engine.reset_observations()
-    engine.notify(startup_notice(engine.state(), engine.broker.unit))
-    watch_loop(engine, offset, identity, poll, inventory)
+    actual = engine.broker.startup_position()
+    if getattr(engine, 'uses_strategy_positions', False):
+        if actual != engine.strategy_positions().net:
+            raise LedgerError('啟動時，券商庫存與 H3／H2 帳本不符，不送單')
+        engine.notify(startup_notice(engine.strategy_positions(), engine.broker.unit))
+    else:
+        engine.reset_observations()
+        engine.notify('【API_KEY｜H3 跟單啟動｜實盤】\n'
+                      f'帳本 {position_text(engine.state().expected)}｜基準 {engine.broker.unit} 口\n'
+                      f'{H3_ENTRY_RULE}')
+    watch_loop(engine, journals, poll, inventory)
 
 
-def watch_loop(engine, offset, identity, poll, inventory):
-    console = ConsoleStatus('永豐1 H3 回撤加口')
+def watch_loop(engine, journals, poll, inventory):
+    console = ConsoleStatus('永豐1 H3／H2')
     while True:
         engine.broker.check()
         if engine.broker.rollover is not None and not engine.broker.rollover.synchronize():
             time.sleep(poll)
             continue
         console.heartbeat(engine)
-        stat = SOURCE.stat()
-        if stat.st_ino != identity or stat.st_size < offset:
-            raise TradingError('Relay訊號檔被替換或截斷，停止核對')
-        with SOURCE.open('rb') as handle:
-            handle.seek(offset)
-            while True:
-                previous_offset = offset
-                raw = handle.readline()
-                if not raw or not raw.endswith(b'\n'):
-                    break
-                offset = handle.tell()
-                try:
-                    event = json.loads(raw)
-                except (ValueError, UnicodeError):
-                    continue
-                try:
-                    console.received(event)
-                    handle_signal(engine, event)
-                except RolloverPause:
-                    offset = previous_offset
-                    break  # The next loop processes automatic rollover first.
+        while True:
+            available = [(journal, item) for journal in journals if (item := journal.peek())]
+            if not available:
+                break
+            journal, (event, next_offset) = min(available, key=lambda pair: pair[0].arrival(pair[1][0]))
+            try:
+                console.received(event)
+                handle_signal(engine, event)
+            except RolloverPause:
+                break
+            journal.offset = next_offset
         inventory.daily(now_local())
         time.sleep(poll)
 
 
-def run_session(store, notify, poll):
+def run_session(store, notify, poll, journals, enable_h2):
     """One connected session. A retry never submits the uncertain order again."""
     try:
         check_legacy()
+        if positions_initialized(store) and not enable_h2:
+            raise LedgerError('已建立 H3／H2 帳本，須啟用 API_KEY_H2_ENABLED 才能恢復雙策略')
         api = auto_trade.initialize_broker_session()
         watchdog = BrokerReconnectWatchdog(float(os.getenv('H3_REENTRY_RECONNECT_TIMEOUT_SECONDS', '120')))
         api.set_event_callback(watchdog.on_event)
@@ -160,27 +160,39 @@ def run_session(store, notify, poll):
             else:
                 print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
         broker = PyramidBroker(api, auto_trade._sj, store, watchdog, records=RECORDS,
-                               allow_pending=rollover_pending, close_all_months=True)
+                               allow_pending=rollover_pending, close_all_months=not enable_h2)
         broker.reconnect_for_signal = lambda: reconnect_broker(
             broker, auto_trade.close_broker_session, auto_trade.initialize_broker_session)
-        broker.unit = auto_trade.POSITION_UNIT
+        broker.unit = auto_trade.H3_UNIT
         symbol = ledger_symbol(store, auto_trade.shared.tmf_contract_code(api))
         broker.contract_code = symbol
-        engine = Engine(store, broker, symbol, notify)
+        if enable_h2 and not positions_initialized(store):
+            # Finish any persisted H3-only rollover using its original ledger
+            # before assigning the confirmed post-roll H3 quantity to the H3 leg.
+            legacy_engine = MddEngine(store, broker, symbol, notify)
+            legacy_rollover = AutomaticRollover(legacy_engine, RUNTIME, follow_external_rollover=True)
+            plan = legacy_rollover.plan()
+            if plan and plan.get('stage') != 'done':
+                legacy_rollover.synchronize()
+            symbol = legacy_engine.symbol
+        engine_type = Engine if enable_h2 else MddEngine
+        engine = engine_type(store, broker, symbol, notify)
         broker.rollover = AutomaticRollover(engine, RUNTIME, follow_external_rollover=True)
-        watch(engine, poll)
+        watch(engine, journals, poll)
     finally:
         auto_trade.close_broker_session()
 
 
-def supervise(store, notify, poll):
-    """Keep the process alive while reconnecting or waiting for reconciliation."""
+def supervise(store, notify, poll, enable_h2=False):
+    journals = (SignalJournal(SOURCE, 'h'),)
+    if enable_h2:
+        journals += (SignalJournal(H2_SOURCE, 'h2', optional=True),)
     last_failure = None
     last_notice_at = None
     retry = max(1, min(60, float(os.getenv('H3_RECOVERY_RETRY_SECONDS', '5'))))
     while True:
         try:
-            run_session(store, notify, poll)
+            run_session(store, notify, poll, journals, enable_h2)
             raise RuntimeError('監控迴圈意外結束')
         except Exception as exc:
             reason = str(exc) if isinstance(exc, (TradingError, auto_trade.shared.BrokerOrderError)) else type(exc).__name__
@@ -207,9 +219,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     load_env()
     check_config()
+    enable_h2 = os.getenv('API_KEY_H2_ENABLED', '').strip().lower() in {'1', 'true'}
     if args.check_config:
-        print(f'H3 基準進場 {auto_trade.POSITION_UNIT} 口\n{H3_ENTRY_RULE}')
-        print('API_KEY H3 回撤加口策略本機設定通過；本次未登入、未送單。', flush=True)
+        print(f'API_KEY 雙策略：{"啟用" if enable_h2 else "未啟用"}')
+        print(f'H3 基準 {auto_trade.H3_UNIT} 口｜H2 固定 {auto_trade.H2_UNIT} 口\n{H3_ENTRY_RULE}')
+        print('API_KEY H3／H2 本機設定通過；本次未登入、未送單。', flush=True)
         return
     from filelock import FileLock
     LOCK.parent.mkdir(parents=True, exist_ok=True)
@@ -217,12 +231,13 @@ def main(argv=None):
     with FileLock(str(LOCK), timeout=0):
         check_legacy()
         store = Store(STATE_PATH)
-        console = ConsoleStatus('永豐1 H3 回撤加口')
+        console = ConsoleStatus('永豐1 H3／H2')
         console.write('服務啟動，準備連線及核對；進入監控後每60秒輸出心跳。')
         notify = console.notifications(Notifications(lambda: os.getenv('DISCORD_H3_GUERRILLA_WEBHOOK_URL', ''),
                                RECORDS / 'notifications.jsonl'))
         try:
-            supervise(store, notify, max(0.1, float(os.getenv('H3_REENTRY_POLL_SECONDS', '0.25'))))
+            supervise(store, notify, max(0.1, float(os.getenv('H3_REENTRY_POLL_SECONDS', '0.25'))),
+                      enable_h2=enable_h2)
         finally:
             store.db.close()
 

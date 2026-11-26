@@ -5,6 +5,7 @@ an account's order size; each account owns its broker connection and order state
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import re
 from typing import Any
 
@@ -14,6 +15,50 @@ H_POSITION_PATTERN = re.compile(r"(?P<side>多|空)\s*(?P<quantity>\d+)\s*口")
 H_BS_PATTERN = re.compile(
     r"[（(]\s*B\s*=\s*(?P<buy>\d+)\s+S\s*=\s*(?P<sell>\d+)\s*[)）]"
 )
+
+
+H2_NOTICE_PATTERN = re.compile(
+    r"^\s*浩克2V3[ \t]+交易訊號通知[ \t]*[（(][ \t]*B[ \t]*=[ \t]*(?P<buy>[01])"
+    r"[ \t]+S[ \t]*=[ \t]*(?P<sell>[01])[ \t]*[)）][ \t]*\r?$",
+    re.MULTILINE,
+)
+
+
+def h2_direction(text: str) -> int | None:
+    if not isinstance(text, str):
+        return None
+    matches = list(H2_NOTICE_PATTERN.finditer(text))
+    if len(matches) != 1:
+        return None
+    direction = int(matches[0]['buy']) - int(matches[0]['sell'])
+    return direction or None
+
+
+def parse_h2_signal(event, now=None):
+    """Accept only a fresh, trusted Telegram H2 receipt."""
+    if not isinstance(event, dict) or event.get('event') != 'received' or event.get('route') != 'h2':
+        return None
+    sender = event.get('sender_username')
+    if not isinstance(sender, str) or sender.casefold() != ALLOWED_SENDER_USERNAME:
+        return None
+    if not all(type(event.get(k)) is int for k in ('chat_id', 'message_id')):
+        return None
+    direction = h2_direction(event.get('text'))
+    if direction is None:
+        return None
+    try:
+        received = datetime.fromisoformat(event['received_at'])
+        sent = datetime.fromisoformat(event['telegram_message_at'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if received.tzinfo is None or sent.tzinfo is None:
+        return None
+    current = now or datetime.now(timezone.utc)
+    # Message dates are second-resolution and the relay may process a delayed update.
+    if not (0 <= (current - received).total_seconds() <= 30
+            and 0 <= (current - sent).total_seconds() <= 30):
+        return None
+    return (f"h2-tg:{event['chat_id']}:{event['message_id']}", direction, received.timestamp())
 
 
 def is_h_signal(text: str) -> bool:

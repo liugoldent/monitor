@@ -246,7 +246,9 @@ class AutomaticRollover(ManualRollover):
         if shared._net_position(positions) != target:
             raise LedgerError('換月成交與庫存不一致，不開下一腿、不重送')
         entry = None
-        mdd_exists = self.store.db.execute("SELECT 1 FROM sqlite_master WHERE name='h3_mdd_sizing'").fetchone()
+        mdd_exists = (not getattr(self.engine, 'uses_strategy_positions', False)
+                      and self.store.db.execute(
+                          "SELECT 1 FROM sqlite_master WHERE name='h3_mdd_sizing'").fetchone())
         sizing_before = read_sizing(self.store) if mdd_exists else None
         sizing_after = sizing_before
         fill = None

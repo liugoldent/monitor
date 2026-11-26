@@ -59,7 +59,7 @@ class ProtectionEngine(BaseEngine):
     def entry_quantity(self, history=None):
         if history is None:
             history = read_history(self.history_path, closed_since=self.history_start)
-        return self.broker.unit + history.loss_extra_contracts + history.single_loss_count
+        return self.broker.unit + history.loss_extra_contracts + int(history.single_loss_triggered)
 
     def on_external_inventory(self, actual):
         self.save_protection(Protection(h3_direction=(1 if actual > 0 else -1) if actual else 0))
@@ -160,7 +160,7 @@ class ProtectionEngine(BaseEngine):
         if phase == 'entry':
             message += (f'H3 訊號源目前{history.streak_text}，回撤 {history.sizing.drawdown:f} 點，'
                         f'連輸加 {history.loss_extra_contracts} 口，'
-                        f'單筆虧損累計加 {history.single_loss_count} 口。')
+                        f'單筆大虧加 {int(history.single_loss_triggered)} 口。')
         self.notify(message)
 
     def on_signal(self, event, *, now=None):

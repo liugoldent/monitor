@@ -12,7 +12,9 @@ import shioaji_tmf_target as shared
 _api = None
 _sj = None
 _failed_apis = []
-POSITION_UNIT = 1
+H3_UNIT = 1
+H2_UNIT = 1
+POSITION_UNIT = H3_UNIT  # Compatibility for the legacy H3 executor.
 
 
 def required(name):

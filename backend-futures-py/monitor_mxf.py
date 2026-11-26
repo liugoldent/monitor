@@ -18,6 +18,7 @@ DISCORD_MXF_VALUE_WEBHOOK_ENV = "DISCORD_MXF_VALUE_WEBHOOK_URL"
 LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
+H2_ENTRY_PATH = H_TRADE_CSV_PATH.with_name("h2_entry.json")
 WEBHOOK_DATA_1MIN_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 H3_SIGNAL_PATH = Path(__file__).resolve().parent / "telegram-relay-records" / "h3_signal_events.jsonl"
 MTX_BVAV_AVG_WINDOW = 23
@@ -300,7 +301,7 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
                 f"游擊隊（mtx_bvav）：{change}"
             )
         if messages:
-            market_context = build_goodway_market_context()
+            market_context = build_goodway_market_context(include_h2=True)
             self.pending.extend(f"{message}\n{market_context}" for message in messages)
 
 
@@ -408,7 +409,29 @@ def build_h3_pnl_line(close: float | None) -> str:
     return f"{prefix}{points:+,.2f} 點（{side}，進場 {entry:g}）"
 
 
-def build_goodway_market_context() -> str:
+def build_h2_pnl_line(close: float | None) -> str:
+    prefix = "H2 單口未實現損益："
+    try:
+        entry_record = json.loads(H2_ENTRY_PATH.read_text(encoding="utf-8"))
+        direction = {"long": 1, "short": -1, "flat": 0}[entry_record["side"]]
+        if direction == 0:
+            return prefix + "空手"
+        entry = float(entry_record["price"])
+        if not math.isfinite(entry) or entry <= 0:
+            raise ValueError("Invalid H2 entry price")
+    except FileNotFoundError:
+        return prefix + "無進場紀錄"
+    except (OSError, ValueError, TypeError, KeyError):
+        return prefix + "進場紀錄無法讀取"
+
+    if close is None:
+        return prefix + "缺少收盤價"
+    points = (close - entry) * direction if close != entry else 0
+    side = "多單" if direction > 0 else "空單"
+    return f"{prefix}{points:+,.2f} 點（{side}，進場 {entry:g}）"
+
+
+def build_goodway_market_context(*, include_h2: bool = False) -> str:
     try:
         quote = read_latest_mxf_close()
     except (OSError, ValueError, csv.Error):
@@ -422,7 +445,10 @@ def build_goodway_market_context() -> str:
         pnl_line = build_h3_pnl_line(quote[1] if quote else None)
     except (OSError, ValueError, TypeError, KeyError, csv.Error):
         pnl_line = "H3 單口未實現損益：交易紀錄無法讀取"
-    return f"{price_line}\n{pnl_line}"
+    lines = [price_line, pnl_line]
+    if include_h2:
+        lines.append(build_h2_pnl_line(quote[1] if quote else None))
+    return "\n".join(lines)
 
 
 class GoodwayOpeningAlerts:

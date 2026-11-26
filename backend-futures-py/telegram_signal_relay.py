@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import requests
 from telethon import TelegramClient, events
 
-from h_signal import is_h_signal, parse_h_direction, parse_h_event_direction
+from h_signal import h2_direction, is_h_signal, parse_h_direction, parse_h_event_direction
 from h_signal import normalize_h_record_message as _normalize_h_record_message
 
 
@@ -134,6 +134,8 @@ def require_env(name: str) -> str:
 
 def classify_signal(text: str) -> str | None:
     """Return the relay route for recognized signal messages."""
+    if h2_direction(text) is not None:
+        return "h2"
     if is_h_signal(text):
         return "h"
     if "訊號通知" in text and EF_POSITION_PATTERN.search(text):
@@ -740,6 +742,29 @@ WEBHOOKS = {
     "ef": require_env(EF_WEBHOOK_ENV),
 }
 
+
+async def relay_to_discord(base_record: dict[str, Any], content: str) -> None:
+    route = base_record["route"]
+    delivered, detail = await asyncio.to_thread(
+        send_to_discord,
+        WEBHOOKS["ef" if route == "h2" else route],
+        route,
+        content,
+    )
+    append_event(
+        {
+            **base_record,
+            "event": "discord_delivery",
+            "delivered": delivered,
+            "detail": detail,
+        }
+    )
+    print(
+        f"Discord {route.upper()} {'轉送成功' if delivered else '轉送失敗'}: "
+        f"{base_record['chat_id']}:{base_record['message_id']} ({detail})"
+    )
+
+
 SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
 client = TelegramClient(str(SESSION_PATH), API_ID, API_HASH)
 
@@ -754,7 +779,7 @@ async def telegram_message_handler(event) -> None:
     sender = await event.get_sender()
     received_at = datetime.now(TZ)
     base_record = {
-        "received_at": received_at.isoformat(timespec="seconds"),
+        "received_at": received_at.isoformat(timespec="microseconds" if route == "h2" else "seconds"),
         "telegram_message_at": event.date.isoformat() if event.date else None,
         "route": route,
         "chat_id": event.chat_id,
@@ -765,6 +790,11 @@ async def telegram_message_handler(event) -> None:
     }
     append_event({**base_record, "event": "received"})
     print(f"收到 Telegram {route.upper()} 訊號: {event.chat_id}:{event.id}")
+
+    if route == "h2":
+        # The API_KEY executor checks sender, original message age and deduplication.
+        await relay_to_discord(base_record, text)
+        return
 
     h_new_transition = False
     try:
@@ -811,24 +841,7 @@ async def telegram_message_handler(event) -> None:
             # Keep delivering the original signal even if the observer fails.
             observation = "【H3游擊策略｜通知待核對】附註產生失敗；僅轉送原文，不代表已成交或符合加碼條件。"
         discord_content = f"{text}\n\n{observation}"
-    delivered, detail = await asyncio.to_thread(
-        send_to_discord,
-        WEBHOOKS[route],
-        route,
-        discord_content,
-    )
-    append_event(
-        {
-            **base_record,
-            "event": "discord_delivery",
-            "delivered": delivered,
-            "detail": detail,
-        }
-    )
-    print(
-        f"Discord {route.upper()} {'轉送成功' if delivered else '轉送失敗'}: "
-        f"{event.chat_id}:{event.id} ({detail})"
-    )
+    await relay_to_discord(base_record, discord_content)
 
 
 async def relay_main() -> None:

@@ -11,6 +11,7 @@ import sqlite3
 
 import shioaji_tmf_target as shared
 from h_core import TradingError
+from net_positions import net_transition, save_positions
 from strategy import State
 from trade_records import entry_record, append_entry
 from mdd_sizing import matches_order_snapshot, read_sizing, save_sizing, average_fill
@@ -43,6 +44,8 @@ def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=F
              or (phase == 'add' and previous != 0 and not current_state.added
                  and target == previous + (1 if previous > 0 else -1))
              or (phase == 'flatten' and previous != 0 and target == 0))
+    positions_after = net_transition(store, payload) if phase == 'net' else None
+    valid = valid or positions_after is not None
     side = 'buy' if target > previous else 'sell'
     if (not valid or payload.get('quantity') != quantity or payload.get('side') != side
             or pending.get('previous_position') != previous
@@ -136,6 +139,8 @@ def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=F
         if mdd_entry is not None:
             from dataclasses import replace
             state = replace(state, first_price=average_fill(mdd_entry))
+    elif phase == 'net':
+        state = State(expected=target, round_key=payload['trigger'])
     elif phase == 'flatten':
         state = State(round_key=payload['trigger'])
     else:
@@ -152,6 +157,10 @@ def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=F
             if not matches_order_snapshot(store, mdd_before):
                 raise TradingError('核對期間MDD帳本變動，保留guard')
             save_sizing(store, mdd_after)
+        if positions_after is not None:
+            if net_transition(store, payload) != positions_after:
+                raise TradingError('核對期間 H3／H2 部位變動，保持阻擋')
+            save_positions(store, positions_after)
         store.db.execute('UPDATE pyramid_state SET symbol=?,payload=? WHERE id=1',
                          (code, json.dumps(asdict(state))))
         store.db.execute('UPDATE shioaji_order_state SET payload=? WHERE id=1', (json.dumps(new_guard),))

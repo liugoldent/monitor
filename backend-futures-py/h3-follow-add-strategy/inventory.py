@@ -27,11 +27,18 @@ class InventoryReporter:
             actual = self.engine.broker.startup_position()
             expected = self.engine.state().expected
             snapshot.update(status='success', actual=actual, expected=expected, matches=actual == expected)
-            match = '一致' if actual == expected else '不一致；等待新H3訊號時按券商實際庫存全平，再依UNIT進場'
+            detail = ''
+            if getattr(self.engine, 'uses_strategy_positions', False):
+                positions = self.engine.strategy_positions()
+                snapshot.update(h3=positions.h3, h2=positions.h2, matches=actual == expected == positions.net)
+                match = '一致' if snapshot['matches'] else '不一致；停止策略送單，等待核對'
+                detail = f'H3 {positions.h3:+d} 口｜H2 {positions.h2:+d} 口｜'
+            else:
+                match = '一致' if actual == expected else '不一致；等待新H3訊號按實際庫存全平再進場'
             message = (f'✅【API_KEY｜H3跟單加碼｜{label}】\n'
                        f'時間：{now:%Y-%m-%d %H:%M:%S}（台北）\n'
                        f'券商策略月份微台部位：{position_text(actual)}\n'
-                       f'策略帳本：{position_text(expected)}\n'
+                       f'{detail}帳戶淨部位：{position_text(expected)}\n'
                        f'核對：{match}\n僅查詢，未送單、未平倉。')
         except Exception as exc:
             # Broker exception text may contain credentials or personal data.

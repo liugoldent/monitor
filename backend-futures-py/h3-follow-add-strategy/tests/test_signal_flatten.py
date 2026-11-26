@@ -288,7 +288,7 @@ class SignalFlattenTests(unittest.TestCase):
                                                   loss_streak=0, boosted=True))
         self.assertEqual(sizing.quantity(1), 3)
 
-    def test_protection_each_qualifying_loss_stacks_until_h3_drawdown_recovers(self):
+    def test_protection_large_loss_adds_once_per_drawdown_and_stacks_with_streak(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(':memory:')
             self.addCleanup(store.db.close)
@@ -305,12 +305,12 @@ class SignalFlattenTests(unittest.TestCase):
             previous = 0
             with patch('protection_runtime.wait_for_signal_history', wraps=wait_for_signal_history):
                 for key, (points, quantity) in enumerate([
-                    (-999, 1), (-1000, 2), (-1500, 3), (-1, 4), (-1, 4),
-                    (-1, 5), (3501, 5), (1, 1), (-1, 1),
+                    (-999, 1), (-1000, 2), (-1500, 2), (-1, 3), (-1, 3),
+                    (-1, 4), (3501, 4), (1, 1), (-1000, 2), (-1000, 2),
                 ], start=1):
                     with self.subTest(points=points, quantity=quantity):
                         with history.open('a', encoding='utf-8') as handle:
-                            stamp = f'2026-11-04 19:0{key}:00'
+                            stamp = f'2026-11-04 19:{key:02d}:00'
                             handle.write(f'{stamp},exiting,bear,{20000 - points}\n'
                                          f'{stamp},enter,bear,20000\n')
                         broker.orders.clear()
@@ -321,7 +321,7 @@ class SignalFlattenTests(unittest.TestCase):
                         if key == 7:
                             engine = ProtectionEngine(store, broker, 'TMFK6')
                             engine.history_path = history
-                            self.assertEqual(engine.entry_quantity(), 5)
+                            self.assertEqual(engine.entry_quantity(), 4)
 
     def test_protection_source_recovery_leaves_broker_accounting_intact(self):
         with tempfile.TemporaryDirectory() as root:

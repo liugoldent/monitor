@@ -94,7 +94,7 @@ def startup_notice(engine):
             f'帳本 {position_text(state.expected)}｜基準 {engine.broker.unit} 口\n'
             f'H3 損益起算 {engine.history_start:%Y-%m-%d %H:%M:%S} 台北時間\n'
             f'{source}\n'
-            f'H3 加口｜連輸 4 筆 +1 口、6 筆合計 +2 口｜每筆單口虧損達 {H3_SINGLE_LOSS_THRESHOLD:,} 點各 +1 口'
+            f'H3 加口｜連輸 4 筆 +1 口、6 筆合計 +2 口｜同段回撤首次單口虧損達 {H3_SINGLE_LOSS_THRESHOLD:,} 點 +1 口'
             '｜H3 回撤歸零重置')
 
 
