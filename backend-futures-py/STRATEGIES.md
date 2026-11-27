@@ -1,6 +1,6 @@
 # 永豐策略清單
 
-目前只自動啟動 API_KEY 的 H3 MDD加口策略；訊號與行情記錄服務繼續運行。
+目前只自動啟動 API_KEY 的 H2／H3 固定口數策略；訊號與行情記錄服務繼續運行。
 EF 系列全部停用自動啟動，有券商連線的 EF 策略統一為 Shioaji 模擬帳戶（`simulation=True`）；TOTAL Breakout 只做影子監控、不連券商。
 部署重啟後才會套用新設定，切換不會自動處理原有實盤持倉：
 
@@ -9,8 +9,8 @@ EF 系列全部停用自動啟動，有券商連線的 EF 策略統一為 Shioaj
 | 永豐 1 | EF Hysteresis Again（含多空持續反向部位否決） | `ef-hysteresis-again-strategy/` | 停用自動啟動；`ef-simulation` profile，API_KEY，`simulation=True` |
 | 模擬帳戶 | 舊 EF Hysteresis 共識＋01:00 平倉 | `ef-strong-consensus-morning-flat-strategy/` | 同組 API_KEY 憑證，Shioaji `simulation=True` |
 | 永豐 2 | 純 EF 合計方向＋多空對稱否決、01:00 清倉 | `ef-morning-weekend-hedge-strategy/` | 停用自動啟動；`ef-simulation` profile，API_KEY2，`simulation=True` |
-| 永豐 1（正式） | H3 基準 1 口，累計回撤達 4,000／6,000 點各加 1 口，自 2026-11-18 14:16:20（台北）起平倉的單筆單口虧損達 1,000 點再加 1 口，最多 4 口，回前高恢復 1 口 | `h3-follow-add-strategy/` | API_KEY／SECRET_KEY，`simulation=False`；獨立帳本 `runtime/api_key.sqlite` |
-| 永豐 2（Windows 一鍵啟動） | H3 基準 1 口，連輸 4／6 筆加 1／2 口，同段回撤內首筆單口虧損達 1,000 點加 1 口，最多 4 口，回前高恢復 1 口。自 2026-11-18 14:24:50（台北）起平倉的交易列入計算 | `h3-profit-protection-strategy/` | API_KEY2，`BROKER_SIMULATION=False` 真實下單；獨立 `runtime/live/` 帳本；Windows 自動選用 `h3-protection` profile；通知 `DISCORD_H3_TP_WEBHOOK_URL` |
+| 永豐 1（正式） | H2、H3 各固定 1 口，按帳戶淨部位送差額 | `h3-follow-add-strategy/` | API_KEY／SECRET_KEY，`simulation=False`；獨立帳本 `runtime/api_key.sqlite` |
+| 永豐 2（Windows 一鍵啟動） | 依 H3 訊號固定進場 1 口 | `h3-profit-protection-strategy/` | API_KEY2，`BROKER_SIMULATION=False` 真實下單；獨立 `runtime/live/` 帳本；Windows 自動選用 `h3-protection` profile；通知 `DISCORD_H3_TP_WEBHOOK_URL` |
 | 不連券商 | EF Hysteresis TOTAL 突破（超越08:45前總部位） | `ef-hysteresis-total-breakout-strategy/` | 影子監控＋獨立 Discord |
 
 `telegram_signal_relay.py`、行情監控與 webhook 都是共用基礎設施。

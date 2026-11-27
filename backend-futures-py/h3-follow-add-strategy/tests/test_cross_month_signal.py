@@ -81,7 +81,6 @@ class CrossMonthSignalTests(unittest.TestCase):
             history = H3History(MddSizing(), direction, None, loss_extra_contracts=2,
                                 peak_drawdown=Decimal(4500))
             with (patch('mdd_runtime.wait_for_signal_history', return_value=history),
-                  patch('protection_runtime.wait_for_signal_history', return_value=history),
                   patch.object(shared, 'POSITION_VERIFY_ATTEMPTS', 1)):
                 event = existing.SignalFlattenTests().event(1, direction)
                 if available:
@@ -98,7 +97,7 @@ class CrossMonthSignalTests(unittest.TestCase):
 
     def test_cross_month_then_mdd_near_order(self):
         for engine, broker, quantity in [(MddEngine, PyramidBroker, 2),
-                                         (ProtectionEngine, ProtectionBroker, 3)]:
+                                         (ProtectionEngine, ProtectionBroker, 1)]:
             for direction in (-1, 1):
                 with self.subTest(engine=engine.__name__, direction=direction):
                     orders, inventory, expected = self.exercise(engine, broker, direction=direction)

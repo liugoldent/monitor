@@ -11,7 +11,7 @@ import sqlite3
 
 import shioaji_tmf_target as shared
 from h_core import TradingError
-from net_positions import net_transition, save_positions
+from net_positions import commit_api_key3_signal, net_transition, save_positions
 from strategy import State
 from trade_records import entry_record, append_entry
 from mdd_sizing import matches_order_snapshot, read_sizing, save_sizing, average_fill
@@ -106,6 +106,7 @@ def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=F
             store.db.execute('UPDATE shioaji_order_state SET payload=? WHERE id=1', (json.dumps(guard),))
             if store.pending() != payload:
                 raise TradingError('待核對委託已變動，保持阻擋')
+            commit_api_key3_signal(store, payload)
             store.db.execute('DELETE FROM guard WHERE id=1')
             store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
                 (datetime.now(timezone.utc).isoformat(), 'pyramid_order_rejected',
@@ -160,6 +161,7 @@ def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=F
         if positions_after is not None:
             if net_transition(store, payload) != positions_after:
                 raise TradingError('核對期間 H3／H2 部位變動，保持阻擋')
+            commit_api_key3_signal(store, payload)
             save_positions(store, positions_after)
         store.db.execute('UPDATE pyramid_state SET symbol=?,payload=? WHERE id=1',
                          (code, json.dumps(asdict(state))))

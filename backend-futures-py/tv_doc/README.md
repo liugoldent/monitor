@@ -7,6 +7,7 @@
 
 ```text
 h_trade.csv
+h2_trade.csv
 mxf_value.csv
 priceUp.json
 webhook_data_1min.csv
@@ -18,6 +19,10 @@ README.md
 ```
 
 `h_trade.csv`是舊H交易流程留下的歷史交易資料，目前週一啟動鏈與H3＋EF混合策略都不會讀取；暫時保留供績效分析。
+
+`h2_trade.csv` 儲存 H2 單口策略的逐筆進出場，欄位與 `h_trade.csv` 相同。`pnl` 是已平倉單口毛損益（台幣，每點 10 元）。歷史取自 TradingView 匯出，後續由 Telegram relay 按可信 H2 訊號更新，取收到訊號當時已收到的 `MXF1!` 一分鐘收盤價，K 棒時間距訊號最多 120 秒。反手同時記平倉和新進場，重複方向只保留訊號原始紀錄。缺少可用行情時，保留原始訊號並在 relay 啟動或收到下一筆 H2 訊號時重試。
+
+`h2_trade.csv` 是本機資料。新部署可以從已有的原始訊號及行情建立 CSV。需要更早的歷史時，應另外匯入已配對的 TradingView 交易。
 
 ## strategy_state：策略狀態
 

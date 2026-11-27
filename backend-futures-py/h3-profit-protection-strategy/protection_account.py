@@ -75,14 +75,12 @@ class ProtectionBroker(PyramidBroker):
 
     def __init__(self, *args, **kwargs):
         self.unit = POSITION_UNIT
-        self.entry_quantity = self.unit
         self.confirmed_price = None
         super().__init__(*args, **kwargs)
 
     def valid_transition(self, previous, delta, phase, target):
         return ((phase == 'entry' and previous == 0
-                 and type(self.entry_quantity) is int and self.entry_quantity >= self.unit
-                 and abs(target) == abs(delta) == self.entry_quantity)
+                 and abs(target) == abs(delta) == self.unit)
                 or (phase == 'flatten' and target == 0 and previous != 0 and delta == -previous))
 
     def send_and_confirm(self, delta, phase, target):

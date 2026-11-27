@@ -1,4 +1,4 @@
-"""Read Concord HISTORY first, then TG; publish one durable H3 transition feed.
+"""Read Concord HISTORY first, then TG; publish a durable strategy signal feed.
 
 No broker or Telegram connection is needed here. The vendor database is read-only.
 """
@@ -16,7 +16,7 @@ import sqlite3
 import time
 from zoneinfo import ZoneInfo
 
-from h_signal import parse_h_event_direction, parse_h_flat_direction
+from h_signal import H2_REDUCTION_MAX_MESSAGE_AGE, parse_h2_receipt, parse_h_event_direction, parse_h_flat_direction
 
 BASE = Path(__file__).resolve().parent
 TZ = ZoneInfo('Asia/Taipei')
@@ -56,11 +56,11 @@ def stamp(value):
     return result.replace(tzinfo=TZ) if result.tzinfo is None else result
 
 
-def local_signal(row):
+def local_signal(row, *, name=NAME, action_pattern=ACTION):
     """Only the named strategy's original position notices are actionable."""
     rowid, date, clock, action, position, signal_id, group_name = row
     match = POSITION.fullmatch(position.strip()) if isinstance(position, str) else None
-    if group_name != NAME or not ACTION.fullmatch(action) or not match:
+    if group_name != name or not isinstance(action, str) or not action_pattern.fullmatch(action) or not match:
         return None
     buy, sell = map(int, match.groups())
     if buy and sell:
@@ -93,13 +93,28 @@ def tg_signal(event):
                 reference=dict(chat_id=event['chat_id'], message_id=event['message_id']))
 
 
+def h2_tg_signal(event):
+    receipt = parse_h2_receipt(event)
+    if receipt is None:
+        return None
+    _, direction, received, sent = receipt
+    if received < sent:
+        return None
+    return dict(direction=direction, at=sent.isoformat(), source_kind='telegram',
+                relay_received_at=received.isoformat(),
+                reference=dict(chat_id=event['chat_id'], message_id=event['message_id']))
+
+
 class Router:
-    def __init__(self, vendor, telegram, directory):
+    def __init__(self, vendor, telegram, directory, *, strategy='h3'):
         self.vendor, self.telegram, self.directory = Path(vendor), Path(telegram), Path(directory)
+        self.strategy = strategy
+        self.name = f'浩克{strategy[-1]}V3'
+        self.action_pattern = re.compile(rf'訊號部位通知\s*[（(]\s*{self.name}\s*[)）]\s*')
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.output = self.directory / 'h3_signal_events.jsonl'
-        self.audit_path = self.directory / 'h3_signal_sources.jsonl'
-        self.db = sqlite3.connect(self.directory / 'h3_signal_router.sqlite')
+        self.output = self.directory / f'{strategy}_signal_events.jsonl'
+        self.audit_path = self.directory / f'{strategy}_signal_sources.jsonl'
+        self.db = sqlite3.connect(self.directory / f'{strategy}_signal_router.sqlite')
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -141,10 +156,10 @@ class Router:
                     last += 1
                     expected = self.db.execute('SELECT payload FROM outbox WHERE seq=?', (last,)).fetchone()
                     if expected is None or json.loads(expected[0]) != event:
-                        raise RuntimeError('H3 journal does not match durable outbox')
+                        raise RuntimeError(f'{self.strategy.upper()} journal does not match durable outbox')
                     end = handle.tell()
         elif not self.output.exists() and self.get('journal_created', False):
-            raise RuntimeError('H3 journal missing; preserve router state for reconciliation')
+            raise RuntimeError(f'{self.strategy.upper()} journal missing; preserve router state for reconciliation')
         pending = self.db.execute('SELECT seq,payload FROM outbox WHERE seq>? ORDER BY seq', (last,)).fetchall()
         if self.published_seq is not None and not pending:
             return
@@ -163,7 +178,9 @@ class Router:
         at = stamp(candidate['at']).timestamp()
         age = now.timestamp() - at
         direction = candidate['direction']
-        if not 0 <= age <= MAX_AGE:
+        max_age = (H2_REDUCTION_MAX_MESSAGE_AGE if self.strategy == 'h2'
+                   and candidate['source_kind'] == 'telegram' else MAX_AGE)
+        if not 0 <= age <= max_age:
             self.audit('stale_or_future', candidate)
             return
         last = self.get('last_signal')
@@ -181,11 +198,14 @@ class Router:
             self.audit('older_or_same_timestamp', candidate)
             return
         seq = self.db.execute('SELECT COALESCE(MAX(seq),0)+1 FROM outbox').fetchone()[0]
-        event = dict(event='received', route='h', source='h3_dual_source',
-                     signal_key=f'h3-dual:{seq}', source_kind=candidate['source_kind'],
+        event = dict(event='received', route='h2' if self.strategy == 'h2' else 'h',
+                     source=f'{self.strategy}_dual_source',
+                     signal_key=f'{self.strategy}-dual:{seq}', source_kind=candidate['source_kind'],
                      source_reference=candidate['reference'], received_at=candidate['at'],
                      observed_at=now.isoformat(), direction=direction,
-                     text=f'浩克3V3 訊號通知 (B={int(direction == 1)} S={int(direction == -1)})')
+                     text=f'{self.name} 訊號通知 (B={int(direction == 1)} S={int(direction == -1)})')
+        if 'relay_received_at' in candidate:
+            event['relay_received_at'] = candidate['relay_received_at']
         self.db.execute('INSERT INTO outbox VALUES (?,?)', (seq, json.dumps(event, ensure_ascii=False)))
         self.put('last_signal', dict(at=at, direction=direction))
         self.audit('published', candidate, signal_key=event['signal_key'])
@@ -209,14 +229,14 @@ class Router:
                     h.SIGNAL_ID,s.GROUP_NAME FROM HISTORY h JOIN HISTORY_SETTING s
                     ON h.BLOCK=s.BLOCK AND h.SIGNAL_ID=s.SIGNAL_ID
                     WHERE h.rowid>? AND h.rowid<=? AND s.GROUP_NAME=?
-                    ORDER BY h.rowid''', (0 if baseline else cursor, maximum, NAME)).fetchall()
+                    ORDER BY h.rowid''', (0 if baseline else cursor, maximum, self.name)).fetchall()
             anchor = local_anchor(vendor, maximum)
         with self.db:
             if reset:
                 self.db.execute('DELETE FROM local_seen')
             for row in rows:
-                candidate = local_signal(row)
-                if candidate is None:
+                candidate = local_signal(row, name=self.name, action_pattern=self.action_pattern)
+                if candidate is None or (self.strategy == 'h2' and candidate['direction'] == 0):
                     continue
                 self.db.execute('INSERT OR IGNORE INTO local_seen VALUES (?,?,?)',
                     (row[0], candidate['direction'], stamp(candidate['at']).timestamp()))
@@ -252,13 +272,14 @@ class Router:
                     self.put('tg_cursor', saved)
             handle.seek(saved['offset'])
             # Bound a burst so a large Telegram backlog cannot starve local polling.
+            parse_telegram = h2_tg_signal if self.strategy == 'h2' else tg_signal
             for _ in range(500):
                 raw = handle.readline()
                 if not raw or not raw.endswith(b'\n'):
                     break
                 try:
                     event = json.loads(raw)
-                    candidate = tg_signal(event) if isinstance(event, dict) else None
+                    candidate = parse_telegram(event) if isinstance(event, dict) else None
                 except (ValueError, TypeError, UnicodeError):
                     candidate = None
                 with self.db:
@@ -283,7 +304,7 @@ class Router:
                 error = type(exc).__name__ + ': ' + str(exc)
                 if self.errors.get(name) != error:
                     self.audit('source_error', source_kind=name, error=error)
-                    print(f'H3 {name}: {error}', flush=True)
+                    print(f'{self.strategy.upper()} {name}: {error}', flush=True)
                 self.errors[name] = error
             else:
                 if self.errors.pop(name, None):
@@ -292,7 +313,7 @@ class Router:
         self.status(now)
 
     def status(self, now):
-        path = self.directory / 'h3_signal_health.json'
+        path = self.directory / f'{self.strategy}_signal_health.json'
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps(dict(checked_at=now.isoformat(), errors=self.errors,
             local_cursor=self.get('local_cursor'), last_signal=self.get('last_signal'))), encoding='utf-8')
@@ -301,6 +322,7 @@ class Router:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--strategy', choices=('h2', 'h3'), default='h3')
     parser.add_argument('--once', action='store_true', help='Baseline/read only, never submit orders')
     args = parser.parse_args(argv)
     directory = Path(os.getenv('H3_SIGNAL_DIRECTORY', str(BASE/'telegram-relay-records')))
@@ -308,8 +330,8 @@ def main(argv=None):
     telegram = Path(os.getenv('H3_TELEGRAM_SOURCE', str(BASE/'telegram-relay-records/telegram_signal_events.jsonl')))
     from filelock import FileLock
     directory.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(directory/'h3_signal_router.lock'), timeout=0):
-        router = Router(vendor, telegram, directory)
+    with FileLock(str(directory/f'{args.strategy}_signal_router.lock'), timeout=0):
+        router = Router(vendor, telegram, directory, strategy=args.strategy)
         try:
             while True:
                 router.step()

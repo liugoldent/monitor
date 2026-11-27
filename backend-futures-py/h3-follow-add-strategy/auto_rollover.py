@@ -150,7 +150,7 @@ class AutomaticRollover(ManualRollover):
         return plan
 
     def announce(self, message):
-        text = '【API_KEY｜H3自動換月】' + message
+        text = f'【{getattr(self.engine, "account_label", "API_KEY")}｜H3自動換月】' + message
         print(text, flush=True)
         # Failure to notify must not strand a fully confirmed close/open pair.
         try:

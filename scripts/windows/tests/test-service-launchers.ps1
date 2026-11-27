@@ -5,12 +5,13 @@ $fixture = Join-Path $PSScriptRoot ('fixture-' + [guid]::NewGuid().ToString('N')
 $global:launcherTestCommands = [Collections.Generic.List[object]]::new()
 $global:launcherTestWindows = [Collections.Generic.List[object]]::new()
 $global:launcherTestFrontendActions = [Collections.Generic.List[string]]::new()
+$global:launcherTestFailKey3 = $false
 function Assert-That($condition, $message) {
     if (-not $condition) { throw $message }
 }
 function global:docker {
     $global:launcherTestCommands.Add(@($args))
-    $global:LASTEXITCODE = 0
+    $global:LASTEXITCODE = if ($global:launcherTestFailKey3 -and $args -contains 'up' -and $args -contains 'api-key3-follow') { 42 } else { 0 }
 }
 function global:wt.exe {
     $global:launcherTestWindows.Add(@($args))
@@ -44,12 +45,17 @@ try {
     & (Join-Path $scriptsDir 'start-services.ps1') -NoBuild
     Assert-That ($global:launcherTestFrontendActions[0] -eq 'Start') 'Frontend was not started.'
     $ups = @($global:launcherTestCommands | Where-Object { $_ -contains 'up' })
-    Assert-That ($ups.Count -eq 1) 'Expected exactly one Compose up.'
+    Assert-That ($ups.Count -eq 2) 'Expected the main Compose up, then an isolated API_KEY3 up.'
     $strategyServices = @('h3-flatten-reentry-strategy', 'h3-profit-protection-strategy', 'h3-shane-use')
     Assert-That ($ups[0] -contains 'h3-signal-router') 'Startup omitted the H3 signal router.'
+    Assert-That ($ups[0] -contains 'h2-signal-router') 'Startup omitted the H2 signal router.'
     Assert-That ($ups[0] -contains 'h3-protection') 'Missing API_KEY2 profile.'
     Assert-That ($ups[0] -contains 'h3-shane') 'Missing Shane profile.'
-    Assert-That ($global:launcherTestWindows.Count -eq 8) 'Expected eight log tabs.'
+    Assert-That ($global:launcherTestWindows.Count -eq 9) 'Expected nine log tabs.'
+    Assert-That (-not ($ups[0] -contains 'api-key3-follow')) 'API_KEY3 must not be part of the main up.'
+    Assert-That ($ups[1] -contains 'api-key3-follow') 'Startup omitted API_KEY3.'
+    Assert-That ($ups[1] -contains '--no-deps') 'Starting API_KEY3 must not restart dependencies.'
+    Assert-That (@($global:launcherTestWindows | Where-Object { $_ -contains 'api-key3-follow' }).Count -eq 1) 'Missing API_KEY3 log tab.'
     $paused = @($global:launcherTestCommands | Where-Object { $_ -contains 'stop' })
     Assert-That ($paused.Count -eq 1) 'Expected legacy strategy stop before startup.'
     foreach ($service in $strategyServices) {
@@ -59,11 +65,22 @@ try {
     }
 
     $global:launcherTestCommands.Clear()
+    $global:launcherTestFrontendActions.Clear()
+    $global:launcherTestFailKey3 = $true
+    & (Join-Path $scriptsDir 'start-services.ps1') -NoBuild
+    Assert-That ($global:launcherTestFrontendActions -contains 'Start') 'API_KEY3 failure blocked the frontend.'
+    $ups = @($global:launcherTestCommands | Where-Object { $_ -contains 'up' })
+    foreach ($service in $strategyServices) {
+        Assert-That ($ups[0] -contains $service) "API_KEY3 failure interfered with $service startup."
+        Assert-That (@($global:launcherTestCommands | Where-Object { $_ -contains 'stop' -and $_ -contains $service }).Count -eq 0) "API_KEY3 failure stopped $service."
+    }
+    $global:launcherTestFailKey3 = $false
+    $global:launcherTestCommands.Clear()
     & (Join-Path $scriptsDir 'stop-services.ps1')
     Assert-That ($global:launcherTestFrontendActions -contains 'Stop') 'Frontend was not stopped.'
     $stops = @($global:launcherTestCommands | Where-Object { $_ -contains 'stop' })
     Assert-That ($stops.Count -eq 1) 'Expected one Compose stop.'
-    foreach ($service in (@('h3-signal-router') + $strategyServices)) {
+    foreach ($service in (@('h3-signal-router', 'h2-signal-router', 'api-key3-follow') + $strategyServices)) {
         Assert-That ($stops[0] -contains $service) "Shutdown omitted $service"
     }
     Assert-That ($stops[0] -contains '*') 'Shutdown must include every profile.'
@@ -80,7 +97,7 @@ try {
     $global:launcherTestCommands.Clear()
     try { & (Join-Path $scriptsDir 'stop-services.ps1') } catch { }
     Assert-That (@($global:launcherTestCommands | Where-Object { $_ -contains 'stop' }).Count -eq 1) 'Frontend error prevented Docker shutdown.'
-    Write-Host 'PASS: router and all three strategies start and stop, eight log tabs open, and native failure still stops Docker.'
+    Write-Host 'PASS: all four strategies start and stop, nine log tabs open, and API_KEY3 failure leaves the other services running.'
 } finally {
     foreach ($name in @('docker', 'wt.exe', 'Start-Sleep', 'Start-Process', 'Get-Command')) {
         Remove-Item -LiteralPath "Function:\$name" -ErrorAction SilentlyContinue

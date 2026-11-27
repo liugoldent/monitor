@@ -14,8 +14,6 @@ from h_core import Store, TradingError
 from h3_signal_retry import handle_signal, reconnect_broker
 from console_status import ConsoleStatus
 from runtime import LedgerError, RolloverPause
-from mdd_runtime import read_history
-from mdd_sizing import H3_SINGLE_LOSS_THRESHOLD
 from rollover import ledger_symbol
 from auto_rollover import ROLLOVER_PHASES
 from ef_trade_runtime import Notifications, position_text
@@ -84,18 +82,8 @@ def check_config():
 def startup_notice(engine):
     state = engine.state()
     mode = '模擬' if account.BROKER_SIMULATION else '實盤'
-    try:
-        history = read_history(engine.history_path, closed_since=engine.history_start)
-        source = (f'H3 {history.streak_text}｜回撤 {history.sizing.drawdown:f} 點'
-                  f'｜目前級距 {engine.entry_quantity(history)} 口')
-    except LedgerError:
-        source = 'H3 交易紀錄暫時無法讀取'
     return (f'【API_KEY2｜H3 跟單啟動｜{mode}】\n'
-            f'帳本 {position_text(state.expected)}｜基準 {engine.broker.unit} 口\n'
-            f'H3 損益起算 {engine.history_start:%Y-%m-%d %H:%M:%S} 台北時間\n'
-            f'{source}\n'
-            f'H3 加口｜連輸 4 筆 +1 口、6 筆合計 +2 口｜同段回撤首次單口虧損達 {H3_SINGLE_LOSS_THRESHOLD:,} 點 +1 口'
-            '｜H3 回撤歸零重置')
+            f'帳本 {position_text(state.expected)}｜H3 固定 {engine.broker.unit} 口')
 
 
 def watch(engine, poll=2):

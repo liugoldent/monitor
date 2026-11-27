@@ -1,21 +1,23 @@
 """H3 signal sizing and H2 fixed targets share one confirmed TMF net position."""
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
+from functools import partial
 import json
 
 from h_core import TradingError
-from h_signal import parse_h2_signal
+from h_signal import H2_REDUCTION_MAX_MESSAGE_AGE, parse_h2_dual_signal, parse_h2_signal
 from h3_signal_retry import signal_retry_used, signal_step
 from mdd_runtime import MddEngine
 from mdd_sizing import save_sizing
-from net_positions import Positions, net_transition, positions_initialized, read_positions, save_positions
+from net_positions import (Positions, commit_api_key3_signal, net_transition, positions_initialized,
+                           read_positions, save_positions)
 from runtime import LedgerError, RolloverPause, signal
 from auto_trade import H2_UNIT
-
 
 class PortfolioEngine(MddEngine):
     strategy_label = 'H3 回撤加口＋H2 固定口數'
     uses_strategy_positions = True
+    account_label = 'API_KEY'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,6 +50,20 @@ class PortfolioEngine(MddEngine):
     def on_signal(self, event, *, now=None):
         source = 'h2' if isinstance(event, dict) and event.get('route') == 'h2' else 'h3'
         parser = parse_h2_signal if source == 'h2' else signal
+        max_message_age = 30
+        if source == 'h2':
+            if event.get('source') == 'h2_dual_source':
+                parser = parse_h2_dual_signal
+            delayed_parser = partial(parser, max_message_age=H2_REDUCTION_MAX_MESSAGE_AGE)
+            candidate = delayed_parser(event, now=now)
+            if candidate is None:
+                return False
+            _, direction, _ = candidate
+            positions = self.strategy_positions()
+            target = positions.h3 + direction * H2_UNIT
+            if abs(target) < abs(positions.net) and target * positions.net >= 0:
+                parser = delayed_parser
+                max_message_age = H2_REDUCTION_MAX_MESSAGE_AGE
         parsed = parser(event, now=now)
         if parsed is None:
             return False
@@ -55,7 +71,7 @@ class PortfolioEngine(MddEngine):
 
         def fresh():
             if parser(event) is None:
-                raise RolloverPause(f'{source.upper()} 訊號已超過30秒，不追單')
+                raise RolloverPause(f'{source.upper()} 訊號已超過有效期（訊息上限 {max_message_age} 秒），不追單')
 
         if not self.consume_signal(parsed):
             return False
@@ -86,11 +102,13 @@ class PortfolioEngine(MddEngine):
             raise
         return True
 
-    def adjust_net(self, source, before, after, key, fresh, note):
+    def adjust_net(self, source, before, after, key, fresh, note, *, api_key3_signal=None):
         target = after.net
         previous = before.net
         payload = dict(trigger=key, phase='net', strategy=source, previous=previous, target=target,
                        positions_before=asdict(before), positions_after=asdict(after))
+        if api_key3_signal is not None:
+            payload['api_key3_signal'] = api_key3_signal
 
         if target != previous:
             payload.update(side='buy' if target > previous else 'sell', quantity=abs(target - previous))
@@ -114,6 +132,7 @@ class PortfolioEngine(MddEngine):
                     or self.store.pending() != (payload if target != previous else None)
                     or self.broker.guard.get('pending')):
                 raise LedgerError('合計委託或帳本變動，保留保護')
+            commit_api_key3_signal(self.store, payload)
             save_positions(self.store, after)
             if target != previous:
                 self.save(self.state_type(expected=target, round_key=key))
@@ -121,6 +140,18 @@ class PortfolioEngine(MddEngine):
             self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
                 (datetime.now(timezone.utc).isoformat(), 'api_key_net_confirmed', json.dumps(dict(
                     payload, broker_fill_price=(self.broker.confirmed_price if target != previous else None)))))
+        if api_key3_signal is not None and before == after:
+            return
         action = '淨部位不變，未送單' if target == previous else '差額成交及庫存已確認'
-        self.notify(f'【API_KEY｜{source.upper()}】H3 {after.h3:+d}口｜H2 {after.h2:+d}口｜'
+        self.notify(f'【{self.account_label}｜{source.upper()}】H3 {after.h3:+d}口｜H2 {after.h2:+d}口｜'
                     f'淨部位 {previous:+d} → {target:+d}口｜{action}' + (f'｜{note}' if note else ''))
+
+
+class FixedPortfolioEngine(PortfolioEngine):
+    strategy_label = 'H3／H2 各固定一口'
+
+    def entry_plan(self):
+        return self.broker.unit, ''
+
+    def signal_entry_plan(self, event, direction):
+        return self.entry_plan()

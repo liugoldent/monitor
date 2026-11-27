@@ -7,7 +7,7 @@ from h_core import TradingError
 
 
 class SignalJournal:
-    def __init__(self, path, route, *, optional=False):
+    def __init__(self, path, route, *, optional=False, replay=False):
         self.path, self.route = path, route
         self.identity = None
         self.offset = 0
@@ -17,7 +17,7 @@ class SignalJournal:
             if not optional:
                 raise
         else:
-            self.identity, self.offset = stat.st_ino, stat.st_size
+            self.identity, self.offset = stat.st_ino, 0 if replay else stat.st_size
 
     def peek(self):
         try:

@@ -11,6 +11,7 @@ from typing import Any
 
 
 ALLOWED_SENDER_USERNAME = "taiwan_mxf_bot"
+H2_REDUCTION_MAX_MESSAGE_AGE = 45
 H_POSITION_PATTERN = re.compile(r"(?P<side>多|空)\s*(?P<quantity>\d+)\s*口")
 H_BS_PATTERN = re.compile(
     r"[（(]\s*B\s*=\s*(?P<buy>\d+)\s+S\s*=\s*(?P<sell>\d+)\s*[)）]"
@@ -24,18 +25,20 @@ H2_NOTICE_PATTERN = re.compile(
 )
 
 
-def h2_direction(text: str) -> int | None:
+def h2_direction(text: str, *, allow_flat=False) -> int | None:
     if not isinstance(text, str):
         return None
     matches = list(H2_NOTICE_PATTERN.finditer(text))
     if len(matches) != 1:
         return None
     direction = int(matches[0]['buy']) - int(matches[0]['sell'])
-    return direction or None
+    if direction or (allow_flat and matches[0]['buy'] == matches[0]['sell'] == '0'):
+        return direction
+    return None
 
 
-def parse_h2_signal(event, now=None):
-    """Accept only a fresh, trusted Telegram H2 receipt."""
+def parse_h2_receipt(event, *, allow_flat=False):
+    """Validate the sender, signal and timestamps for the H2 journal."""
     if not isinstance(event, dict) or event.get('event') != 'received' or event.get('route') != 'h2':
         return None
     sender = event.get('sender_username')
@@ -43,7 +46,7 @@ def parse_h2_signal(event, now=None):
         return None
     if not all(type(event.get(k)) is int for k in ('chat_id', 'message_id')):
         return None
-    direction = h2_direction(event.get('text'))
+    direction = h2_direction(event.get('text'), allow_flat=allow_flat)
     if direction is None:
         return None
     try:
@@ -53,12 +56,48 @@ def parse_h2_signal(event, now=None):
         return None
     if received.tzinfo is None or sent.tzinfo is None:
         return None
+    return f"h2-tg:{event['chat_id']}:{event['message_id']}", direction, received, sent
+
+
+def parse_h2_signal(event, now=None, *, allow_flat=False, max_message_age=30):
+    """Accept only a fresh, trusted Telegram H2 receipt."""
+    receipt = parse_h2_receipt(event, allow_flat=allow_flat)
+    if receipt is None:
+        return None
+    key, direction, received, sent = receipt
     current = now or datetime.now(timezone.utc)
     # Message dates are second-resolution and the relay may process a delayed update.
     if not (0 <= (current - received).total_seconds() <= 30
-            and 0 <= (current - sent).total_seconds() <= 30):
+            and 0 <= (current - sent).total_seconds() <= max_message_age):
         return None
-    return (f"h2-tg:{event['chat_id']}:{event['message_id']}", direction, received.timestamp())
+    return key, direction, received.timestamp()
+
+
+def parse_h2_dual_signal(event, now=None, *, max_message_age=30):
+    """Read a normalized H2 signal without refreshing its upstream timestamps."""
+    if (not isinstance(event, dict) or event.get('event') != 'received'
+            or event.get('route') != 'h2' or event.get('source') != 'h2_dual_source'):
+        return None
+    key, direction = event.get('signal_key'), event.get('direction')
+    if (not isinstance(key, str) or not re.fullmatch(r'h2-dual:[1-9]\d*', key)
+            or type(direction) is not int or direction not in (-1, 1)):
+        return None
+    try:
+        sent = datetime.fromisoformat(event['received_at'])
+        if event.get('source_kind') == 'concord_sqlite':
+            received, max_message_age = sent, 30
+        elif event.get('source_kind') == 'telegram':
+            received = datetime.fromisoformat(event['relay_received_at'])
+        else:
+            return None
+    except (KeyError, TypeError, ValueError):
+        return None
+    current = now or datetime.now(timezone.utc)
+    if (sent.tzinfo is None or received.tzinfo is None or not sent <= received <= current
+            or (current - sent).total_seconds() > max_message_age
+            or (current - received).total_seconds() > 30):
+        return None
+    return key, direction, sent.timestamp()
 
 
 def is_h_signal(text: str) -> bool:

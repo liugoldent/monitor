@@ -12,7 +12,7 @@ x-runtime-safety: &runtime-safety
       max-file: "3"
 
 services:
-  h3-signal-router:
+  h3-signal-router: &signal-router
     <<: *runtime-safety
     image: *app-image
     container_name: monitor-h3-signal-router
@@ -37,12 +37,20 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    healthcheck:
+    healthcheck: &signal-router-health
       test: ["CMD", "python", "-c", "import json,time,datetime; h=json.load(open('/app/backend-futures-py/telegram-relay-records/h3_signal_health.json')); assert time.time()-datetime.datetime.fromisoformat(h['checked_at']).timestamp()<10 and len(h['errors'])<2"]
       interval: 5s
       timeout: 3s
       retries: 3
       start_period: 5s
+
+  h2-signal-router:
+    <<: *signal-router
+    container_name: monitor-h2-signal-router
+    command: ["python", "/app/backend-futures-py/h3_signal_router.py", "--strategy", "h2"]
+    healthcheck:
+      <<: *signal-router-health
+      test: ["CMD", "python", "-c", "import json,time,datetime; h=json.load(open('/app/backend-futures-py/telegram-relay-records/h2_signal_health.json')); assert time.time()-datetime.datetime.fromisoformat(h['checked_at']).timestamp()<10 and len(h['errors'])<2"]
 
   telegram-signal-relay:
     <<: *runtime-safety
@@ -63,6 +71,7 @@ services:
       CONSULTANT_SIGNAL_LOG_ENCODING: ${CONSULTANT_SIGNAL_LOG_ENCODING:-cp950}
     volumes:
       - ./backend-futures-py/telegram_signal_relay.py:/app/backend-futures-py/telegram_signal_relay.py:ro
+      - ./backend-futures-py/h2_trade_history.py:/app/backend-futures-py/h2_trade_history.py:ro
       - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
       - ./backend-futures-py/h3_entry_watch.py:/app/backend-futures-py/h3_entry_watch.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
@@ -249,6 +258,8 @@ services:
         condition: service_healthy
       webhook-server:
         condition: service_started
+      h2-signal-router:
+        condition: service_healthy
     volumes:
       - ./backend-futures-py/h3-follow-add-strategy:/app/backend-futures-py/h3-follow-add-strategy
       - ./backend-futures-py/shioaji_tmf_target.py:/app/backend-futures-py/shioaji_tmf_target.py:ro
@@ -264,6 +275,39 @@ services:
       - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records:ro
       - ./backend-futures-py/h3-flatten-reentry-strategy/records:/app/backend-futures-py/h3-flatten-reentry-strategy/records
       - ./backend-futures-py/h3-flatten-reentry-strategy/runtime:/app/backend-futures-py/h3-flatten-reentry-strategy/runtime
+
+  api-key3-follow:
+    <<: *runtime-safety
+    image: *app-image
+    container_name: monitor-api-key3-follow
+    cpus: "0.40"
+    mem_limit: 768m
+    mem_reservation: 256m
+    memswap_limit: 768m
+    command: ["python", "/app/backend-futures-py/h3-follow-add-strategy/api_key3_monitor.py"]
+    working_dir: /app/backend-futures-py/h3-follow-add-strategy/runtime/api_key3
+    environment:
+      TZ: Asia/Taipei
+      PYTHONUNBUFFERED: "1"
+      CA_PATH: /app/backend-futures-py/Sinopac.pfx
+    depends_on:
+      h3-signal-router:
+        condition: service_healthy
+      telegram-signal-relay:
+        condition: service_started
+      webhook-server:
+        condition: service_started
+    volumes:
+      - ./backend-futures-py/h3-follow-add-strategy:/app/backend-futures-py/h3-follow-add-strategy:ro
+      - ./backend-futures-py/h3-follow-add-strategy/runtime/api_key3:/app/backend-futures-py/h3-follow-add-strategy/runtime/api_key3
+      - ./backend-futures-py/h3-follow-add-strategy/records/api_key3:/app/backend-futures-py/h3-follow-add-strategy/records/api_key3
+      - ./backend-futures-py/h3-common:/app/backend-futures-py/h3-common:ro
+      - ./backend-futures-py/h_signal.py:/app/backend-futures-py/h_signal.py:ro
+      - ./backend-futures-py/shioaji_tmf_target.py:/app/backend-futures-py/shioaji_tmf_target.py:ro
+      - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro
+      - ./backend-futures-py/Sinopac.pfx:/app/backend-futures-py/Sinopac.pfx:ro
+      - ./backend-futures-py/tv_doc:/app/backend-futures-py/tv_doc:ro
+      - ./backend-futures-py/telegram-relay-records:/app/backend-futures-py/telegram-relay-records:ro
 
   h3-profit-protection-strategy:
     <<: *runtime-safety

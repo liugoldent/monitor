@@ -153,7 +153,6 @@ class AccountOneCancelTests(CancelTests):
 
 class SignalCancelTests(unittest.TestCase):
     def setUp(self):
-        signal_tests.SignalFlattenTests.setUp(self)
         wait = patch('mdd_runtime.wait_for_signal_history',
                      side_effect=lambda path, event, direction, **kwargs:
                      signal_tests.H3History(signal_tests.MddSizing(), direction, None))

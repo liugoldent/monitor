@@ -13,6 +13,7 @@ foreach ($nativeScript in @('capital-h3-service.ps1', 'kgi-h3-service.ps1')) {
 }
 $services = @(
     'h3-signal-router',
+    'h2-signal-router',
     'telegram-signal-relay',
     'monitor-mxf',
     'webhook-server',
@@ -22,6 +23,7 @@ $services = @(
     'h3-flatten-reentry-strategy',
     'h3-profit-protection-strategy',
     'h3-shane-use',
+    'api-key3-follow',
     'ef-hysteresis-total-breakout-strategy',
     'cloudflared'
 )
@@ -35,7 +37,7 @@ try {
 } finally {
     Pop-Location
 }
-Write-Host 'Docker services stopped, including API_KEY, API_KEY2, and Shane. Existing positions are unchanged.' -ForegroundColor Green
+Write-Host 'Docker services stopped, including API_KEY, API_KEY2, API_KEY3, and Shane. Existing positions are unchanged.' -ForegroundColor Green
 if ($nativeErrors.Count) {
     throw ("Docker services stopped, but local service shutdown needs review: " + ($nativeErrors -join '; '))
 }

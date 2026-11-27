@@ -18,7 +18,7 @@ DISCORD_MXF_VALUE_WEBHOOK_ENV = "DISCORD_MXF_VALUE_WEBHOOK_URL"
 LAST_ALERT_STATE: str | None = None
 LAST_ALIVE_SENT_SLOT: tuple[str, int] | None = None
 H_TRADE_CSV_PATH = Path(__file__).resolve().parent / "tv_doc" / "h_trade.csv"
-H2_ENTRY_PATH = H_TRADE_CSV_PATH.with_name("h2_entry.json")
+H2_TRADE_CSV_PATH = H_TRADE_CSV_PATH.with_name("h2_trade.csv")
 WEBHOOK_DATA_1MIN_PATH = Path(__file__).resolve().parent / "tv_doc" / "webhook_data_1min.csv"
 H3_SIGNAL_PATH = Path(__file__).resolve().parent / "telegram-relay-records" / "h3_signal_events.jsonl"
 MTX_BVAV_AVG_WINDOW = 23
@@ -412,22 +412,24 @@ def build_h3_pnl_line(close: float | None) -> str:
 def build_h2_pnl_line(close: float | None) -> str:
     prefix = "H2 單口未實現損益："
     try:
-        entry_record = json.loads(H2_ENTRY_PATH.read_text(encoding="utf-8"))
-        direction = {"long": 1, "short": -1, "flat": 0}[entry_record["side"]]
-        if direction == 0:
+        trade = None
+        for row in read_recent_csv_rows(H2_TRADE_CSV_PATH):
+            if row.get("action") in {"enter", "exiting"}:
+                trade = row
+        if trade is None:
+            return prefix + "無交易紀錄"
+        if trade["action"] == "exiting":
             return prefix + "空手"
-        entry = float(entry_record["price"])
-        if not math.isfinite(entry) or entry <= 0:
-            raise ValueError("Invalid H2 entry price")
-    except FileNotFoundError:
-        return prefix + "無進場紀錄"
-    except (OSError, ValueError, TypeError, KeyError):
-        return prefix + "進場紀錄無法讀取"
+        side, direction = {"bull": ("多單", 1), "bear": ("空單", -1)}[trade["side"]]
+        entry = _to_float(trade.get("price"))
+    except (OSError, ValueError, TypeError, KeyError, csv.Error):
+        return prefix + "交易紀錄無法讀取"
 
+    if entry is None or not math.isfinite(entry) or entry <= 0:
+        return prefix + "缺少進場價"
     if close is None:
         return prefix + "缺少收盤價"
     points = (close - entry) * direction if close != entry else 0
-    side = "多單" if direction > 0 else "空單"
     return f"{prefix}{points:+,.2f} 點（{side}，進場 {entry:g}）"
 
 

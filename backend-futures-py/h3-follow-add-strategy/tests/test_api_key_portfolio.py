@@ -13,7 +13,7 @@ import test_configured_unit as fixture
 from h_core import Store, TradingError
 from h_signal import parse_h2_signal
 from net_positions import Positions, read_positions
-from portfolio_runtime import PortfolioEngine
+from portfolio_runtime import FixedPortfolioEngine, PortfolioEngine
 from reconcile import reconcile_filled_order
 from signal_journal import SignalJournal
 from strategy import State
@@ -174,6 +174,44 @@ class PortfolioTests(unittest.TestCase):
         self.assertIsNone(parse_h2_signal(telegram(1, sent=datetime.now(timezone.utc) - timedelta(seconds=31))))
         self.assertIsNone(parse_h2_signal(dict(telegram(1), route='h')))
         self.assertIsNone(parse_h2_signal(dict(telegram(1), event='csv_record')))
+
+    def test_delayed_h2_can_flatten_same_direction_legs_within_grace(self):
+        engine = self.portfolio()
+        with patch.object(engine, 'signal_entry_plan', return_value=(1, '')):
+            engine.on_signal(self.event('1', -1))
+        engine.on_signal(telegram(-1))
+        too_old = telegram(1, 2, sent=datetime.now(timezone.utc) - timedelta(seconds=46))
+        self.assertFalse(engine.on_signal(too_old))
+        delayed = telegram(1, 3, sent=datetime.now(timezone.utc) - timedelta(seconds=32))
+        self.assertTrue(engine.on_signal(delayed))
+        self.assertEqual(self.broker.orders[-1], ('net', 2, 0))
+        self.assertEqual(engine.strategy_positions(), Positions(-1, 1))
+
+    def test_delayed_h2_cannot_increase_or_reverse_net_exposure(self):
+        engine = self.portfolio()
+        delayed = telegram(-1, 2, sent=datetime.now(timezone.utc) - timedelta(seconds=32))
+        self.assertFalse(engine.on_signal(delayed))
+        engine.on_signal(telegram(1))
+        self.assertFalse(engine.on_signal(delayed))
+        self.assertEqual(self.broker.orders, [('net', 1, 1)])
+        self.assertEqual(self.cancelled, ['h2-tg:-20:1'])
+
+    def test_concord_h2_uses_normalized_id_and_net_order(self):
+        engine = FixedPortfolioEngine(self.store, self.broker, 'TMFK6')
+        event = dict(event='received', route='h2', source='h2_dual_source',
+                     signal_key='h2-dual:1', source_kind='concord_sqlite', direction=1,
+                     received_at=datetime.now(timezone.utc).isoformat())
+        self.assertTrue(engine.on_signal(event))
+        self.assertFalse(engine.on_signal(event))
+        self.assertEqual(engine.strategy_positions(), Positions(0, 1))
+        self.assertEqual(self.broker.orders, [('net', 1, 1)])
+        self.assertEqual(self.cancelled, ['h2-dual:1'])
+        with patch('mdd_runtime.wait_for_signal_history', side_effect=AssertionError('history consulted')):
+            self.assertTrue(engine.on_signal(self.event('1', 1)))
+            self.assertEqual(engine.strategy_positions(), Positions(1, 1))
+            self.assertTrue(engine.on_signal(self.event('2', -1)))
+        self.assertEqual(engine.strategy_positions(), Positions(-1, 1))
+        self.assertEqual(self.broker.orders[-2:], [('net', 1, 2), ('net', -2, 0)])
 
     def test_h2_journal_ignores_history_and_waits_for_complete_lines(self):
         path = Path(self.temp.name) / 'journal.jsonl'

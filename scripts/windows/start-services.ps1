@@ -9,6 +9,7 @@ $watchScript = Join-Path $PSScriptRoot 'watch-service.ps1'
 # Capital/KGI native H3 services are paused; this launcher does not start them.
 $services = @(
     'h3-signal-router',
+    'h2-signal-router',
     'telegram-signal-relay',
     'monitor-mxf',
     'webhook-server',
@@ -193,6 +194,13 @@ try {
     $composeArgs += $services
     & docker @composeArgs
     if ($LASTEXITCODE -ne 0) { throw "docker compose failed: $LASTEXITCODE" }
+
+    try {
+        & docker compose --progress plain up --detach --no-build --no-deps api-key3-follow
+        if ($LASTEXITCODE -ne 0) { throw "docker compose exited with $LASTEXITCODE" }
+    } catch {
+        Write-Warning "API_KEY3 startup failed. The other services are still running. $($_.Exception.Message)"
+    }
 } finally {
     Pop-Location
     if ($projectBuilder) {
@@ -214,7 +222,8 @@ $logWindows = @(
     @{ Title = 'Cloudflare Tunnel'; Service = 'cloudflared' },
     @{ Title = 'H3 Follow Add LIVE - API KEY'; Service = 'h3-flatten-reentry-strategy' },
     @{ Title = 'H3 Follow - API KEY2'; Service = 'h3-profit-protection-strategy' },
-    @{ Title = 'H3 Shane - see log for broker mode'; Service = 'h3-shane-use' }
+    @{ Title = 'H3 Shane - see log for broker mode'; Service = 'h3-shane-use' },
+    @{ Title = 'H2 and H3 Follow LIVE - API_KEY3'; Service = 'api-key3-follow' }
 )
 $terminal = Get-Command wt.exe -ErrorAction SilentlyContinue
 foreach ($item in $logWindows) {
@@ -255,4 +264,4 @@ foreach ($item in $logWindows) {
     Start-Sleep -Milliseconds 300
 }
 
-Write-Host "$($services.Count) Docker services launched, including API_KEY, API_KEY2, and Shane. See each strategy log for broker mode. Docker services keep running after log tabs close." -ForegroundColor Green
+Write-Host 'Main Docker services launched. See the separate API_KEY3 log for its status. Docker services keep running after log tabs close.' -ForegroundColor Green

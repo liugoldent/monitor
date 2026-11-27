@@ -35,7 +35,7 @@ class InventoryReporter:
                 detail = f'H3 {positions.h3:+d} 口｜H2 {positions.h2:+d} 口｜'
             else:
                 match = '一致' if actual == expected else '不一致；等待新H3訊號按實際庫存全平再進場'
-            message = (f'✅【API_KEY｜H3跟單加碼｜{label}】\n'
+            message = (f'✅【API_KEY｜H3／H2 跟單｜{label}】\n'
                        f'時間：{now:%Y-%m-%d %H:%M:%S}（台北）\n'
                        f'券商策略月份微台部位：{position_text(actual)}\n'
                        f'{detail}帳戶淨部位：{position_text(expected)}\n'
@@ -43,7 +43,7 @@ class InventoryReporter:
         except Exception as exc:
             # Broker exception text may contain credentials or personal data.
             snapshot.update(status='failed', error=type(exc).__name__)
-            message = (f'🚨【API_KEY｜H3跟單加碼｜{label}失敗】\n'
+            message = (f'🚨【API_KEY｜H3／H2 跟單｜{label}失敗】\n'
                        f'時間：{now:%Y-%m-%d %H:%M:%S}（台北）\n'
                        f'錯誤：{type(exc).__name__}；請人工核對庫存。僅查詢，未送單。')
         self.store.audit('h3_inventory_report', snapshot)

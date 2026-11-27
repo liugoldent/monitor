@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import requests
 from telethon import TelegramClient, events
 
+from h2_trade_history import replay_h2_signals
 from h_signal import h2_direction, is_h_signal, parse_h_direction, parse_h_event_direction
 from h_signal import normalize_h_record_message as _normalize_h_record_message
 
@@ -42,6 +43,7 @@ CONSULTANT_SIGNAL_CHECKPOINT_PATH = RECORDS_DIR / "consultant_signal_log_checkpo
 TV_DOC_DIR = BASE_DIR / "tv_doc"
 EF_SIGNAL_LOG_PATH = TV_DOC_DIR / "six_strategy_signal_events.csv"
 H_TRADE_LOG_PATH = TV_DOC_DIR / "h_trade.csv"
+H2_TRADE_LOG_PATH = TV_DOC_DIR / "h2_trade.csv"
 WEBHOOK_DATA_1MIN_PATH = TV_DOC_DIR / "webhook_data_1min.csv"
 MXF_VALUE_CSV_PATH = TV_DOC_DIR / "mxf_value.csv"
 H_POSITION_EVENT_PATH = RECORDS_DIR / "h_position_events.csv"
@@ -134,7 +136,7 @@ def require_env(name: str) -> str:
 
 def classify_signal(text: str) -> str | None:
     """Return the relay route for recognized signal messages."""
-    if h2_direction(text) is not None:
+    if h2_direction(text, allow_flat=True) is not None:
         return "h2"
     if is_h_signal(text):
         return "h"
@@ -699,13 +701,12 @@ def build_h3_strategy_notice(direction: int, *, new_transition: bool = True) -> 
         raise ValueError('H3 direction is invalid')
     label = '多' if direction == 1 else '空'
     status = (f'收到H3{label}向訊號。' if new_transition else
-              f'收到H3同向或重複訊號（{label}）；不因此增加口數或重置本輪加碼紀錄。')
+              f'收到 H3 同向或重複訊號（{label}）。')
     return (
-        '【H3 MDD加口｜訊號接收】\n'
+        '【H3｜訊號接收】\n'
         f'狀態：{status}\n'
-        '進出場：新H3先全平，再依H3訊號源已平倉累計回撤決定進場口數；空手訊號全平。\n'
-        '本通知只表示接收訊號，不代表交易服務已啟動、已成交或已符合加碼條件；'
-        '實際執行以API_KEY策略成交及庫存核對通知為準。'
+        'API_KEY 的 H3 目標為 1 口，與 H2 合併後按淨部位送差額。API_KEY2 跟隨 H3，進場固定 1 口。\n'
+        '實際執行以各帳戶的成交及庫存核對通知為準。'
     )
 
 
@@ -767,6 +768,20 @@ async def relay_to_discord(base_record: dict[str, Any], content: str) -> None:
 
 SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
 client = TelegramClient(str(SESSION_PATH), API_ID, API_HASH)
+h2_history_lock = asyncio.Lock()
+
+
+async def sync_h2_history() -> None:
+    async with h2_history_lock:
+        try:
+            added = await asyncio.to_thread(
+                replay_h2_signals, H2_TRADE_LOG_PATH, EVENT_LOG_PATH, WEBHOOK_DATA_1MIN_PATH
+            )
+        except (OSError, ValueError, csv.Error) as exc:
+            print(f"H2 CSV 更新失敗: {exc}")
+        else:
+            if added:
+                print(f"H2 CSV 新增 {added} 筆進出場紀錄")
 
 
 @client.on(events.NewMessage)
@@ -776,8 +791,8 @@ async def telegram_message_handler(event) -> None:
     if route is None:
         return
 
-    sender = await event.get_sender()
     received_at = datetime.now(TZ)
+    sender = await event.get_sender()
     base_record = {
         "received_at": received_at.isoformat(timespec="microseconds" if route == "h2" else "seconds"),
         "telegram_message_at": event.date.isoformat() if event.date else None,
@@ -792,8 +807,12 @@ async def telegram_message_handler(event) -> None:
     print(f"收到 Telegram {route.upper()} 訊號: {event.chat_id}:{event.id}")
 
     if route == "h2":
-        # The API_KEY executor checks sender, original message age and deduplication.
-        await relay_to_discord(base_record, text)
+        if event.date:
+            arrival_age = (received_at - event.date).total_seconds()
+            relay_delay = (datetime.now(TZ) - received_at).total_seconds()
+            print(f"H2 訊息 #{event.id} 抵達已過 {arrival_age:.2f} 秒，轉送服務寫入耗時 {relay_delay:.2f} 秒",
+                  flush=True)
+        await asyncio.gather(sync_h2_history(), relay_to_discord(base_record, text))
         return
 
     h_new_transition = False
@@ -835,11 +854,11 @@ async def telegram_message_handler(event) -> None:
                     new_transition=h_new_transition,
                 )
                 if recorded and parse_h_event_direction({**base_record, "event": "received"}) is not None
-                else "【H3游擊策略｜訊號待核對】本次訊號記錄或來源待核對；僅轉送原文，不代表已成交或符合加碼條件。"
+                else "【H3｜訊號待核對】本次訊號記錄或來源待核對，僅轉送原文。"
             )
         except Exception:
             # Keep delivering the original signal even if the observer fails.
-            observation = "【H3游擊策略｜通知待核對】附註產生失敗；僅轉送原文，不代表已成交或符合加碼條件。"
+            observation = "【H3｜通知待核對】附註產生失敗，僅轉送原文。"
         discord_content = f"{text}\n\n{observation}"
     await relay_to_discord(base_record, discord_content)
 
@@ -849,14 +868,16 @@ async def relay_main() -> None:
     print(f"記錄檔: {EVENT_LOG_PATH}")
     print(f"EF CSV: {EF_SIGNAL_LOG_PATH}")
     print(f"H CSV: {H_TRADE_LOG_PATH}")
+    print(f"H2 CSV: {H2_TRADE_LOG_PATH}")
     print(f"H position events: {H_POSITION_EVENT_PATH}")
     print(f"EF position events: {EF_POSITION_EVENT_PATH}")
     print(f"本機 Signal.log: {CONSULTANT_SIGNAL_LOG_PATH}")
     print(f"H -> {H_WEBHOOK_ENV}; EF -> {EF_WEBHOOK_ENV}")
     print("策略計算與券商下單：停用")
-    startup_notifications_sent = False
+    startup_notifications_sent = os.getenv("TELEGRAM_RELAY_SKIP_STARTUP_NOTICE") == "1"
     watcher = asyncio.create_task(monitor_consultant_signal_log())
     try:
+        await sync_h2_history()
         while True:
             try:
                 await client.start()

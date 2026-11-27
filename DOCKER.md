@@ -14,7 +14,7 @@ scripts/run-services-docker.sh
 
 ## 啟動
 
-### 數據記錄＋API_KEY H3 游擊策略（預設）
+### 數據記錄＋API_KEY H2／H3 固定口數策略（預設）
 
 在 repo 根目錄執行：
 
@@ -34,11 +34,9 @@ Windows 也可直接執行：
 run-windows-services.cmd
 ```
 
-它會開啟 `Telegram H-EF Relay`、`MXF Market Monitor`、`Webhook Server`、
-`Cloudflare Tunnel`、`H3 Follow Add LIVE - API KEY`、`H3 Follow - API KEY2`，以及 `H3 Concord + Telegram Signals` 共 7 個日誌頁籤。
-Windows 一鍵啟動會停止 API_KEY2 的舊 H3 跟單服務 `h3-profit-protection-strategy`。
-`h3-shane-use` 屬於 `h3-shane` profile。Windows 一鍵啟動會啟用此 profile。規則與操作見 [Shane H3 跟單](backend-futures-py/h3-shane-use/README.md)。
-雙擊 `stop-windows-services.cmd` 會停止兩個永豐策略及共用 Docker 服務，不自動平倉或撤單。
+Windows 一鍵啟動會開啟 9 個主服務與交易日誌頁籤，包含 API_KEY、API_KEY2、Shane 和 API_KEY3。API_KEY3 由獨立的 `api-key3-follow` 容器啟動，啟動或下單錯誤只在該服務處理。規則和設定見 [API_KEY3 條件跟單](backend-futures-py/h3-follow-add-strategy/API_KEY3.md)。
+Windows 會啟用 `h3-protection` 和 `h3-shane` profiles。Shane 規則見 [Shane H3 跟單](backend-futures-py/h3-shane-use/README.md)。
+雙擊 `stop-windows-services.cmd` 會停止這些永豐策略及共用 Docker 服務，保留現有委託與部位。
 群益、凱基原生 H3 及 EF 系列都不自動啟動。
 
 看 log：
@@ -53,7 +51,7 @@ docker compose logs -f telegram-signal-relay
 docker compose down
 ```
 
-一般 Compose 預設啟動以下服務及 `h3-signal-router`（共6個）；Windows 一鍵啟動另啟用 Shane H3 跟單，共 7 個服務。康和本機優先與 TG 備援詳見 [雙來源說明](docs/h3-dual-source-signals.md)。
+一般 Compose 預設啟動以下 7 個服務。康和本機優先與 TG 備援詳見 [雙來源說明](docs/h3-dual-source-signals.md)。
 
 | 服務 | 用途 |
 | --- | --- |
@@ -62,7 +60,8 @@ docker compose down
 | `monitor-mxf` | MXF 籌碼與股威游擊監控、資料記錄 |
 | `webhook-server` | 接收並保存 TradingView K 棒 |
 | `cloudflared` | 維持 TradingView webhook 對外連線 |
-| `h3-flatten-reentry-strategy` | API_KEY／SECRET_KEY 正式帳戶，H3 浮盈500點＋游擊穿越加碼 |
+| `h3-flatten-reentry-strategy` | API_KEY／SECRET_KEY 正式帳戶，H2、H3 各固定 1 口，按淨部位下單 |
+| `api-key3-follow` | API_KEY3 正式帳戶，H2／H3 條件跟單，Discord 通知使用 `DISCORD_INCREASE_INVESTMENT` |
 
 EF Again、純 EF 移至 `ef-simulation` profile；舊 Hysteresis 與 TOTAL Breakout 保留在
 `shadow` profile，全部預設不啟動。EF 有券商連線的策略均為 `simulation=True`。

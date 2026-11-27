@@ -1,4 +1,4 @@
-"""H3 source-based entry sizing with separate broker-fill accounting."""
+"""Fixed-quantity H3 following with separate broker-fill accounting."""
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
@@ -7,8 +7,6 @@ import protection_bootstrap
 from h_core import TradingError
 from h3_signal_retry import signal_retry_used, signal_step
 from runtime import Engine as BaseEngine, LedgerError, RolloverPause, signal
-from mdd_runtime import read_history, wait_for_signal_history
-from mdd_sizing import H3_TRADE_HISTORY, TAIPEI
 from follow_state import FollowState as State
 from protection_policy import Protection
 from protection_policy import number
@@ -17,8 +15,6 @@ from recovery_sizing import RecoverySizing
 
 class ProtectionEngine(BaseEngine):
     state_type = State
-    history_path = H3_TRADE_HISTORY
-    history_start = datetime(2026, 11, 18, 14, 24, 50, tzinfo=TAIPEI)
 
     def __init__(self, store, broker, symbol, notify=lambda message: None):
         # Reuse established concrete-contract ledger shape for rollover/broker.
@@ -37,7 +33,7 @@ class ProtectionEngine(BaseEngine):
                              '(id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)')
             if store.db.execute('SELECT 1 FROM h3_profit_sizing').fetchone() is None:
                 if existed or store.pending():
-                    raise LedgerError('連輸加口帳本缺漏或有未確認委託，不自動重設')
+                    raise LedgerError('成交損益帳本缺漏或有未確認委託，不自動重設')
                 self.save_sizing(RecoverySizing())
                 self.audit_in_transaction('sizing_initialized', dict(
                     basis='new closed-H3-round ledger; no historical backfill',
@@ -49,17 +45,12 @@ class ProtectionEngine(BaseEngine):
             row = self.store.db.execute('SELECT payload FROM h3_profit_sizing WHERE id=1').fetchone()
             return RecoverySizing.from_payload(json.loads(row[0]))
         except (ValueError, TypeError, KeyError, IndexError) as exc:
-            raise LedgerError('永豐2連輸加口帳本無效，停止送單並保留原始狀態') from exc
+            raise LedgerError('永豐2成交損益帳本無效，停止送單並保留原始狀態') from exc
 
     def save_sizing(self, value):
         value.validate()
         self.store.db.execute('INSERT OR REPLACE INTO h3_profit_sizing VALUES (1,?)',
                               (json.dumps(asdict(value)),))
-
-    def entry_quantity(self, history=None):
-        if history is None:
-            history = read_history(self.history_path, closed_since=self.history_start)
-        return self.broker.unit + history.loss_extra_contracts + int(history.single_loss_triggered)
 
     def on_external_inventory(self, actual):
         self.save_protection(Protection(h3_direction=(1 if actual > 0 else -1) if actual else 0))
@@ -92,28 +83,19 @@ class ProtectionEngine(BaseEngine):
         self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
             (datetime.now(timezone.utc).isoformat(), event, json.dumps(detail, ensure_ascii=False)))
 
-    def order(self, target, phase, key, planned, protection, preflight=None, *, history=None):
+    def order(self, target, phase, key, planned, protection, preflight=None):
         signal_step(self.broker, phase + '_inventory', self.validate_position)
         old_state = self.state()
         previous = old_state.expected
         sizing = self.sizing()
         old_protection = self.protection()
-        if phase == 'entry':
-            self.broker.entry_quantity = self.entry_quantity(history)
         if not self.broker.valid_transition(previous, target-previous, phase, target):
-            raise TradingError('永豐2委託口數與進場級距或全平庫存不符')
+            raise TradingError('永豐2委託口數與固定進場口數或全平庫存不符')
         protection.validate()
         payload = dict(trigger=key, phase=phase, previous=previous, target=target,
             side='buy' if target > previous else 'sell', quantity=abs(target-previous),
             reason='H3', planned_state=asdict(planned), planned_protection=asdict(protection))
         payload['sizing_before'] = asdict(sizing)
-        if phase == 'entry':
-            payload['h3_source'] = dict(win_streak=history.win_streak, loss_streak=history.loss_streak,
-                                       drawdown=str(history.sizing.drawdown),
-                                       loss_extra_contracts=history.loss_extra_contracts,
-                                       single_loss_triggered=history.single_loss_triggered,
-                                       single_loss_count=history.single_loss_count,
-                                       extra_contracts=self.broker.entry_quantity - self.broker.unit)
         # Check before creating the durable intent AND again at the broker gate.
         if preflight:
             preflight()
@@ -157,10 +139,6 @@ class ProtectionEngine(BaseEngine):
                 confirmed_price=str(price)))
         label = f'跟隨H3進場{abs(target)}口' if phase == 'entry' else '跟隨H3全平'
         message = f'【永豐2｜H3跟單】{label}：{previous:+d} → {target:+d}口，成交與庫存已確認。'
-        if phase == 'entry':
-            message += (f'H3 訊號源目前{history.streak_text}，回撤 {history.sizing.drawdown:f} 點，'
-                        f'連輸加 {history.loss_extra_contracts} 口，'
-                        f'單筆大虧加 {int(history.single_loss_triggered)} 口。')
         self.notify(message)
 
     def on_signal(self, event, *, now=None):
@@ -189,14 +167,8 @@ class ProtectionEngine(BaseEngine):
             if self.state().expected:
                 self.order(0, 'flatten', key, State(round_key=key), next_protection, preflight)
             if direction:
-                history = wait_for_signal_history(self.history_path, event, direction,
-                                                  closed_since=self.history_start)
-                if history is None:
-                    self.notify('【永豐2｜H3跟單】H3 歷史未在訊號有效期間同步，本筆跳過進場。')
-                    return True
-                quantity = self.entry_quantity(history)
-                self.order(direction*quantity, 'entry', key, State(round_key=key), next_protection,
-                           preflight, history=history)
+                self.order(direction * self.broker.unit, 'entry', key, State(round_key=key),
+                           next_protection, preflight)
             else:
                 with self.store.db:
                     self.save(State(round_key=key))
