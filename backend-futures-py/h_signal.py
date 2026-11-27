@@ -73,14 +73,15 @@ def parse_h2_signal(event, now=None, *, allow_flat=False, max_message_age=30):
     return key, direction, received.timestamp()
 
 
-def parse_h2_dual_signal(event, now=None, *, max_message_age=30):
+def parse_h2_dual_signal(event, now=None, *, allow_flat=False, max_message_age=30):
     """Read a normalized H2 signal without refreshing its upstream timestamps."""
     if (not isinstance(event, dict) or event.get('event') != 'received'
             or event.get('route') != 'h2' or event.get('source') != 'h2_dual_source'):
         return None
     key, direction = event.get('signal_key'), event.get('direction')
+    directions = (-1, 0, 1) if allow_flat else (-1, 1)
     if (not isinstance(key, str) or not re.fullmatch(r'h2-dual:[1-9]\d*', key)
-            or type(direction) is not int or direction not in (-1, 1)):
+            or type(direction) is not int or direction not in directions):
         return None
     try:
         sent = datetime.fromisoformat(event['received_at'])

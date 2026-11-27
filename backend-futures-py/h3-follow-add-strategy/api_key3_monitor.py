@@ -28,7 +28,7 @@ import shioaji_tmf_target as shared
 
 RUNTIME = BASE / 'runtime/api_key3'
 RECORDS = BASE / 'records/api_key3'
-SOURCE_H2 = BACKEND / 'telegram-relay-records/telegram_signal_events.jsonl'
+SOURCE_H2 = BACKEND / 'telegram-relay-records/h2_signal_events.jsonl'
 SOURCE_H3 = BACKEND / 'telegram-relay-records/h3_signal_events.jsonl'
 HISTORY_H3 = BACKEND / 'tv_doc/h_trade.csv'
 MARKET = BACKEND / 'tv_doc/webhook_data_1min.csv'

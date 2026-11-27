@@ -120,6 +120,29 @@ class ConditionalTests(unittest.TestCase):
             self.assertEqual(engine.strategy_positions(), Positions(h2=1 if i == 4 else 0))
         self.assertEqual(self.broker.orders, [(1, 1)])
 
+    def test_dual_h2_concord_entry_and_telegram_flat_use_original_times(self):
+        h2 = Curve(equity='-500', losses=4, longest_streak=4, direction=1, entry='20000',
+                   closed=10, at=START.timestamp()-120)
+        engine = self.engine(h2=h2)
+        first = START + timedelta(seconds=1)
+        self.prices[first.timestamp()] = Decimal('19900')
+        entry = dict(event='received', route='h2', source='h2_dual_source',
+                     source_kind='concord_sqlite', signal_key='h2-dual:1',
+                     direction=-1, received_at=first.isoformat())
+        self.assertTrue(engine.on_signal(entry, now=first))
+        self.assertFalse(engine.on_signal(entry, now=first))
+        self.assertEqual(engine.strategy_positions(), Positions(h2=-1))
+
+        second = first + timedelta(seconds=1)
+        self.prices[second.timestamp()] = Decimal('19800')
+        received = second + timedelta(seconds=12)
+        exit_signal = dict(entry, source_kind='telegram', signal_key='h2-dual:2', direction=0,
+                           received_at=second.isoformat(), relay_received_at=received.isoformat())
+        self.assertTrue(engine.on_signal(exit_signal, now=received))
+        self.assertEqual(engine.curves()['h2'].at, second.timestamp())
+        self.assertEqual(engine.strategy_positions(), Positions())
+        self.assertEqual(self.broker.orders, [(-1, -1), (1, 0)])
+
     def test_replay_rebuilds_curve_without_opening_and_restart_loads_state(self):
         engine = self.engine()
         self.emit(engine, 'h3', -1, -10, 19000, age=60)

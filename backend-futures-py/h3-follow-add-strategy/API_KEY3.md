@@ -13,7 +13,7 @@
 ## 歷史和啟動
 
 - H2 從 TradingView 逐筆匯出回溯，讀取配對進出場及最後未平倉輪次。預設尋找 `runtime/api_key3/h2.csv`，其次使用者的 `Downloads/h2.csv`。可用 `--h2-history` 或 `API_KEY3_H2_HISTORY` 指定位置。
-- H3 從既有 `../tv_doc/h_trade.csv` 第一筆回溯，用進出場價換算單口毛損益。接續階段，H2 讀取可信 Telegram 訊號，H3 讀取已驗證的雙訊號來源。虛擬成交取訊號當時已收到的 `MXF1!` 一分鐘 `Close`，K 棒時間距訊號最多 120 秒。此價格用於策略曲線，實際交易仍走永豐市價委託。
+- H3 從既有 `../tv_doc/h_trade.csv` 第一筆回溯，用進出場價換算單口毛損益。接續階段，H2 和 H3 都由共用訊號服務優先讀取 Concords 本機，可信 Telegram 作為備援。虛擬成交取訊號當時已收到的 `MXF1!` 一分鐘 `Close`，K 棒時間距訊號最多 120 秒。此價格用於策略曲線，實際交易走永豐市價委託。
 - 首次啟動沿用歷史尚未回前高的條件，等新訊號進場。重啟使用 `runtime/api_key3/api_key3.sqlite`。停機期間的訊號仍補入虛擬曲線，歷史確認的解除事件可退出帳本中的舊部位。進場須通過 30 秒時效。
 - H2 匯出應涵蓋至即時訊號可接續的位置。若中間有交易缺漏，請用較新的 H2 匯出補齊歷史。
 - 登入讀取 `../.env` 的 `API_KEY3`、`SECRET_KEY3`、`PERSON_ID3`。憑證依序使用 `CA_PATH3`、`CA_PATH` 或 `../Sinopac.pfx`。`API_KEY3_ACCOUNT_ID` 必須填第三帳號的永豐期貨帳號，以便核對券商回傳的帳戶。首次連線會把證券商及期貨帳號綁定專用帳本。通知使用同一份 `.env` 的 `DISCORD_INCREASE_INVESTMENT`。

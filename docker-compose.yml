@@ -291,6 +291,8 @@ services:
       PYTHONUNBUFFERED: "1"
       CA_PATH: /app/backend-futures-py/Sinopac.pfx
     depends_on:
+      h2-signal-router:
+        condition: service_healthy
       h3-signal-router:
         condition: service_healthy
       telegram-signal-relay:

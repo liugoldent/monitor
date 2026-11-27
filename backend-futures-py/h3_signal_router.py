@@ -94,7 +94,7 @@ def tg_signal(event):
 
 
 def h2_tg_signal(event):
-    receipt = parse_h2_receipt(event)
+    receipt = parse_h2_receipt(event, allow_flat=True)
     if receipt is None:
         return None
     _, direction, received, sent = receipt
@@ -236,7 +236,7 @@ class Router:
                 self.db.execute('DELETE FROM local_seen')
             for row in rows:
                 candidate = local_signal(row, name=self.name, action_pattern=self.action_pattern)
-                if candidate is None or (self.strategy == 'h2' and candidate['direction'] == 0):
+                if candidate is None:
                     continue
                 self.db.execute('INSERT OR IGNORE INTO local_seen VALUES (?,?,?)',
                     (row[0], candidate['direction'], stamp(candidate['at']).timestamp()))

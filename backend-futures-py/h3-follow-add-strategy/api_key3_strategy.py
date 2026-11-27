@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import json
 
 from api_key3_history import Curve, stamp
-from h_signal import parse_h2_signal
+from h_signal import parse_h2_dual_signal, parse_h2_signal
 from h3_signal_retry import signal_step
 from net_positions import commit_api_key3_signal
 from portfolio_runtime import PortfolioEngine
@@ -12,6 +12,8 @@ from runtime import LedgerError, RolloverPause, signal
 
 
 def h2_signal(event, now=None):
+    if isinstance(event, dict) and event.get('source') == 'h2_dual_source':
+        return parse_h2_dual_signal(event, now=now, allow_flat=True)
     return parse_h2_signal(event, now=now, allow_flat=True)
 
 
@@ -67,7 +69,10 @@ class ConditionalPortfolio(PortfolioEngine):
         source = 'h2' if event.get('route') == 'h2' else 'h3'
         parser = h2_signal if source == 'h2' else signal
         try:
-            reported = stamp(event['received_at'])
+            if source == 'h2' and event.get('source') == 'h2_dual_source' and event.get('source_kind') == 'telegram':
+                reported = stamp(event['relay_received_at'])
+            else:
+                reported = stamp(event['received_at'])
         except (KeyError, TypeError, ValueError):
             return False
         if reported > clock.timestamp():
