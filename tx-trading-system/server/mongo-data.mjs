@@ -6,6 +6,7 @@ import { joinRows, normalizeRecords } from './data.mjs';
 import { summarizeStrategyRows } from './strategies.mjs';
 import { latestTradePosition, tradeChartEvent } from './chart-signals.mjs';
 import { availableCandleEntry, floatingPoints, latestOpenEvent, priceNumber } from './position-points.mjs';
+import { publicStrategyCutoff, publicTradeFilter } from './public-delay.mjs';
 
 let client;
 let datesCache;
@@ -26,8 +27,8 @@ async function db() {
   return client.db(database);
 }
 
-async function loadLatestHPositions(databaseHandle) {
-  const latestTrade = name => databaseHandle.collection(name).find({}, {
+async function loadLatestHPositions(databaseHandle, cutoff) {
+  const latestTrade = name => databaseHandle.collection(name).find(publicTradeFilter(cutoff), {
     projection: { _id: 0, timestamp: 1, action: 1, side: 1, price: 1 },
   }).sort({ timestamp: -1, action: 1 }).limit(1).toArray();
   const [latestH2, latestH3] = await Promise.all([latestTrade('h2_trades'), latestTrade('h_trades')]);
@@ -77,9 +78,9 @@ export async function loadMongoMarket(requestedDate, history = false) {
 export async function loadMongoStrategies() {
   const databaseHandle = await db();
   const candles = databaseHandle.collection('candles_1m');
-  const [rows, hPositions, latestCandles] = await Promise.all([
+  const [rows, publicH, latestCandles] = await Promise.all([
     databaseHandle.collection('strategy_signals').find({}, { projection: { _id: 0 } }).sort({ source_order: 1 }).toArray(),
-    loadLatestHPositions(databaseHandle),
+    loadMongoDelayedHData(),
     candles.find({ Symbol: 'MXF1!' }, { projection: { _id: 0, 'TradingView Time': 1, Close: 1 } })
       .sort({ date: -1, 'TradingView Time': -1 }).limit(5).toArray(),
   ]);
@@ -100,10 +101,25 @@ export async function loadMongoStrategies() {
       floatingPoints: floatingPoints(strategy.position, entry?.price, market?.close),
     };
   }));
+  return { ...result, strategies, hPositions: publicH.hPositions, delayedUntil: publicH.delayedUntil,
+    hMarket: publicH.market, market, refreshedAt: new Date().toISOString() };
+}
+
+async function loadMongoDelayedHData() {
+  const databaseHandle = await db();
+  const delayedUntil = publicStrategyCutoff();
+  const [hPositions, latestCandle] = await Promise.all([
+    loadLatestHPositions(databaseHandle, delayedUntil),
+    databaseHandle.collection('candles_1m').find({ Symbol: 'MXF1!', date: { $lte: delayedUntil.slice(0, 10) }, 'TradingView Time': { $lte: delayedUntil } }, {
+      projection: { _id: 0, 'TradingView Time': 1, Close: 1 },
+    }).sort({ date: -1, 'TradingView Time': -1 }).limit(5).toArray(),
+  ]);
+  const candle = latestCandle.find(row => priceNumber(row.Close) !== null);
+  const market = candle ? { close: priceNumber(candle.Close), time: candle['TradingView Time'] } : null;
   const pricedHPositions = Object.fromEntries(Object.entries(hPositions).map(([code, position]) => [code, {
     ...position, floatingPoints: floatingPoints(position.position, position.entryPrice, market?.close),
   }]));
-  return { ...result, strategies, hPositions: pricedHPositions, market, refreshedAt: new Date().toISOString() };
+  return { delayedUntil, hPositions: pricedHPositions, market };
 }
 
 export async function loadMongoChartSignals(date, from = date) {
@@ -113,7 +129,8 @@ export async function loadMongoChartSignals(date, from = date) {
     throw new RangeError('查詢區間不得超過 45 天');
   }
   const databaseHandle = await db();
-  const dateRange = { date: { $gte: from, $lte: date } };
+  const delayedUntil = publicStrategyCutoff();
+  const dateRange = publicTradeFilter(delayedUntil, from, date);
   const [h2Trades, h3Trades, positions] = await Promise.all([
     databaseHandle.collection('h2_trades').find(dateRange, {
       projection: { _id: 0, timestamp: 1, action: 1, side: 1 },
@@ -121,14 +138,14 @@ export async function loadMongoChartSignals(date, from = date) {
     databaseHandle.collection('h_trades').find(dateRange, {
       projection: { _id: 0, timestamp: 1, action: 1, side: 1 },
     }).toArray(),
-    loadLatestHPositions(databaseHandle),
+    loadLatestHPositions(databaseHandle, delayedUntil),
   ]);
   const signals = [
     ...h2Trades.map(row => tradeChartEvent(row, 'h2')),
     ...h3Trades.map(row => tradeChartEvent(row, 'h3')),
   ].filter(Boolean);
   return {
-    date, from, signals,
+    date, from, signals, delayedUntil,
     positions,
     refreshedAt: new Date().toISOString(),
   };

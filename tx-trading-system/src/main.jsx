@@ -5,7 +5,6 @@ import { Activity, ArrowDownRight, ArrowUpRight, CalendarDays, ChartCandlestick,
 import { createChart, createSeriesMarkers, CandlestickSeries, HistogramSeries, LineSeries, ColorType } from 'lightweight-charts';
 import './styles.css';
 import LoadingState from './LoadingState.jsx';
-import StrategyUnlock from './StrategyUnlock.jsx';
 import { isAtLatest, reconcileRange } from './chart-range.mjs';
 import { buildStrategyMarkers } from './strategy-markers.mjs';
 import { relativeTime } from './relative-time.mjs';
@@ -141,16 +140,10 @@ function App() {
   const [date, setDate] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [marketLocked, setMarketLocked] = useState(false);
-  const [marketAccessError, setMarketAccessError] = useState('');
-  const [marketAuthEpoch, setMarketAuthEpoch] = useState(0);
   const [auto, setAuto] = useState(true);
   const [visible, setVisible] = useState(Object.fromEntries([...chartPriceLines, ...chipLines].map(([key]) => [key, true])));
   const [showStrategyMarkers, setShowStrategyMarkers] = useState(true);
-  const [strategySignals, setStrategySignals] = useState({ date: '', from: '', rows: [], positions: null });
-  const [strategyLocked, setStrategyLocked] = useState(false);
-  const [strategyAccessError, setStrategyAccessError] = useState('');
-  const [strategyAuthEpoch, setStrategyAuthEpoch] = useState(0);
+  const [strategySignals, setStrategySignals] = useState({ date: '', from: '', rows: [], positions: null, delayedUntil: '' });
   const [hover, setHover] = useState(null);
   const [scope, setScope] = useState(null);
   const [following, setFollowing] = useState(true);
@@ -158,14 +151,6 @@ function App() {
   const chartRef = useRef(null);
   const board = useRef(null);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
-  useEffect(() => {
-    const unlock = () => {
-      setMarketLocked(false); setMarketAccessError(''); setMarketAuthEpoch(value => value + 1);
-      setStrategyLocked(false); setStrategyAccessError(''); setStrategyAuthEpoch(value => value + 1);
-    };
-    window.addEventListener('strategy-unlocked', unlock);
-    return () => window.removeEventListener('strategy-unlocked', unlock);
-  }, []);
   const requestId = useRef(0);
   const reload = useCallback(async (signal) => {
     const id = ++requestId.current;
@@ -173,23 +158,15 @@ function App() {
     try {
       const response = await fetch(`/api/market${date ? `?date=${date}` : ''}`, { signal });
       const result = await response.json();
-      if (response.status === 401 || response.status === 503) {
-        if (id === requestId.current) {
-          setData(null); setMarketLocked(true);
-          setMarketAccessError(response.status === 503 ? result.error : '');
-          setError('');
-        }
-        return;
-      }
       if (!response.ok) throw new Error(result.error);
-      if (id === requestId.current) { setData(result); setMarketLocked(false); setError(''); setHover(null); }
+      if (id === requestId.current) { setData(result); setError(''); setHover(null); }
     } catch (e) { if (e.name !== 'AbortError' && id === requestId.current) setError(e.message); }
     finally { if (id === requestId.current) setLoading(false); }
   }, [date]);
-  useEffect(() => { if (isStrategyPage || marketLocked) return; const controller = new AbortController(); reload(controller.signal); return () => controller.abort(); }, [reload, isStrategyPage, marketLocked, marketAuthEpoch]);
-  useEffect(() => { if (!auto || isStrategyPage || marketLocked) return; const timer = setInterval(() => reload(), 30000); return () => clearInterval(timer); }, [auto, reload, isStrategyPage, marketLocked]);
+  useEffect(() => { if (isStrategyPage) return; const controller = new AbortController(); reload(controller.signal); return () => controller.abort(); }, [reload, isStrategyPage]);
+  useEffect(() => { if (!auto || isStrategyPage) return; const timer = setInterval(() => reload(), 30000); return () => clearInterval(timer); }, [auto, reload, isStrategyPage]);
   const currentData = data && (!date || date === data.date) ? data : null;
-  const initialLoading = !isStrategyPage && !marketLocked && loading && !currentData;
+  const initialLoading = !isStrategyPage && loading && !currentData;
   useEffect(() => {
     if (!isChartPage || !currentData?.date) return;
     const controller = new AbortController();
@@ -215,29 +192,20 @@ function App() {
   const chartDate = date || currentData?.date;
   const chartStartDate = chartData?.rows[0]?.localTime.slice(0, 10) || chartDate;
   useEffect(() => {
-    if (isStrategyPage || !chartDate || !chartStartDate) { setStrategySignals({ date: '', from: '', rows: [], positions: null }); return; }
-    if (strategyLocked) return;
+    if (isStrategyPage || !chartDate || !chartStartDate) { setStrategySignals({ date: '', from: '', rows: [], positions: null, delayedUntil: '' }); return; }
     const controller = new AbortController();
     const load = async () => {
       try {
         const response = await fetch(`/api/chart-signals?date=${encodeURIComponent(chartDate)}&from=${encodeURIComponent(chartStartDate)}`, { signal: controller.signal });
-        if (response.status === 401 || response.status === 503) {
-          if (!controller.signal.aborted) {
-            setStrategySignals({ date: '', from: '', rows: [], positions: null });
-            setStrategyAccessError(response.status === 503 ? '策略存取尚未設定' : '');
-            setStrategyLocked(true);
-          }
-          return;
-        }
         if (!response.ok) throw new Error('無法讀取策略點位');
         const result = await response.json();
-        if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: result.signals ?? [], positions: result.positions ?? null });
-      } catch (error) { if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: [], positions: null }); }
+        if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: result.signals ?? [], positions: result.positions ?? null, delayedUntil: result.delayedUntil ?? '' });
+      } catch (error) { if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: [], positions: null, delayedUntil: '' }); }
     };
     load();
     const timer = auto ? setInterval(load, 30000) : null;
     return () => { controller.abort(); if (timer) clearInterval(timer); };
-  }, [chartDate, chartStartDate, auto, isStrategyPage, strategyLocked, strategyAuthEpoch]);
+  }, [chartDate, chartStartDate, auto, isStrategyPage]);
   const strategyMarkers = useMemo(() => showStrategyMarkers && chartData
     ? buildStrategyMarkers(chartData.rows, strategySignals.date === chartDate && strategySignals.from === chartStartDate ? strategySignals.rows : [], {
       long: cssColor('var(--up)'), short: cssColor('var(--down)'), exit: cssColor('var(--secondary)'),
@@ -260,14 +228,12 @@ function App() {
       {!isStrategyPage && <>
       <div className="page-heading"><div><h1>市場總覽</h1><p>小型台指期貨 · Price & Chips</p></div><div className="refresh-area"><span>{data ? `讀取於 ${new Date(data.refreshedAt).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}` : '讀取 MongoDB 中…'}</span><button className={`icon-button ${loading ? 'spinning' : ''}`} title="重新讀取 MongoDB" disabled={loading} onClick={() => reload()}><RefreshCw size={16}/></button></div></div>
       {error && <div className="error" role="alert">{error}<button onClick={() => reload()}>重試</button></div>}
-      {marketLocked && <StrategyUnlock message={marketAccessError} />}
-      {!initialLoading && !marketLocked && <div className="workspace-toolbar"><div className="instrument"><span className="instrument-square">TX</span><div><strong>小型台指期貨</strong><span>MXF1! · 臺灣期貨交易所</span></div><span className="timeframe">1 分 K</span></div><div className="date-tools"><CalendarDays size={16}/><button className="icon-button" title="前一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === data.dates.length - 1} onClick={() => moveDate(1)}><ChevronLeft size={16}/></button><select aria-label="資料日期" value={data?.date ?? ''} onChange={e => setDate(e.target.value)}>{data?.dates.map(d => <option key={d}>{d}</option>)}</select><button className="icon-button" title="後一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === 0} onClick={() => moveDate(-1)}><ChevronRight size={16}/></button><span className="timezone">UTC+8</span></div></div>}
+      {!initialLoading && <div className="workspace-toolbar"><div className="instrument"><span className="instrument-square">TX</span><div><strong>小型台指期貨</strong><span>MXF1! · 臺灣期貨交易所</span></div><span className="timeframe">1 分 K</span></div><div className="date-tools"><CalendarDays size={16}/><button className="icon-button" title="前一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === data.dates.length - 1} onClick={() => moveDate(1)}><ChevronLeft size={16}/></button><select aria-label="資料日期" value={data?.date ?? ''} onChange={e => setDate(e.target.value)}>{data?.dates.map(d => <option key={d}>{d}</option>)}</select><button className="icon-button" title="後一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === 0} onClick={() => moveDate(-1)}><ChevronRight size={16}/></button><span className="timezone">UTC+8</span></div></div>}
       </>}
-      {initialLoading ? <LoadingState label="行情資料載入中…" /> : !isStrategyPage && marketLocked ? null : <Routes><Route path="/chart" element={<>
+      {initialLoading ? <LoadingState label="行情資料載入中…" /> : <Routes><Route path="/chart" element={<>
         <section className="market-summary"><div className="price-block"><span className="label">{date ? '所選日期收盤價' : '最新收盤價'}</span><div className={change >= 0 ? 'up' : 'down'}><strong>{fmt(last?.close)}</strong><span>{change == null ? '—' : change >= 0 ? <ArrowUpRight size={17}/> : <ArrowDownRight size={17}/>} {change == null ? '—' : `${change > 0 ? '+' : ''}${fmt(change)} (${(change / previous.close * 100).toFixed(2)}%)`}</span></div><small>最後 K 線 · {last?.localTime ?? '—'}{last && `（${relativeTime(last.localTime, now)}）`}</small></div><div className="summary-stat"><span>當日最高</span><strong>{candles.length ? fmt(Math.max(...candles.map(r => r.candle.high))) : '—'}</strong></div><div className="summary-stat"><span>當日最低</span><strong>{candles.length ? fmt(Math.min(...candles.map(r => r.candle.low))) : '—'}</strong></div><div className="summary-stat"><span>分鐘對齊</span><strong>{fmt(currentData?.stats.matched)}<small> / {fmt(currentData?.rows.length)}</small></strong></div><div className="summary-stat last-stat"><span>資料狀態</span><strong className="status-text"><span className="status-dot"/>{currentData?.rows.length ? 'MongoDB 已載入' : '等待資料'}</strong><small>非交易所即時報價</small></div></section>
-        {strategyLocked && <StrategyUnlock message={strategyAccessError} />}
         <section className="chart-board" ref={board}>
-          <div className="chart-toolbar"><div className="chart-title"><ChartCandlestick size={16}/><strong>行情圖表</strong><span>1m</span></div><div className="chart-actions"><button className={following && !date ? 'active follow-button' : 'follow-button'} title="回到最新資料並跟隨右端，保留目前縮放比例" onClick={() => { setDate(''); setScope({ value: 'latest' }); }}><ChevronRight size={14}/>{following && !date ? '跟隨最新' : '回到最新'}</button><button className={auto ? 'active auto-button' : 'auto-button'} onClick={() => setAuto(v => !v)}><Radio size={14}/>{auto ? '30 秒自動讀取' : '自動讀取已暫停'}</button><button className={`strategy-markers-button ${showStrategyMarkers ? 'active' : ''}`} aria-pressed={showStrategyMarkers} title="切換 h2／h3 進出場：向上為多、向下為空；依秒級事件時間對齊一分 K 棒" onClick={() => setShowStrategyMarkers(value => !value)}><Layers size={14}/><span>策略點位</span></button><span className="separator"/><button title="顯示全部當日資料" onClick={() => setScope({ value: 'all' })}><Expand size={15}/><span>全覽</span></button><button title="全螢幕" onClick={async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await board.current.requestFullscreen(); } catch { setError('目前瀏覽器不支援全螢幕，請使用圖表全覽。'); } }}><Expand size={15}/></button></div></div>
+          <div className="chart-toolbar"><div className="chart-title"><ChartCandlestick size={16}/><strong>行情圖表</strong><span>1m · H2／H3 延遲 30 分鐘</span></div><div className="chart-actions"><button className={following && !date ? 'active follow-button' : 'follow-button'} title="回到最新資料並跟隨右端，保留目前縮放比例" onClick={() => { setDate(''); setScope({ value: 'latest' }); }}><ChevronRight size={14}/>{following && !date ? '跟隨最新' : '回到最新'}</button><button className={auto ? 'active auto-button' : 'auto-button'} onClick={() => setAuto(v => !v)}><Radio size={14}/>{auto ? '30 秒自動讀取' : '自動讀取已暫停'}</button><button className={`strategy-markers-button ${showStrategyMarkers ? 'active' : ''}`} aria-pressed={showStrategyMarkers} title="切換延遲 30 分鐘的 h2／h3 進出場：向上為多、向下為空；依秒級事件時間對齊一分 K 棒" onClick={() => setShowStrategyMarkers(value => !value)}><Layers size={14}/><span>策略點位</span></button><span className="separator"/><button title="顯示全部當日資料" onClick={() => setScope({ value: 'all' })}><Expand size={15}/><span>全覽</span></button><button title="全螢幕" onClick={async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await board.current.requestFullscreen(); } catch { setError('目前瀏覽器不支援全螢幕，請使用圖表全覽。'); } }}><Expand size={15}/></button></div></div>
           <div className="price-legend"><div className="ohlc">
             <strong>小台指 · 1 · TX</strong>
             <span>{hover ? focus?.localTime : last?.localTime}</span>
@@ -275,8 +241,8 @@ function App() {
             {['h2', 'h3'].map(strategy => {
               const record = strategySignals.positions?.[strategy];
               const position = record?.position;
-              const direction = strategyLocked ? '鎖定' : position === 1 ? '多' : position === -1 ? '空' : position === 0 ? '空手' : '—';
-              const detail = strategyLocked ? `${strategy} 策略資料需解鎖` : `${strategy} 依最新交易紀錄推算：${direction}；最後事件 ${record?.time ?? '無紀錄'}。非券商即時庫存。`;
+              const direction = position === 1 ? '多' : position === -1 ? '空' : position === 0 ? '空手' : '—';
+              const detail = `${strategy} 截至 ${strategySignals.delayedUntil || '尚未載入'} 的延遲紀錄推算：${direction}；最後事件 ${record?.time ?? '無紀錄'}。非券商即時庫存。`;
               return <span key={strategy} className={`strategy-position ${position === 1 ? 'long' : position === -1 ? 'short' : 'neutral'}`} title={detail} aria-label={detail}><span>{strategy}</span><b>{direction}</b></span>;
             })}
           </div><div className="legend-toggles"><Layers size={13}/>{priceLines.map(([key, name, color]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b style={{ color }}>{fmt(focusCandle?.[key])}</b></button>)}</div><div className="legend-toggles ma960-bands">{ma960Bands.map(([key, name, color, offset]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} title={`${visible[key] ? '隱藏' : '顯示'}${name}`} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b>{fmt(priceLineValue(focusCandle, key, offset))}</b></button>)}</div></div>

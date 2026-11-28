@@ -54,16 +54,6 @@ h1 { font-size: 30px; font-weight: 650; letter-spacing: -1px; margin: 0 0 9px; l
 .initial-loading svg { color: var(--accent); animation: spin 1s linear infinite; }
 .initial-loading strong { color: var(--text); font-size: 16px; font-weight: 600; }
 .initial-loading span { font-size: 12px; }
-.strategy-unlock { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 18px 22px; margin-bottom: 22px; border: 1px solid var(--separator); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
-.strategy-unlock > svg { color: var(--accent); }
-.strategy-unlock > div { flex: 1; min-width: 220px; }
-.strategy-unlock strong { font-size: 14px; }
-.strategy-unlock p { margin: 4px 0 0; color: var(--secondary); font-size: 12px; }
-.strategy-unlock form { display: flex; gap: 8px; }
-.strategy-unlock input { width: 190px; min-height: 36px; padding: 7px 10px; border: 1px solid var(--separator); border-radius: 7px; background: var(--background); color: var(--text); }
-.strategy-unlock form button { padding: 7px 15px; background: var(--accent); color: #fff; }
-.strategy-unlock form button:hover { background: var(--accent); filter: brightness(.92); }
-.strategy-unlock .strategy-unlock-error { flex-basis: 100%; color: var(--up); }
 .workspace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--surface); padding: 20px 24px 0; border: 1px solid var(--separator); border-bottom: 0; border-radius: 16px 16px 0 0; }
 .instrument { display: flex; align-items: center; gap: 12px; }
 .instrument-square { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--control); color: var(--text); font-size: 15px; font-weight: 650; letter-spacing: -.5px; }
