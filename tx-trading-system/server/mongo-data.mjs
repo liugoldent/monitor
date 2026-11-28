@@ -46,12 +46,12 @@ async function availableDates(candles) {
 }
 
 export async function loadMongoMarket(requestedDate, history = false) {
+  if (requestedDate && !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) throw new RangeError('日期格式錯誤');
   const databaseHandle = await db();
   const candlesCollection = databaseHandle.collection('candles_1m');
   const chipsCollection = databaseHandle.collection('chips_1m');
   const dates = await availableDates(candlesCollection);
   const date = requestedDate || dates[0] || '';
-  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new RangeError('日期格式錯誤');
   const query = { date: { $lte: date } };
   const [candleDocuments, chipDocuments] = await Promise.all([
     candlesCollection.find(query, { projection: { _id: 0 } }).sort({ date: -1, 'TradingView Time': -1 }).limit(10000).toArray(),
@@ -109,6 +109,9 @@ export async function loadMongoStrategies() {
 export async function loadMongoChartSignals(date, from = date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) throw new RangeError('日期格式錯誤');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from ?? '') || from > date) throw new RangeError('起始日期格式錯誤');
+  if (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`) > 45 * 86400000) {
+    throw new RangeError('查詢區間不得超過 45 天');
+  }
   const databaseHandle = await db();
   const dateRange = { date: { $gte: from, $lte: date } };
   const [h2Trades, h3Trades, positions] = await Promise.all([

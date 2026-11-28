@@ -13,6 +13,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/')) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (req.method !== 'GET') { res.writeHead(405, { Allow: 'GET' }); res.end(JSON.stringify({ error: '僅支援 GET' })); return; }
     try {
       if (url.pathname === '/api/health') { res.end(JSON.stringify({ app: 'tx-trading-system', status: 'ok' })); return; }
       if (url.pathname === '/api/strategies') {

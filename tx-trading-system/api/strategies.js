@@ -1,11 +1,15 @@
 import { loadMongoStrategies } from '../server/mongo-data.mjs';
+import { allowGet, cacheReadResponse } from '../server/api-request.mjs';
 
 export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store');
+  if (!allowGet(req, res)) return;
   try {
-    res.status(200).json(await loadMongoStrategies());
+    const result = await loadMongoStrategies();
+    cacheReadResponse(res);
+    res.status(200).json(result);
   } catch (error) {
     console.error(error);
+    res.setHeader('Cache-Control', 'no-store');
     res.status(500).json({ error: '無法讀取 MongoDB 策略資料' });
   }
 }
