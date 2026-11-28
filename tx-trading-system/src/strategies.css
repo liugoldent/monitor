@@ -1,4 +1,5 @@
 .strategy-price-benchmark { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -8px 0 22px; color: var(--secondary); font-size: 12px; }
+.h-system + .strategy-price-benchmark { margin-top: 20px; line-height: 1.6; }
 .strategy-price-benchmark strong { color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums; }
 .strategy-price-benchmark>span { margin-left: 4px; }
 .portfolio-summary {
