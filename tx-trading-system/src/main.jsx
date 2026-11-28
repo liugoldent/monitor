@@ -130,8 +130,11 @@ function App() {
     return () => media.removeEventListener('change', change);
   }, []);
   const ThemeIcon = theme === 'system' ? Monitor : appearance === 'dark' ? Moon : Sun;
-  const isStrategyPage = useLocation().pathname === '/strategies';
+  const pathname = useLocation().pathname;
+  const isStrategyPage = pathname === '/strategies';
+  const isChartPage = pathname === '/chart';
   const [data, setData] = useState(null);
+  const [historyData, setHistoryData] = useState({ date: '', rows: [] });
   const [date, setDate] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -151,7 +154,7 @@ function App() {
     const id = ++requestId.current;
     setLoading(true);
     try {
-      const response = await fetch(`/api/market?history=1${date ? `&date=${date}` : ''}`, { signal });
+      const response = await fetch(`/api/market${date ? `?date=${date}` : ''}`, { signal });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
       if (id === requestId.current) { setData(result); setError(''); setHover(null); }
@@ -161,7 +164,28 @@ function App() {
   useEffect(() => { if (isStrategyPage) return; const controller = new AbortController(); reload(controller.signal); return () => controller.abort(); }, [reload, isStrategyPage]);
   useEffect(() => { if (!auto || isStrategyPage) return; const timer = setInterval(() => reload(), 30000); return () => clearInterval(timer); }, [auto, reload, isStrategyPage]);
   const currentData = data && (!date || date === data.date) ? data : null;
-  const chartData = useMemo(() => currentData ? { ...currentData, rows: currentData.historyRows ?? currentData.rows } : null, [currentData]);
+  useEffect(() => {
+    if (!isChartPage || !currentData?.date) return;
+    const controller = new AbortController();
+    const historyDate = currentData.date;
+    const loadHistory = async () => {
+      try {
+        const response = await fetch(`/api/market?history=1&date=${historyDate}`, { signal: controller.signal });
+        if (!response.ok) return;
+        const result = await response.json();
+        if (!controller.signal.aborted) setHistoryData({ date: historyDate, rows: result.historyRows ?? [] });
+      } catch (error) { if (error.name !== 'AbortError') console.error('讀取歷史圖表失敗', error); }
+    };
+    loadHistory();
+    return () => controller.abort();
+  }, [isChartPage, currentData?.date]);
+  const chartData = useMemo(() => {
+    if (!currentData) return null;
+    if (historyData.date !== currentData.date || !historyData.rows.length) return currentData;
+    const rows = new Map(historyData.rows.map(row => [row.time, row]));
+    currentData.rows.forEach(row => rows.set(row.time, row));
+    return { ...currentData, rows: [...rows.values()].sort((a, b) => a.time - b.time) };
+  }, [currentData, historyData]);
   const chartDate = date || currentData?.date;
   const chartStartDate = chartData?.rows[0]?.localTime.slice(0, 10) || chartDate;
   useEffect(() => {

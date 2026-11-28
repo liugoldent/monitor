@@ -52,7 +52,7 @@ export async function loadMongoMarket(requestedDate, history = false) {
   const chipsCollection = databaseHandle.collection('chips_1m');
   const dates = await availableDates(candlesCollection);
   const date = requestedDate || dates[0] || '';
-  const query = { date: { $lte: date } };
+  const query = history ? { date: { $lte: date } } : { date };
   const [candleDocuments, chipDocuments] = await Promise.all([
     candlesCollection.find(query, { projection: { _id: 0 } }).sort({ date: -1, 'TradingView Time': -1 }).limit(10000).toArray(),
     chipsCollection.find(query, { projection: { _id: 0 } }).sort({ date: -1, time: -1 }).limit(10000).toArray(),
