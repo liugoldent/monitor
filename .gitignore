@@ -54,7 +54,6 @@ backend-futures-py/telegram-relay-records/h_position_events.csv
 backend-futures-py/telegram-relay-records/ef_position_events.csv
 backend-futures-py/telegram-relay-records/h3_signal_*
 backend-futures-py/telegram-relay-records/h2_signal_*
-backend-futures-py/tv_doc/h2_trade.csv
 backend-futures-py/tv_doc/research_outputs/pure_ef_second_account_hedge_plan_*.md
 backend-futures-py/.retired-data/
 
