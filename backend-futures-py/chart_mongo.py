@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ COLLECTIONS = {
     "ef_position_events.csv": "ef_position_events",
     "h_position_events.csv": "h_position_events",
     "h_trade.csv": "h_trades",
+    "h2_trade.csv": "h2_trades",
 }
 
 _client = None
@@ -53,7 +55,7 @@ def document_id(source: str, row: dict) -> str:
         identity = [row.get("time")]
     elif source == "six_strategy_signal_events.csv" and row.get("source_order") is not None:
         identity = [row.get("source_order")]
-    elif source == "h_trade.csv":
+    elif source in {"h_trade.csv", "h2_trade.csv"}:
         identity = [row.get("timestamp"), row.get("action"), row.get("side")]
     elif row.get("event_key"):
         identity = [row.get("event_key")]
@@ -76,6 +78,7 @@ def prepare_document(source: str, row: dict) -> dict:
         "ef_position_events.csv": ("received_at",),
         "h_position_events.csv": ("received_at",),
         "h_trade.csv": ("timestamp",),
+        "h2_trade.csv": ("timestamp",),
     }
     source_time = next((document.get(key) for key in time_fields[source] if document.get(key)), None)
     if source_time:
@@ -142,6 +145,28 @@ def mirror_batch(source: str, rows: list[dict]) -> None:
             upsert=True,
         ))
     _collection(source).bulk_write(operations, ordered=False)
+
+
+def mirror_csv_file(source: str, path: Path, expected_fields: tuple[str, ...], batch_size: int = 500) -> int:
+    """Reconcile an atomically rewritten CSV, including after earlier MongoDB failures."""
+    if not path.exists():
+        return 0
+    count = 0
+    batch = []
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle, strict=True)
+        if tuple(reader.fieldnames or ()) != expected_fields:
+            raise ValueError(f"Invalid {source} columns")
+        for row in reader:
+            batch.append(row)
+            if len(batch) >= batch_size:
+                mirror_batch(source, batch)
+                count += len(batch)
+                batch = []
+    if batch:
+        mirror_batch(source, batch)
+        count += len(batch)
+    return count
 
 
 def ensure_query_indexes() -> None:

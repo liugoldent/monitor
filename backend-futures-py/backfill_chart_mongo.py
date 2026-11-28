@@ -18,6 +18,7 @@ SOURCES = {
     "mxf_value.csv": ROOT / "tv_doc" / "mxf_value.csv",
     "six_strategy_signal_events.csv": ROOT / "tv_doc" / "six_strategy_signal_events.csv",
     "h_trade.csv": ROOT / "tv_doc" / "h_trade.csv",
+    "h2_trade.csv": ROOT / "tv_doc" / "h2_trade.csv",
     "ef_position_events.csv": ROOT / "telegram-relay-records" / "ef_position_events.csv",
     "h_position_events.csv": ROOT / "telegram-relay-records" / "h_position_events.csv",
 }
@@ -48,6 +49,7 @@ def row_date(source: str, row: dict) -> str:
         "mxf_value.csv": ("time",),
         "six_strategy_signal_events.csv": ("received_at", "message_time"),
         "h_trade.csv": ("timestamp",),
+        "h2_trade.csv": ("timestamp",),
         "ef_position_events.csv": ("received_at",),
         "h_position_events.csv": ("received_at",),
     }[source]

@@ -36,8 +36,9 @@ Docker 的 `webhook-server`、`monitor-mxf`、`telegram-signal-relay` 會在收�
 | `ef_position_events` | EF 部位事件 CSV | EF 進出場原始事件 |
 | `h_position_events` | H 部位事件 CSV | H 進出場原始事件 |
 | `h_trades` | H 交易 CSV | H 歷史進出場 |
+| `h2_trades` | H2 交易 CSV | H2 單口策略歷史進出場，與 H 分開儲存 |
 
-寫入使用固定 `_id` 做 upsert，重送同一根 K 棒不會增加重複文件；EF 策略事件依原始 CSV 順序保留每一筆。寫入時若日期變更或距離上次清理超過一小時，會檢查保留範圍：**只有 `candles_1m` 與 `chips_1m` 保留最近 10 個平日交易日期**，並保留其週五夜盤跨到週六凌晨的資料。EF/H 策略與交易紀錄保留全部歷史，不做日期清理。清理僅作用於 `tx_trading_system`，不會修改既有 `mxf_futures`。MongoDB 寫入或清理失敗會記錄到服務日誌，但不停止 webhook、MXF 或 Telegram 服務；CSV 繼續寫入。
+寫入使用固定 `_id` 做 upsert，重送同一根 K 棒不會增加重複文件；EF 策略事件依原始 CSV 順序保留每一筆。Telegram relay 啟動及收到 H2 訊號後，會同步整份 `h2_trade.csv` 到 `h2_trades`，補回先前因 MongoDB 暫時無法連線而缺少的紀錄。寫入時若日期變更或距離上次清理超過一小時，會檢查保留範圍：**只有 `candles_1m` 與 `chips_1m` 保留最近 10 個平日交易日期**，並保留其週五夜盤跨到週六凌晨的資料。EF/H/H2 策略與交易紀錄保留全部歷史，不做日期清理。清理僅作用於 `tx_trading_system`，不會修改既有 `mxf_futures`。MongoDB 寫入或清理失敗會記錄到服務日誌，但不停止 webhook、MXF 或 Telegram 服務；CSV 繼續寫入。
 
 可重跑的歷史補資料指令對 K 線與 MXF 預設只處理最近 10 個交易日，對 EF/H 則匯入全部可用歷史。先乾跑確認筆數：
 

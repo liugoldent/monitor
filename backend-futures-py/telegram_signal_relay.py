@@ -19,10 +19,10 @@ from zoneinfo import ZoneInfo
 import requests
 from telethon import TelegramClient, events
 
-from h2_trade_history import replay_h2_signals
+from h2_trade_history import FIELDS as H2_TRADE_FIELDS, replay_h2_signals
 from h_signal import h2_direction, is_h_signal, parse_h_direction, parse_h_event_direction
 from h_signal import normalize_h_record_message as _normalize_h_record_message
-from chart_mongo import mirror_row
+from chart_mongo import mirror_csv_file, mirror_row
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -796,6 +796,11 @@ async def sync_h2_history() -> None:
         else:
             if added:
                 print(f"H2 CSV 新增 {added} 筆進出場紀錄")
+        try:
+            await asyncio.to_thread(mirror_csv_file, "h2_trade.csv", H2_TRADE_LOG_PATH, H2_TRADE_FIELDS)
+        except Exception as exc:
+            # Keep receiving and relaying Telegram signals if Atlas is unavailable.
+            print(f"MongoDB H2 history mirror failed: {type(exc).__name__}", flush=True)
 
 
 @client.on(events.NewMessage)

@@ -3,6 +3,7 @@ import unittest
 import io
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -41,6 +42,32 @@ class ChartMongoTest(unittest.TestCase):
             chart_mongo.document_id("h_position_events.csv", a),
             chart_mongo.document_id("h_position_events.csv", b),
         )
+
+    def test_h_and_h2_trades_use_separate_collections_and_ids(self):
+        row = {"timestamp": "2026-11-27 09:06:03", "action": "enter", "side": "bear"}
+        self.assertEqual(chart_mongo.COLLECTIONS["h_trade.csv"], "h_trades")
+        self.assertEqual(chart_mongo.COLLECTIONS["h2_trade.csv"], "h2_trades")
+        self.assertNotEqual(
+            chart_mongo.document_id("h_trade.csv", row),
+            chart_mongo.document_id("h2_trade.csv", row),
+        )
+        self.assertEqual(chart_mongo.prepare_document("h2_trade.csv", row)["date"], "2026-11-27")
+
+    def test_rewritten_h2_csv_can_be_reconciled_in_batches(self):
+        fields = ("timestamp", "action", "side", "price", "pnl", "quantity")
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "h2_trade.csv"
+            path.write_text(
+                "timestamp,action,side,price,pnl,quantity\n"
+                "2026-11-27 09:06:03,enter,bear,39203,,1\n"
+                "2026-11-27 10:40:34,exiting,bear,39643,-4400,1\n",
+                encoding="utf-8",
+            )
+            with patch.object(chart_mongo, "mirror_batch") as mirror:
+                self.assertEqual(chart_mongo.mirror_csv_file("h2_trade.csv", path, fields, 1), 2)
+            self.assertEqual(mirror.call_count, 2)
+            self.assertEqual(mirror.call_args_list[0].args[0], "h2_trade.csv")
+            self.assertEqual(mirror.call_args_list[1].args[1][0]["action"], "exiting")
 
     def test_retention_uses_ten_weekdays_and_removes_older_chart_rows(self):
         from datetime import date, timedelta
