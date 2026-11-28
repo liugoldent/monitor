@@ -12,7 +12,7 @@
 
 ## 正式服務清單
 
-跨平台核心服務如下；Windows 入口另啟動 EF 強共識實單與選擇權價位監控：
+跨平台核心收資料服務如下；Windows 入口另外啟動設定中的 H3/H2 策略服務：
 
 ```text
 telegram-signal-relay
