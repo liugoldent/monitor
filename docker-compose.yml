@@ -119,7 +119,7 @@ services:
       TZ: Asia/Taipei
       PYTHONUNBUFFERED: "1"
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     volumes:
       - ./backend-futures-py/chart_mongo.py:/app/backend-futures-py/chart_mongo.py:ro
       - ./backend-futures-py/.env:/app/backend-futures-py/.env:ro

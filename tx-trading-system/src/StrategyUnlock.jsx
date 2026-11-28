@@ -24,7 +24,7 @@ export default function StrategyUnlock({ message = '' }) {
 
   return <section className="strategy-unlock" aria-label="解鎖策略資料">
     <LockKeyhole size={23} aria-hidden="true" />
-    <div><strong>策略資料已上鎖</strong><p>輸入存取碼後，才能查看 h2／h3 與策略進出場資料。</p></div>
+    <div><strong>網站資料已上鎖</strong><p>輸入存取碼後，才能查看行情、h2／h3 與策略進出場資料。</p></div>
     <form onSubmit={submit}>
       <input type="password" aria-label="策略存取碼" autoComplete="off" value={code} onChange={event => setCode(event.target.value)} placeholder="策略存取碼" maxLength={128} required />
       <button type="submit" disabled={submitting}>{submitting ? '驗證中…' : '解鎖'}</button>

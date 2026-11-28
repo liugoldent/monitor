@@ -50,7 +50,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (url.pathname !== '/api/market') { res.writeHead(404); res.end(JSON.stringify({ error: '找不到 API' })); return; }
-      res.end(JSON.stringify(await loadMongoMarket(url.searchParams.get('date'), url.searchParams.get('history') === '1')));
+      const allowed = await hasStrategySession(req);
+      if (!allowed) { res.writeHead(allowed === null ? 503 : 401); res.end(JSON.stringify({ error: allowed === null ? '資料存取尚未設定' : '請先解鎖資料' })); return; }
+      const date = url.searchParams.get('date');
+      const history = url.searchParams.get('history') === '1';
+      res.end(JSON.stringify(await cachedStrategyData(`market:${date ?? 'latest'}:${history ? '1' : '0'}`, () => loadMongoMarket(date, history))));
     } catch (error) {
       console.error(error.message);
       res.writeHead(error instanceof RangeError ? 400 : 500);

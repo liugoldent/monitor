@@ -17,7 +17,7 @@ function response() {
   };
 }
 
-test('public API rejects POST before touching MongoDB', async () => {
+test('market API rejects POST before touching MongoDB', async () => {
   const res = response();
   await market({ method: 'POST', url: '/api/market' }, res);
   assert.equal(res.statusCode, 405);
@@ -27,12 +27,12 @@ test('public API rejects POST before touching MongoDB', async () => {
 
 test('invalid and overly broad queries fail before opening MongoDB', async () => {
   process.env.STRATEGY_ACCESS_CODE = 'test-strategy-secret';
-  const invalidMarket = response();
-  await market({ method: 'GET', url: '/api/market?date=invalid' }, invalidMarket);
-  assert.equal(invalidMarket.statusCode, 400);
   const login = response();
   await strategyLogin({ method: 'POST', body: { code: 'test-strategy-secret' } }, login);
   const cookie = login.headers['Set-Cookie'].split(';')[0];
+  const invalidMarket = response();
+  await market({ method: 'GET', url: '/api/market?date=invalid', headers: { cookie } }, invalidMarket);
+  assert.equal(invalidMarket.statusCode, 400);
   const broadSignals = response();
   await chartSignals({ method: 'GET', url: '/api/chart-signals?from=2026-01-01&date=2026-11-28', headers: { cookie } }, broadSignals);
   assert.equal(broadSignals.statusCode, 400);
@@ -44,6 +44,9 @@ test('private strategy APIs reject missing or invalid sessions before MongoDB', 
   await strategies({ method: 'GET', headers: {} }, noSession);
   assert.equal(noSession.statusCode, 401);
   assert.equal(noSession.headers['Cache-Control'], 'no-store');
+  const noMarketSession = response();
+  await market({ method: 'GET', url: '/api/market', headers: {} }, noMarketSession);
+  assert.equal(noMarketSession.statusCode, 401);
   const invalidSession = response();
   await chartSignals({ method: 'GET', url: '/api/chart-signals?date=2026-11-28', headers: { cookie: 'tx_strategy_session=forged' } }, invalidSession);
   assert.equal(invalidSession.statusCode, 401);

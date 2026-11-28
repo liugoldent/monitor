@@ -15,7 +15,6 @@ import sys
 from datetime import datetime
 
 PORT = 8080
-MAX_BODY_BYTES = 8192
 BASE_DIR = os.path.dirname(__file__)
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -126,19 +125,10 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
 
         body = ""
         try:
-            try:
-                content_length = int(self.headers.get("Content-Length", 0))
-            except ValueError:
-                self.send_error(400, "Invalid Content-Length")
-                return
-            if content_length <= 0:
-                self.send_error(400, "Empty request body")
-                return
-            if content_length > MAX_BODY_BYTES:
-                self.send_error(413, "Request body too large")
-                return
+            content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
             data = _parse_webhook_json(body)
+            print(f"Received webhook: {data}")
 
             if not data:
                 self.send_error(400, "No Data Provided")
@@ -172,14 +162,13 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b"Success")
         except json.JSONDecodeError as exc:
             print(f"❌ JSON Decode Error: {exc}")
+            print(f"❌ Raw Body: {body}")
             sys.stdout.flush()
-            self.send_error(400, "Invalid JSON")
-        except UnicodeDecodeError:
-            self.send_error(400, "Invalid UTF-8")
+            self.send_error(400, f"Invalid JSON: {exc}")
         except Exception as exc:
             print(f"Error processing webhook: {exc}")
             sys.stdout.flush()
-            self.send_error(500, "Server Error")
+            self.send_error(500, f"Server Error: {str(exc)}")
 
     def do_GET(self):
         """Simple health check."""

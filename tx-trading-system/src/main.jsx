@@ -141,6 +141,9 @@ function App() {
   const [date, setDate] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [marketLocked, setMarketLocked] = useState(false);
+  const [marketAccessError, setMarketAccessError] = useState('');
+  const [marketAuthEpoch, setMarketAuthEpoch] = useState(0);
   const [auto, setAuto] = useState(true);
   const [visible, setVisible] = useState(Object.fromEntries([...chartPriceLines, ...chipLines].map(([key]) => [key, true])));
   const [showStrategyMarkers, setShowStrategyMarkers] = useState(true);
@@ -156,7 +159,10 @@ function App() {
   const board = useRef(null);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
   useEffect(() => {
-    const unlock = () => { setStrategyLocked(false); setStrategyAccessError(''); setStrategyAuthEpoch(value => value + 1); };
+    const unlock = () => {
+      setMarketLocked(false); setMarketAccessError(''); setMarketAuthEpoch(value => value + 1);
+      setStrategyLocked(false); setStrategyAccessError(''); setStrategyAuthEpoch(value => value + 1);
+    };
     window.addEventListener('strategy-unlocked', unlock);
     return () => window.removeEventListener('strategy-unlocked', unlock);
   }, []);
@@ -167,15 +173,23 @@ function App() {
     try {
       const response = await fetch(`/api/market${date ? `?date=${date}` : ''}`, { signal });
       const result = await response.json();
+      if (response.status === 401 || response.status === 503) {
+        if (id === requestId.current) {
+          setData(null); setMarketLocked(true);
+          setMarketAccessError(response.status === 503 ? result.error : '');
+          setError('');
+        }
+        return;
+      }
       if (!response.ok) throw new Error(result.error);
-      if (id === requestId.current) { setData(result); setError(''); setHover(null); }
+      if (id === requestId.current) { setData(result); setMarketLocked(false); setError(''); setHover(null); }
     } catch (e) { if (e.name !== 'AbortError' && id === requestId.current) setError(e.message); }
     finally { if (id === requestId.current) setLoading(false); }
   }, [date]);
-  useEffect(() => { if (isStrategyPage) return; const controller = new AbortController(); reload(controller.signal); return () => controller.abort(); }, [reload, isStrategyPage]);
-  useEffect(() => { if (!auto || isStrategyPage) return; const timer = setInterval(() => reload(), 30000); return () => clearInterval(timer); }, [auto, reload, isStrategyPage]);
+  useEffect(() => { if (isStrategyPage || marketLocked) return; const controller = new AbortController(); reload(controller.signal); return () => controller.abort(); }, [reload, isStrategyPage, marketLocked, marketAuthEpoch]);
+  useEffect(() => { if (!auto || isStrategyPage || marketLocked) return; const timer = setInterval(() => reload(), 30000); return () => clearInterval(timer); }, [auto, reload, isStrategyPage, marketLocked]);
   const currentData = data && (!date || date === data.date) ? data : null;
-  const initialLoading = !isStrategyPage && loading && !currentData;
+  const initialLoading = !isStrategyPage && !marketLocked && loading && !currentData;
   useEffect(() => {
     if (!isChartPage || !currentData?.date) return;
     const controller = new AbortController();
@@ -246,9 +260,10 @@ function App() {
       {!isStrategyPage && <>
       <div className="page-heading"><div><h1>市場總覽</h1><p>小型台指期貨 · Price & Chips</p></div><div className="refresh-area"><span>{data ? `讀取於 ${new Date(data.refreshedAt).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}` : '讀取 MongoDB 中…'}</span><button className={`icon-button ${loading ? 'spinning' : ''}`} title="重新讀取 MongoDB" disabled={loading} onClick={() => reload()}><RefreshCw size={16}/></button></div></div>
       {error && <div className="error" role="alert">{error}<button onClick={() => reload()}>重試</button></div>}
-      {!initialLoading && <div className="workspace-toolbar"><div className="instrument"><span className="instrument-square">TX</span><div><strong>小型台指期貨</strong><span>MXF1! · 臺灣期貨交易所</span></div><span className="timeframe">1 分 K</span></div><div className="date-tools"><CalendarDays size={16}/><button className="icon-button" title="前一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === data.dates.length - 1} onClick={() => moveDate(1)}><ChevronLeft size={16}/></button><select aria-label="資料日期" value={data?.date ?? ''} onChange={e => setDate(e.target.value)}>{data?.dates.map(d => <option key={d}>{d}</option>)}</select><button className="icon-button" title="後一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === 0} onClick={() => moveDate(-1)}><ChevronRight size={16}/></button><span className="timezone">UTC+8</span></div></div>}
+      {marketLocked && <StrategyUnlock message={marketAccessError} />}
+      {!initialLoading && !marketLocked && <div className="workspace-toolbar"><div className="instrument"><span className="instrument-square">TX</span><div><strong>小型台指期貨</strong><span>MXF1! · 臺灣期貨交易所</span></div><span className="timeframe">1 分 K</span></div><div className="date-tools"><CalendarDays size={16}/><button className="icon-button" title="前一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === data.dates.length - 1} onClick={() => moveDate(1)}><ChevronLeft size={16}/></button><select aria-label="資料日期" value={data?.date ?? ''} onChange={e => setDate(e.target.value)}>{data?.dates.map(d => <option key={d}>{d}</option>)}</select><button className="icon-button" title="後一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === 0} onClick={() => moveDate(-1)}><ChevronRight size={16}/></button><span className="timezone">UTC+8</span></div></div>}
       </>}
-      {initialLoading ? <LoadingState label="行情資料載入中…" /> : <Routes><Route path="/chart" element={<>
+      {initialLoading ? <LoadingState label="行情資料載入中…" /> : !isStrategyPage && marketLocked ? null : <Routes><Route path="/chart" element={<>
         <section className="market-summary"><div className="price-block"><span className="label">{date ? '所選日期收盤價' : '最新收盤價'}</span><div className={change >= 0 ? 'up' : 'down'}><strong>{fmt(last?.close)}</strong><span>{change == null ? '—' : change >= 0 ? <ArrowUpRight size={17}/> : <ArrowDownRight size={17}/>} {change == null ? '—' : `${change > 0 ? '+' : ''}${fmt(change)} (${(change / previous.close * 100).toFixed(2)}%)`}</span></div><small>最後 K 線 · {last?.localTime ?? '—'}{last && `（${relativeTime(last.localTime, now)}）`}</small></div><div className="summary-stat"><span>當日最高</span><strong>{candles.length ? fmt(Math.max(...candles.map(r => r.candle.high))) : '—'}</strong></div><div className="summary-stat"><span>當日最低</span><strong>{candles.length ? fmt(Math.min(...candles.map(r => r.candle.low))) : '—'}</strong></div><div className="summary-stat"><span>分鐘對齊</span><strong>{fmt(currentData?.stats.matched)}<small> / {fmt(currentData?.rows.length)}</small></strong></div><div className="summary-stat last-stat"><span>資料狀態</span><strong className="status-text"><span className="status-dot"/>{currentData?.rows.length ? 'MongoDB 已載入' : '等待資料'}</strong><small>非交易所即時報價</small></div></section>
         {strategyLocked && <StrategyUnlock message={strategyAccessError} />}
         <section className="chart-board" ref={board}>

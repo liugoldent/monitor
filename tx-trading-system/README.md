@@ -18,7 +18,7 @@ npm run dev
 
 正式模式：先 `npm run build`，再 `npm start`。本機 Node 伺服器會從相鄰 `backend-futures-py/.env` 讀取 `MONGO_URI`；Vercel 部署時須在專案環境變數設定 `MONGO_URI`，且 Vercel 專案 Root Directory 設為 `tx-trading-system`。連線字串不可提交到 Git。
 
-策略資料需要另外設定 `STRATEGY_ACCESS_CODE`。Vercel 將它設為 Production 的 Secret 環境變數；本機可用環境變數，或把存取碼寫入忽略版控的 `.runtime/strategy-access-code`。網頁輸入一次存取碼後，瀏覽器會收到 7 天有效的 HttpOnly Cookie；未解鎖的 `/api/strategies`、`/api/chart-signals` 會在查詢 MongoDB 前回 401。`/api/strategy-login` 只接受 POST。策略 API 每個函式實例對相同查詢保留 30 秒結果，瀏覽器私有快取也保留 30 秒；Vercel 防火牆另限制每 IP 每分鐘 30 次 `/api/` 請求。Vercel 函式部署在香港 `hkg1`，與 Atlas 叢集同區。請勿把存取碼提交到 Git。
+線上 MongoDB 讀取需要設定 `STRATEGY_ACCESS_CODE`。Vercel 將它設為 Production 的 Secret 環境變數；本機可用環境變數，或把存取碼寫入忽略版控的 `.runtime/strategy-access-code`。網頁輸入一次存取碼後，瀏覽器會收到 7 天有效的 HttpOnly Cookie；未解鎖的 `/api/market`（包含 `history=1`）、`/api/strategies`、`/api/chart-signals` 都會在查詢 MongoDB 前回 401。`/api/strategy-login` 只接受 POST。讀取 API 每個函式實例對相同查詢保留 30 秒結果，瀏覽器私有快取也保留 30 秒，不使用公開 CDN 快取；Vercel 防火牆另限制每 IP 每分鐘 30 次 `/api/` 請求。Vercel 函式部署在香港 `hkg1`，與 Atlas 叢集同區。請勿把存取碼提交到 Git。
 
 也已整合到專案根目錄的 Windows 啟停工具：雙擊 `C:\Users\USER\Desktop\monitor\run-windows-services.cmd` 會隨原有服務安裝所需套件、建置並在背景啟動前端；雙擊 `stop-windows-services.cmd` 會一起停止。啟動後開啟 http://127.0.0.1:5173 。啟動器會記錄前端 PID、建立時間與絕對執行路徑，停止時只關閉驗證為本專案的程序。記錄與輸出位於 `.runtime/service.json`、`.runtime/stdout.log`、`.runtime/stderr.log`（不加入 Git）。若先前用 `npm run dev` 手動啟動，請先在該終端機按 Ctrl+C 釋放 5173，避免和背景服務衝突。原有 `-NoPull` / `-NoBuild` 參數仍可用；`-NoBuild` 需要已安裝套件及已產生的 dist。
 
