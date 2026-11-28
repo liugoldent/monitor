@@ -8,6 +8,7 @@ export function buildStrategyMarkers(rows, signals, colors) {
   const candleTimes = rows.filter(row => row.candle && !row.candle.imputed).map(row => row.time);
   const grouped = new Map();
   for (const signal of signals) {
+    if (![-1, 1].includes(signal.side) || !['enter', 'exit'].includes(signal.action) || !signal.strategy) continue;
     const minute = eventTime(signal.time);
     if (minute == null) continue;
     let lo = 0;
@@ -19,17 +20,16 @@ export function buildStrategyMarkers(rows, signals, colors) {
     }
     const time = candleTimes[lo];
     if (time == null || time - minute > 120) continue;
-    const type = signal.position > 0 ? 'long' : signal.position < 0 ? 'short' : 'exit';
-    const source = signal.source === 'H' ? 'H' : 'EF';
-    const key = `${time}:${source}:${type}`;
-    grouped.set(key, { time, source, type, count: (grouped.get(key)?.count ?? 0) + 1 });
+    const type = signal.side > 0 ? 'long' : 'short';
+    const key = `${time}:${signal.strategy}:${signal.action}:${type}`;
+    grouped.set(key, { time, strategy: signal.strategy, action: signal.action, type, count: (grouped.get(key)?.count ?? 0) + 1 });
   }
-  return [...grouped.values()].sort((a, b) => a.time - b.time || a.source.localeCompare(b.source) || a.type.localeCompare(b.type)).map(({ time, source, type, count }) => ({
+  return [...grouped.values()].sort((a, b) => a.time - b.time || a.strategy.localeCompare(b.strategy) || a.action.localeCompare(b.action) || a.type.localeCompare(b.type)).map(({ time, strategy, action, type, count }) => ({
     time,
     position: type === 'long' ? 'belowBar' : 'aboveBar',
-    shape: type === 'long' ? 'arrowUp' : type === 'short' ? 'arrowDown' : 'circle',
+    shape: type === 'long' ? 'arrowUp' : 'arrowDown',
     color: colors[type],
-    text: `${source === 'H' ? 'H' : ''}${type === 'long' ? 'L' : type === 'short' ? 'S' : 'X'}${count > 1 ? `×${count}` : ''}`,
-    size: 0.8,
+    text: `${strategy}${action === 'enter' ? '進' : '出'}${count > 1 ? `×${count}` : ''}`,
+    size: 0.7,
   }));
 }

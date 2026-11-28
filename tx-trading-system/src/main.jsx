@@ -7,6 +7,7 @@ import './styles.css';
 import StrategyBoard from './StrategyBoard.jsx';
 import { isAtLatest, reconcileRange } from './chart-range.mjs';
 import { buildStrategyMarkers } from './strategy-markers.mjs';
+import { relativeTime } from './relative-time.mjs';
 
 const priceLines = [ ['MA_P200', 'MA +200', 'var(--ma-upper)'], ['MA_P80', 'MA +80', 'var(--ma-warm)'], ['MA_960', 'MA 960', 'var(--ma-center)'], ['MA_N110', 'MA −110', 'var(--ma-purple)'], ['MA_N200', 'MA −200', 'var(--ma-lower)'] ];
 const ma960Bands = [ ['MA960_P179', 'MA960 +179', '#ffffff', 179], ['MA960_P449', 'MA960 +449', '#ffffff', 449], ['MA960_N270', 'MA960 −270', '#ffffff', -270], ['MA960_N661', 'MA960 −661', '#ffffff', -661] ];
@@ -137,12 +138,14 @@ function App() {
   const [auto, setAuto] = useState(true);
   const [visible, setVisible] = useState(Object.fromEntries([...chartPriceLines, ...chipLines].map(([key]) => [key, true])));
   const [showStrategyMarkers, setShowStrategyMarkers] = useState(true);
-  const [strategySignals, setStrategySignals] = useState({ date: '', from: '', rows: [] });
+  const [strategySignals, setStrategySignals] = useState({ date: '', from: '', rows: [], positions: null });
   const [hover, setHover] = useState(null);
   const [scope, setScope] = useState(null);
   const [following, setFollowing] = useState(true);
+  const [now, setNow] = useState(Date.now());
   const chartRef = useRef(null);
   const board = useRef(null);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
   const requestId = useRef(0);
   const reload = useCallback(async (signal) => {
     const id = ++requestId.current;
@@ -162,20 +165,20 @@ function App() {
   const chartDate = date || currentData?.date;
   const chartStartDate = chartData?.rows[0]?.localTime.slice(0, 10) || chartDate;
   useEffect(() => {
-    if (isStrategyPage || !showStrategyMarkers || !chartDate || !chartStartDate) { setStrategySignals({ date: '', from: '', rows: [] }); return; }
+    if (isStrategyPage || !chartDate || !chartStartDate) { setStrategySignals({ date: '', from: '', rows: [], positions: null }); return; }
     const controller = new AbortController();
     const load = async () => {
       try {
         const response = await fetch(`/api/chart-signals?date=${encodeURIComponent(chartDate)}&from=${encodeURIComponent(chartStartDate)}`, { signal: controller.signal });
         if (!response.ok) throw new Error('無法讀取策略點位');
         const result = await response.json();
-        if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: result.signals ?? [] });
-      } catch (error) { if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: [] }); }
+        if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: result.signals ?? [], positions: result.positions ?? null });
+      } catch (error) { if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: [], positions: null }); }
     };
     load();
     const timer = auto ? setInterval(load, 30000) : null;
     return () => { controller.abort(); if (timer) clearInterval(timer); };
-  }, [chartDate, chartStartDate, showStrategyMarkers, auto, isStrategyPage]);
+  }, [chartDate, chartStartDate, auto, isStrategyPage]);
   const strategyMarkers = useMemo(() => showStrategyMarkers && chartData
     ? buildStrategyMarkers(chartData.rows, strategySignals.date === chartDate && strategySignals.from === chartStartDate ? strategySignals.rows : [], {
       long: cssColor('var(--up)'), short: cssColor('var(--down)'), exit: cssColor('var(--secondary)'),
@@ -192,25 +195,36 @@ function App() {
     <header className="topbar">
       <NavLink to="/chart" className="brand"><span className="brand-icon"><ChartCandlestick size={21}/></span><span>TX<span className="brand-light">市場</span></span></NavLink>
       <nav><NavLink to="/chart"><ChartCandlestick size={17}/>行情圖表</NavLink><NavLink to="/data"><Database size={16}/>原始資料</NavLink><NavLink to="/strategies"><Layers size={16}/>策略看板</NavLink></nav>
-      <div className="topbar-tools"><label className="theme-picker"><ThemeIcon size={16} aria-hidden="true"/><select aria-label="外觀模式" value={theme} onChange={event => setTheme(event.target.value)}><option value="light">淺色模式</option><option value="dark">黑夜模式</option><option value="system">跟隨系統</option></select></label><div className="source-badge"><span className="status-dot"/>本機資料</div></div>
+      <div className="topbar-tools"><label className="theme-picker"><ThemeIcon size={16} aria-hidden="true"/><select aria-label="外觀模式" value={theme} onChange={event => setTheme(event.target.value)}><option value="light">淺色模式</option><option value="dark">黑夜模式</option><option value="system">跟隨系統</option></select></label><div className="source-badge"><span className="status-dot"/>MongoDB 來源</div></div>
     </header>
     <main>
       {!isStrategyPage && <>
-      <div className="page-heading"><div><h1>市場總覽</h1><p>小型台指期貨 · Price & Chips</p></div><div className="refresh-area"><span>{data ? `讀取於 ${new Date(data.refreshedAt).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}` : '讀取 CSV 中…'}</span><button className={`icon-button ${loading ? 'spinning' : ''}`} title="重新讀取 CSV" disabled={loading} onClick={() => reload()}><RefreshCw size={16}/></button></div></div>
+      <div className="page-heading"><div><h1>市場總覽</h1><p>小型台指期貨 · Price & Chips</p></div><div className="refresh-area"><span>{data ? `讀取於 ${new Date(data.refreshedAt).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}` : '讀取 MongoDB 中…'}</span><button className={`icon-button ${loading ? 'spinning' : ''}`} title="重新讀取 MongoDB" disabled={loading} onClick={() => reload()}><RefreshCw size={16}/></button></div></div>
       {error && <div className="error" role="alert">{error}<button onClick={() => reload()}>重試</button></div>}
       <div className="workspace-toolbar"><div className="instrument"><span className="instrument-square">TX</span><div><strong>小型台指期貨</strong><span>MXF1! · 臺灣期貨交易所</span></div><span className="timeframe">1 分 K</span></div><div className="date-tools"><CalendarDays size={16}/><button className="icon-button" title="前一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === data.dates.length - 1} onClick={() => moveDate(1)}><ChevronLeft size={16}/></button><select aria-label="資料日期" value={data?.date ?? ''} onChange={e => setDate(e.target.value)}>{data?.dates.map(d => <option key={d}>{d}</option>)}</select><button className="icon-button" title="後一天（有 K 線資料）" disabled={!data || data.dates.indexOf(data.date) === 0} onClick={() => moveDate(-1)}><ChevronRight size={16}/></button><span className="timezone">UTC+8</span></div></div>
       </>}
       <Routes><Route path="/chart" element={<>
-        <section className="market-summary"><div className="price-block"><span className="label">最新收盤價</span><div className={change >= 0 ? 'up' : 'down'}><strong>{fmt(last?.close)}</strong><span>{change == null ? '—' : change >= 0 ? <ArrowUpRight size={17}/> : <ArrowDownRight size={17}/>} {change == null ? '—' : `${change > 0 ? '+' : ''}${fmt(change)} (${(change / previous.close * 100).toFixed(2)}%)`}</span></div><small>相較前一根 K 棒 · {last ? timeFormat(last.time) : '—'}</small></div><div className="summary-stat"><span>當日最高</span><strong>{candles.length ? fmt(Math.max(...candles.map(r => r.candle.high))) : '—'}</strong></div><div className="summary-stat"><span>當日最低</span><strong>{candles.length ? fmt(Math.min(...candles.map(r => r.candle.low))) : '—'}</strong></div><div className="summary-stat"><span>分鐘對齊</span><strong>{fmt(currentData?.stats.matched)}<small> / {fmt(currentData?.rows.length)}</small></strong></div><div className="summary-stat last-stat"><span>資料狀態</span><strong className="status-text"><span className="status-dot"/>{currentData?.rows.length ? 'CSV 已載入' : '等待資料'}</strong><small>非交易所即時報價</small></div></section>
+        <section className="market-summary"><div className="price-block"><span className="label">{date ? '所選日期收盤價' : '最新收盤價'}</span><div className={change >= 0 ? 'up' : 'down'}><strong>{fmt(last?.close)}</strong><span>{change == null ? '—' : change >= 0 ? <ArrowUpRight size={17}/> : <ArrowDownRight size={17}/>} {change == null ? '—' : `${change > 0 ? '+' : ''}${fmt(change)} (${(change / previous.close * 100).toFixed(2)}%)`}</span></div><small>最後 K 線 · {last?.localTime ?? '—'}{last && `（${relativeTime(last.localTime, now)}）`}</small></div><div className="summary-stat"><span>當日最高</span><strong>{candles.length ? fmt(Math.max(...candles.map(r => r.candle.high))) : '—'}</strong></div><div className="summary-stat"><span>當日最低</span><strong>{candles.length ? fmt(Math.min(...candles.map(r => r.candle.low))) : '—'}</strong></div><div className="summary-stat"><span>分鐘對齊</span><strong>{fmt(currentData?.stats.matched)}<small> / {fmt(currentData?.rows.length)}</small></strong></div><div className="summary-stat last-stat"><span>資料狀態</span><strong className="status-text"><span className="status-dot"/>{currentData?.rows.length ? 'MongoDB 已載入' : '等待資料'}</strong><small>非交易所即時報價</small></div></section>
         <section className="chart-board" ref={board}>
-          <div className="chart-toolbar"><div className="chart-title"><ChartCandlestick size={16}/><strong>行情圖表</strong><span>1m</span></div><div className="chart-actions"><button className={following && !date ? 'active follow-button' : 'follow-button'} title="回到最新資料並跟隨右端，保留目前縮放比例" onClick={() => { setDate(''); setScope({ value: 'latest' }); }}><ChevronRight size={14}/>{following && !date ? '跟隨最新' : '回到最新'}</button><button className={auto ? 'active auto-button' : 'auto-button'} onClick={() => setAuto(v => !v)}><Radio size={14}/>{auto ? '30 秒自動讀取' : '自動讀取已暫停'}</button><button className={`strategy-markers-button ${showStrategyMarkers ? 'active' : ''}`} aria-pressed={showStrategyMarkers} title="切換策略點位：EF 為 L 多、S 空、X 平；H 為 HL 多、HS 空；依訊號時間對齊 K 棒" onClick={() => setShowStrategyMarkers(value => !value)}><Layers size={14}/><span>策略點位</span></button><span className="separator"/><button title="顯示全部當日資料" onClick={() => setScope({ value: 'all' })}><Expand size={15}/><span>全覽</span></button><button title="全螢幕" onClick={async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await board.current.requestFullscreen(); } catch { setError('目前瀏覽器不支援全螢幕，請使用圖表全覽。'); } }}><Expand size={15}/></button></div></div>
-          <div className="price-legend"><div className="ohlc"><strong>小台指 · 1 · TX</strong><span>{hover ? focus?.localTime : last?.localTime}</span>{[['開', 'open'], ['高', 'high'], ['低', 'low'], ['收', 'close']].map(([name, key]) => <span key={key}>{name} <b className={focusCandle?.close >= focusCandle?.open ? 'up' : 'down'}>{fmt(focusCandle?.[key])}</b></span>)}</div><div className="legend-toggles"><Layers size={13}/>{priceLines.map(([key, name, color]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b style={{ color }}>{fmt(focusCandle?.[key])}</b></button>)}</div><div className="legend-toggles ma960-bands">{ma960Bands.map(([key, name, color, offset]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} title={`${visible[key] ? '隱藏' : '顯示'}${name}`} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b>{fmt(priceLineValue(focusCandle, key, offset))}</b></button>)}</div></div>
-          <div className="chart-region"><Chart data={chartData} viewKey={date || 'latest'} visible={visible} scope={scope} markers={strategyMarkers} chartRef={chartRef} setHover={setHover} setFollowing={setFollowing} appearance={appearance}/>{(!currentData || !currentData.rows.length) && <div className="chart-empty">{loading ? '正在讀取與對齊 CSV 資料…' : '這個日期尚無資料'}</div>}</div>
+          <div className="chart-toolbar"><div className="chart-title"><ChartCandlestick size={16}/><strong>行情圖表</strong><span>1m</span></div><div className="chart-actions"><button className={following && !date ? 'active follow-button' : 'follow-button'} title="回到最新資料並跟隨右端，保留目前縮放比例" onClick={() => { setDate(''); setScope({ value: 'latest' }); }}><ChevronRight size={14}/>{following && !date ? '跟隨最新' : '回到最新'}</button><button className={auto ? 'active auto-button' : 'auto-button'} onClick={() => setAuto(v => !v)}><Radio size={14}/>{auto ? '30 秒自動讀取' : '自動讀取已暫停'}</button><button className={`strategy-markers-button ${showStrategyMarkers ? 'active' : ''}`} aria-pressed={showStrategyMarkers} title="切換 h2／h3 進出場：向上為多、向下為空；依秒級事件時間對齊一分 K 棒" onClick={() => setShowStrategyMarkers(value => !value)}><Layers size={14}/><span>策略點位</span></button><span className="separator"/><button title="顯示全部當日資料" onClick={() => setScope({ value: 'all' })}><Expand size={15}/><span>全覽</span></button><button title="全螢幕" onClick={async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await board.current.requestFullscreen(); } catch { setError('目前瀏覽器不支援全螢幕，請使用圖表全覽。'); } }}><Expand size={15}/></button></div></div>
+          <div className="price-legend"><div className="ohlc">
+            <strong>小台指 · 1 · TX</strong>
+            <span>{hover ? focus?.localTime : last?.localTime}</span>
+            {[['開', 'open'], ['高', 'high'], ['低', 'low'], ['收', 'close']].map(([name, key]) => <span key={key}>{name} <b className={focusCandle?.close >= focusCandle?.open ? 'up' : 'down'}>{fmt(focusCandle?.[key])}</b></span>)}
+            {['h2', 'h3'].map(strategy => {
+              const record = strategySignals.positions?.[strategy];
+              const position = record?.position;
+              const direction = position === 1 ? '多' : position === -1 ? '空' : position === 0 ? '空手' : '—';
+              const detail = `${strategy} 依最新交易紀錄推算：${direction}；最後事件 ${record?.time ?? '無紀錄'}。非券商即時庫存。`;
+              return <span key={strategy} className={`strategy-position ${position === 1 ? 'long' : position === -1 ? 'short' : 'neutral'}`} title={detail} aria-label={detail}><span>{strategy}</span><b>{direction}</b></span>;
+            })}
+          </div><div className="legend-toggles"><Layers size={13}/>{priceLines.map(([key, name, color]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b style={{ color }}>{fmt(focusCandle?.[key])}</b></button>)}</div><div className="legend-toggles ma960-bands">{ma960Bands.map(([key, name, color, offset]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} title={`${visible[key] ? '隱藏' : '顯示'}${name}`} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b>{fmt(priceLineValue(focusCandle, key, offset))}</b></button>)}</div></div>
+          <div className="chart-region"><Chart data={chartData} viewKey={date || 'latest'} visible={visible} scope={scope} markers={strategyMarkers} chartRef={chartRef} setHover={setHover} setFollowing={setFollowing} appearance={appearance}/>{(!currentData || !currentData.rows.length) && <div className="chart-empty">{loading ? '正在讀取與對齊 MongoDB 資料…' : '這個日期尚無資料'}</div>}</div>
           <div className="chip-legend"><div><Activity size={15}/><strong>Chips</strong><span>點擊指標可顯示／隱藏</span></div><div className="legend-toggles">{chipLines.map(([key, name, color]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} aria-label={`${name}顯示開關`} title={`${visible[key] ? '隱藏' : '顯示'}${name}`} aria-pressed={visible[key]} onClick={() => toggle(key)}>{visible[key] ? <Eye size={13} aria-hidden="true"/> : <EyeOff size={13} aria-hidden="true"/>}<i style={{ background: color }}/>{name}<b style={{ color }}>{fmt(focus?.chip?.[key])}</b></button>)}</div></div>
           <div className="chart-footer"><div className="range-buttons">{[['120', '近 120 筆'], ['240', '近 240 筆'], ['all', '當日全部']].map(([value, label]) => <button className={scope?.value === value ? 'selected' : ''} key={value} onClick={() => setScope({ value })}>{label}</button>)}</div><span><Crosshair size={12}/>拖曳平移 · 滾輪縮放 · 上下圖共用時間軸</span></div>
         </section>
       </>}/><Route path="/strategies" element={<StrategyBoard/>}/><Route path="/data" element={<DataTable data={currentData} loading={loading}/>}/><Route path="*" element={<Navigate to="/chart" replace/>}/></Routes>
-      <footer className="page-footer"><span><span className="status-dot"/>台北時間 UTC+8</span><span>{isStrategyPage ? "依最後一筆策略訊號更新" : "每 30 秒讀取 · 缺 1～2 分鐘沿用前值"}</span><a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a></footer>
+      <footer className="page-footer"><span><span className="status-dot"/>台北時間 UTC+8</span><span>{isStrategyPage ? "依最新交易／策略訊號更新" : "每 30 秒讀取 · 缺 1～2 分鐘沿用前值"}</span><a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a></footer>
     </main>
   </div>;
 }

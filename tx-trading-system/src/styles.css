@@ -88,6 +88,11 @@ h1 { font-size: 30px; font-weight: 650; letter-spacing: -1px; margin: 0 0 9px; l
 .ohlc { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 13px; min-height: 22px; color: var(--secondary); font-size: 11px; }
 .ohlc strong { color: var(--text); font-size: 12px; font-weight: 600; }
 .ohlc b { font-weight: 500; }
+.ohlc .strategy-position { display: inline-flex; align-items: center; flex-wrap: nowrap; gap: 5px; margin: 0; padding-left: 10px; border-left: 1px solid var(--separator); white-space: nowrap; pointer-events: auto; }
+.ohlc .strategy-position>span { font-size: inherit; font-weight: inherit; letter-spacing: inherit; }
+.ohlc .strategy-position b { font-weight: 700; }
+.ohlc .strategy-position.long b { color: var(--up); }
+.ohlc .strategy-position.short b { color: var(--down); }
 .legend-toggles { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 14px; margin-top: 4px; color: var(--secondary); }
 .legend-toggles button { pointer-events: auto; padding: 2px 3px; min-height: 28px; font-size: 11px; gap: 6px; color: var(--secondary); }
 .legend-toggles i { width: 9px; height: 3px; display: inline-block; border-radius: 2px; }
@@ -140,8 +145,9 @@ tbody tr:hover { background: var(--background); }
 .source-details { border-top: 1px solid var(--separator); padding: 12px 24px 18px; color: var(--secondary); font-size: 11px; line-height: 1.7; }
 .source-details strong { color: var(--text); font-weight: 500; }
 .table-empty { text-align: center; padding: 60px; color: var(--secondary); }
-.chart-board:fullscreen { width: 100vw; height: 100vh; display: flex; flex-direction: column; border: 0; border-radius: 0; }
-.chart-board:fullscreen .chart-region { flex: 1; height: auto; }
+.chart-board:fullscreen { width: 100vw; height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border: 0; border-radius: 0; }
+.chart-board:fullscreen .chart-region { min-width: 0; min-height: 0; height: auto; overflow: hidden; }
+.chart-board:fullscreen .chart-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .chart-board:fullscreen .chip-legend { bottom: calc((100vh - 102px) / 3.5 + 45px - 55px); }
 @media (min-width: 1600px) {
   .chart-region { height: 680px; }

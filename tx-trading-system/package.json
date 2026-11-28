@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node server/index.mjs",
+    "dev": "node --watch server/index.mjs",
     "build": "vite build",
     "start": "node server/index.mjs --production",
     "test": "node --test"

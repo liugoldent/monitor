@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { MongoClient } from 'mongodb';
 import { joinRows, normalizeRecords } from './data.mjs';
 import { summarizeStrategyRows } from './strategies.mjs';
+import { latestTradePosition, tradeChartEvent } from './chart-signals.mjs';
+import { availableCandleEntry, floatingPoints, latestOpenEvent, priceNumber } from './position-points.mjs';
 
 let client;
 let datesCache;
@@ -22,6 +24,18 @@ async function mongoUri() {
 async function db() {
   if (!client) client = new MongoClient(await mongoUri(), { serverSelectionTimeoutMS: 5000 });
   return client.db(database);
+}
+
+async function loadLatestHPositions(databaseHandle) {
+  const latestTrade = name => databaseHandle.collection(name).find({}, {
+    projection: { _id: 0, timestamp: 1, action: 1, side: 1, price: 1 },
+  }).sort({ timestamp: -1, action: 1 }).limit(1).toArray();
+  const [latestH2, latestH3] = await Promise.all([latestTrade('h2_trades'), latestTrade('h_trades')]);
+  const position = row => {
+    const result = latestTradePosition(row);
+    return { ...result, entryPrice: result.position ? priceNumber(row?.price) : null };
+  };
+  return { h2: position(latestH2[0]), h3: position(latestH3[0]) };
 }
 
 async function availableDates(candles) {
@@ -61,9 +75,35 @@ export async function loadMongoMarket(requestedDate, history = false) {
 }
 
 export async function loadMongoStrategies() {
-  const collection = (await db()).collection('strategy_signals');
-  const rows = await collection.find({}, { projection: { _id: 0 } }).sort({ source_order: 1 }).toArray();
-  return { ...summarizeStrategyRows(rows), refreshedAt: new Date().toISOString() };
+  const databaseHandle = await db();
+  const candles = databaseHandle.collection('candles_1m');
+  const [rows, hPositions, latestCandles] = await Promise.all([
+    databaseHandle.collection('strategy_signals').find({}, { projection: { _id: 0 } }).sort({ source_order: 1 }).toArray(),
+    loadLatestHPositions(databaseHandle),
+    candles.find({ Symbol: 'MXF1!' }, { projection: { _id: 0, 'TradingView Time': 1, Close: 1 } })
+      .sort({ date: -1, 'TradingView Time': -1 }).limit(5).toArray(),
+  ]);
+  const latestCandle = latestCandles.find(row => priceNumber(row.Close) !== null && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(row['TradingView Time'] ?? ''));
+  const market = latestCandle ? { close: priceNumber(latestCandle.Close), time: latestCandle['TradingView Time'] } : null;
+  const result = summarizeStrategyRows(rows);
+  const strategies = await Promise.all(result.strategies.map(async strategy => {
+    const opening = latestOpenEvent(strategy);
+    const receivedAt = opening?.receivedAt ?? opening?.time;
+    const candle = receivedAt && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(receivedAt)
+      ? await candles.find({ Symbol: 'MXF1!', 'Record Time': { $lte: receivedAt } }, {
+        projection: { _id: 0, 'Record Time': 1, 'TradingView Time': 1, Close: 1 },
+      }).sort({ 'Record Time': -1 }).limit(1).next()
+      : null;
+    const entry = availableCandleEntry(candle, receivedAt);
+    return { ...strategy,
+      entry: opening ? { signalTime: opening.time, price: entry?.price ?? null, candleTime: entry?.time ?? null, source: 'available-candle-close' } : null,
+      floatingPoints: floatingPoints(strategy.position, entry?.price, market?.close),
+    };
+  }));
+  const pricedHPositions = Object.fromEntries(Object.entries(hPositions).map(([code, position]) => [code, {
+    ...position, floatingPoints: floatingPoints(position.position, position.entryPrice, market?.close),
+  }]));
+  return { ...result, strategies, hPositions: pricedHPositions, market, refreshedAt: new Date().toISOString() };
 }
 
 export async function loadMongoChartSignals(date, from = date) {
@@ -71,32 +111,22 @@ export async function loadMongoChartSignals(date, from = date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from ?? '') || from > date) throw new RangeError('起始日期格式錯誤');
   const databaseHandle = await db();
   const dateRange = { date: { $gte: from, $lte: date } };
-  const [ef, hEvents, hTrades] = await Promise.all([
-    databaseHandle.collection('strategy_signals').find(dateRange, {
-      projection: { _id: 0, message_time: 1, received_at: 1, previous_position: 1, new_position: 1 },
+  const [h2Trades, h3Trades, positions] = await Promise.all([
+    databaseHandle.collection('h2_trades').find(dateRange, {
+      projection: { _id: 0, timestamp: 1, action: 1, side: 1 },
     }).toArray(),
-    databaseHandle.collection('h_position_events').find(dateRange, {
-      projection: { _id: 0, received_at: 1, new_position: 1 },
+    databaseHandle.collection('h_trades').find(dateRange, {
+      projection: { _id: 0, timestamp: 1, action: 1, side: 1 },
     }).toArray(),
-    databaseHandle.collection('h_trades').find({ ...dateRange, action: 'enter' }, {
-      projection: { _id: 0, timestamp: 1, side: 1 },
-    }).toArray(),
+    loadLatestHPositions(databaseHandle),
   ]);
-  const hSignals = new Map();
-  for (const row of hEvents) {
-    const signal = { time: row.received_at, position: Number(row.new_position), source: 'H' };
-    if (signal.time && [-1, 1].includes(signal.position)) hSignals.set(`${signal.time.slice(0, 16)}:${signal.position}`, signal);
-  }
-  for (const row of hTrades) {
-    const signal = { time: row.timestamp, position: row.side === 'bull' ? 1 : row.side === 'bear' ? -1 : null, source: 'H' };
-    if (signal.time && signal.position != null) {
-      const key = `${signal.time.slice(0, 16)}:${signal.position}`;
-      if (!hSignals.has(key)) hSignals.set(key, signal);
-    }
-  }
   const signals = [
-    ...ef.map(row => ({ time: row.message_time || row.received_at, position: Number(row.new_position), source: 'EF' })),
-    ...hSignals.values(),
-  ].filter(row => row.time && [-1, 0, 1].includes(row.position));
-  return { date, from, signals, refreshedAt: new Date().toISOString() };
+    ...h2Trades.map(row => tradeChartEvent(row, 'h2')),
+    ...h3Trades.map(row => tradeChartEvent(row, 'h3')),
+  ].filter(Boolean);
+  return {
+    date, from, signals,
+    positions,
+    refreshedAt: new Date().toISOString(),
+  };
 }

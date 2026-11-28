@@ -46,4 +46,13 @@ const server = http.createServer(async (req, res) => {
   } catch { res.writeHead(404); res.end('Not found'); }
 });
 server.listen(port, '127.0.0.1', () => console.log(`TX Trading ready at http://localhost:${port}`));
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await vite?.close(); server.close(); });
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
+  if (!production) {
+    // Node's --watch waits for the child to exit before starting the updated API.
+    server.closeAllConnections();
+    server.close();
+    process.exit(0);
+  }
+  await vite?.close();
+  server.close();
+});
