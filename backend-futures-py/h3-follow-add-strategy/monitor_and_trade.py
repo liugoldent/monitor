@@ -94,7 +94,7 @@ def startup_notice(positions, unit):
     return ('【API_KEY｜H3／H2 跟單啟動｜實盤】\n'
             f'H3 {position_text(positions.h3)}｜固定 {unit} 口\n'
             f'H2 {position_text(positions.h2)}｜固定 {auto_trade.H2_UNIT} 口\n'
-            f'帳戶淨部位 {position_text(positions.net)}')
+            f'策略目標淨部位 {position_text(positions.net)}')
 
 
 def watch(engine, journals, poll=2):
@@ -102,10 +102,8 @@ def watch(engine, journals, poll=2):
         engine.broker.check()
         time.sleep(poll)
     inventory = InventoryReporter(engine)
-    inventory.startup(now_local())
-    actual = engine.broker.startup_position()
-    if actual != engine.strategy_positions().net:
-        raise LedgerError('啟動時，券商庫存與 H3／H2 帳本不符，不送單')
+    if inventory.startup(now_local())['status'] != 'success':
+        raise TradingError('啟動查倉失敗，重新連線核對')
     engine.notify(startup_notice(engine.strategy_positions(), engine.broker.unit))
     watch_loop(engine, journals, poll, inventory)
 
@@ -147,7 +145,7 @@ def run_session(store, notify, poll, journals):
             if evidence.get('rejected'):
                 reason = evidence['message'] or '券商委託已終止'
                 notify(f'【API_KEY｜H3／H2 跟單】原委託已確認零成交（{reason}），'
-                       f'庫存 {evidence["actual"]:+d} 口與帳本一致，等待新訊號。')
+                       f'庫存 {evidence["actual"]:+d} 口與送單前一致，等待新訊號。')
             else:
                 print('原委託成交與庫存已核對，未重送：' + json.dumps(evidence), flush=True)
         broker = PyramidBroker(api, auto_trade._sj, store, watchdog, records=RECORDS,

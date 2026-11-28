@@ -174,10 +174,11 @@ def run_session(store, notify, config, seeds, market, started_at, journals, poll
         engine = ConditionalPortfolio(store, broker, symbol, notify, seeds=seeds,
                                       market=market, started_at=started_at)
         broker.rollover = AutomaticRollover(engine, RUNTIME)
-        if not rollover_pending and broker.startup_position() != engine.strategy_positions().net:
-            raise LedgerError('API_KEY3 券商庫存與專用帳本不符')
+        actual = None if rollover_pending else broker.startup_position()
         show_history(engine.curves())
-        notify(f'【API_KEY3】已啟動 H2／H3 條件跟單｜帳本淨部位 {engine.strategy_positions().net:+d}口')
+        target = engine.strategy_positions().net
+        inventory = '換月原委託待核對' if actual is None else f'券商 {actual:+d}口'
+        notify(f'【API_KEY3】已啟動 H2／H3 條件跟單｜策略目標 {target:+d}口｜{inventory}')
         watch(engine, journals, poll)
     finally:
         logout(broker.api if 'broker' in locals() else api)

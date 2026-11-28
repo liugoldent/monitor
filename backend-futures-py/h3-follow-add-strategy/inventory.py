@@ -31,14 +31,19 @@ class InventoryReporter:
             if getattr(self.engine, 'uses_strategy_positions', False):
                 positions = self.engine.strategy_positions()
                 snapshot.update(h3=positions.h3, h2=positions.h2, matches=actual == expected == positions.net)
-                match = '一致' if snapshot['matches'] else '不一致；停止策略送單，等待核對'
+                if snapshot['matches']:
+                    match = '一致'
+                elif getattr(self.engine, 'reconcile_signal_inventory', False) and expected == positions.net:
+                    match = '不一致；等待新 H2／H3 訊號，依券商當時庫存計算差額'
+                else:
+                    match = '不一致；停止策略送單，等待核對'
                 detail = f'H3 {positions.h3:+d} 口｜H2 {positions.h2:+d} 口｜'
             else:
                 match = '一致' if actual == expected else '不一致；等待新H3訊號按實際庫存全平再進場'
             message = (f'✅【API_KEY｜H3／H2 跟單｜{label}】\n'
                        f'時間：{now:%Y-%m-%d %H:%M:%S}（台北）\n'
                        f'券商策略月份微台部位：{position_text(actual)}\n'
-                       f'{detail}帳戶淨部位：{position_text(expected)}\n'
+                       f'{detail}策略目標淨部位：{position_text(expected)}\n'
                        f'核對：{match}\n僅查詢，未送單、未平倉。')
         except Exception as exc:
             # Broker exception text may contain credentials or personal data.

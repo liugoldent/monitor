@@ -18,6 +18,7 @@ class PortfolioEngine(MddEngine):
     strategy_label = 'H3 回撤加口＋H2 固定口數'
     uses_strategy_positions = True
     account_label = 'API_KEY'
+    reconcile_signal_inventory = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -50,10 +51,12 @@ class PortfolioEngine(MddEngine):
     def on_signal(self, event, *, now=None):
         source = 'h2' if isinstance(event, dict) and event.get('route') == 'h2' else 'h3'
         parser = parse_h2_signal if source == 'h2' else signal
+        standard_parser = parser
         max_message_age = 30
         if source == 'h2':
             if event.get('source') == 'h2_dual_source':
                 parser = parse_h2_dual_signal
+            standard_parser = parser
             delayed_parser = partial(parser, max_message_age=H2_REDUCTION_MAX_MESSAGE_AGE)
             candidate = delayed_parser(event, now=now)
             if candidate is None:
@@ -79,7 +82,10 @@ class PortfolioEngine(MddEngine):
             fresh()
             self.broker.check_rollover()
             signal_step(self.broker, 'cancel_working_orders', lambda: self.prepare_signal(key, fresh))
-            signal_step(self.broker, 'net_inventory', self.validate_position)
+            def read_inventory():
+                return self.validate_position(require_match=not self.reconcile_signal_inventory)
+
+            actual = signal_step(self.broker, 'net_inventory', read_inventory)
             before = self.strategy_positions()
             note = ''
             if source == 'h3' and direction:
@@ -90,10 +96,16 @@ class PortfolioEngine(MddEngine):
             else:
                 quantity = H2_UNIT if source == 'h2' else 0
             after = replace(before, **{source: direction * quantity})
-            if source == 'h3' and direction:
-                signal_step(self.broker, 'net_inventory_after_history', self.validate_position)
+            if source == 'h3' and direction and not self.reconcile_signal_inventory:
+                actual = signal_step(self.broker, 'net_inventory_after_history', read_inventory)
+            if (max_message_age == H2_REDUCTION_MAX_MESSAGE_AGE
+                    and not (abs(after.net) < abs(actual) and after.net * actual >= 0)):
+                parser = standard_parser
+                max_message_age = 30
+                if parser(event, now=now) is None:
+                    return False
             fresh()
-            self.adjust_net(source, before, after, key, fresh, note)
+            self.adjust_net(source, before, after, key, fresh, note, actual_before=actual)
         except RolloverPause:
             if (not signal_retry_used(self.broker)
                     and not self.store.pending() and not self.broker.guard.get('pending')):
@@ -102,11 +114,13 @@ class PortfolioEngine(MddEngine):
             raise
         return True
 
-    def adjust_net(self, source, before, after, key, fresh, note, *, api_key3_signal=None):
+    def adjust_net(self, source, before, after, key, fresh, note, *, actual_before=None, api_key3_signal=None):
         target = after.net
-        previous = before.net
+        previous = before.net if actual_before is None else actual_before
         payload = dict(trigger=key, phase='net', strategy=source, previous=previous, target=target,
                        positions_before=asdict(before), positions_after=asdict(after))
+        if self.reconcile_signal_inventory and previous != before.net:
+            payload['strategy_previous'] = before.net
         if api_key3_signal is not None:
             payload['api_key3_signal'] = api_key3_signal
 
@@ -128,19 +142,20 @@ class PortfolioEngine(MddEngine):
                 raise TradingError('合計委託成交後庫存不符，保留 guard')
 
         with self.store.db:
-            if (self.strategy_positions() != before or self.state().expected != previous
+            if (self.strategy_positions() != before or self.state().expected != before.net
                     or self.store.pending() != (payload if target != previous else None)
                     or self.broker.guard.get('pending')):
                 raise LedgerError('合計委託或帳本變動，保留保護')
             commit_api_key3_signal(self.store, payload)
             save_positions(self.store, after)
-            if target != previous:
+            if target != before.net or target != previous:
                 self.save(self.state_type(expected=target, round_key=key))
+            if target != previous:
                 self.store.db.execute('DELETE FROM guard WHERE id=1')
             self.store.db.execute('INSERT INTO audit(at,event,detail) VALUES (?,?,?)',
                 (datetime.now(timezone.utc).isoformat(), 'api_key_net_confirmed', json.dumps(dict(
                     payload, broker_fill_price=(self.broker.confirmed_price if target != previous else None)))))
-        if api_key3_signal is not None and before == after:
+        if api_key3_signal is not None and before == after and target == previous:
             return
         action = '淨部位不變，未送單' if target == previous else '差額成交及庫存已確認'
         self.notify(f'【{self.account_label}｜{source.upper()}】H3 {after.h3:+d}口｜H2 {after.h2:+d}口｜'
@@ -149,6 +164,7 @@ class PortfolioEngine(MddEngine):
 
 class FixedPortfolioEngine(PortfolioEngine):
     strategy_label = 'H3／H2 各固定一口'
+    reconcile_signal_inventory = True
 
     def entry_plan(self):
         return self.broker.unit, ''

@@ -301,7 +301,7 @@ class MxfValueGuerrillaAlerts(GoodwayGuerrillaAlerts):
                 f"游擊隊（mtx_bvav）：{change}"
             )
         if messages:
-            market_context = build_goodway_market_context(include_h2=True)
+            market_context = build_goodway_market_context()
             self.pending.extend(f"{message}\n{market_context}" for message in messages)
 
 
@@ -433,7 +433,7 @@ def build_h2_pnl_line(close: float | None) -> str:
     return f"{prefix}{points:+,.2f} 點（{side}，進場 {entry:g}）"
 
 
-def build_goodway_market_context(*, include_h2: bool = False) -> str:
+def build_goodway_market_context() -> str:
     try:
         quote = read_latest_mxf_close()
     except (OSError, ValueError, csv.Error):
@@ -447,10 +447,7 @@ def build_goodway_market_context(*, include_h2: bool = False) -> str:
         pnl_line = build_h3_pnl_line(quote[1] if quote else None)
     except (OSError, ValueError, TypeError, KeyError, csv.Error):
         pnl_line = "H3 單口未實現損益：交易紀錄無法讀取"
-    lines = [price_line, pnl_line]
-    if include_h2:
-        lines.append(build_h2_pnl_line(quote[1] if quote else None))
-    return "\n".join(lines)
+    return "\n".join((price_line, pnl_line, build_h2_pnl_line(quote[1] if quote else None)))
 
 
 class GoodwayOpeningAlerts:

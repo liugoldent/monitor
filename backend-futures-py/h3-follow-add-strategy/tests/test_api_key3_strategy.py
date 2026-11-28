@@ -86,6 +86,26 @@ class ConditionalTests(unittest.TestCase):
         self.assertEqual(engine.strategy_positions(), Positions())
         self.assertEqual(self.broker.orders, [(-1, -1), (1, 0)])
 
+    def test_fresh_signal_targets_short_one_from_actual_long_one(self):
+        engine = self.engine()
+        self.broker.actual = 1
+        self.emit(engine, 'h3', -1, 1, 19000)
+        self.assertEqual(self.broker.orders, [(-2, -1)])
+        self.assertEqual(engine.strategy_positions(), Positions(h3=-1))
+        self.broker.actual = 0
+        self.emit(engine, 'h3', -1, 2, 19000)
+        self.assertEqual(self.broker.orders, [(-2, -1), (-1, -1)])
+
+    def test_historical_recovery_updates_target_without_sending_until_fresh_signal(self):
+        engine = self.engine()
+        self.emit(engine, 'h3', -1, 1, 19000)
+        self.emit(engine, 'h3', 1, 2, 18000, age=60)
+        self.assertEqual(engine.strategy_positions(), Positions())
+        self.assertEqual(self.broker.actual, -1)
+        self.assertEqual(self.broker.orders, [(-1, -1)])
+        self.emit(engine, 'h3', 1, 65, 18000)
+        self.assertEqual(self.broker.orders, [(-1, -1), (1, 0)])
+
     def test_cross_entry_requires_later_timestamp_and_recovery_clears_both_legs(self):
         engine = self.engine()
         self.emit(engine, 'h3', -1, 1, 19625)
@@ -172,6 +192,7 @@ class ConditionalTests(unittest.TestCase):
 
         engine = self.engine()
         self.broker.send_and_confirm = uncertain
+        self.broker.actual = 1
         with self.assertRaises(TradingError):
             self.emit(engine, 'h3', -1, 1, 19000)
         self.assertEqual(self.store.pending()['trigger'], 'h3-dual:1')
@@ -179,7 +200,7 @@ class ConditionalTests(unittest.TestCase):
         self.assertEqual(engine.strategy_positions(), Positions())
 
         pending = self.store.pending()
-        guard = dict(previous_position=0, target_position=-1, quantity=1, side='sell',
+        guard = dict(previous_position=1, target_position=-1, quantity=2, side='sell',
                      trade_id='original', contract_code='TMFL6', intent_id=pending['trigger'])
         with self.store.db:
             self.store.db.execute('CREATE TABLE shioaji_order_state (id INTEGER PRIMARY KEY, payload TEXT)')
@@ -187,8 +208,8 @@ class ConditionalTests(unittest.TestCase):
                                   (json.dumps(dict(pending=guard)),))
         api = MagicMock()
         api.list_trades.return_value = [dict(
-            order=dict(id='original', action='sell', quantity=1), contract=dict(code='TMFL6'),
-            status=dict(status='Filled', deal_quantity=1))]
+            order=dict(id='original', action='sell', quantity=2), contract=dict(code='TMFL6'),
+            status=dict(status='Filled', deal_quantity=2))]
         with tempfile.TemporaryDirectory() as directory, patch.object(shared, '_refresh_status'), \
                 patch.object(shared, '_contract'), patch.object(shared, '_read_positions', return_value=[]), \
                 patch.object(shared, 'validate_tmf_account'), patch.object(shared, '_net_position', return_value=-1):

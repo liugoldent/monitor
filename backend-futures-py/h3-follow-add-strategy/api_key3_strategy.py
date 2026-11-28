@@ -6,7 +6,7 @@ import json
 from api_key3_history import Curve, stamp
 from h_signal import parse_h2_dual_signal, parse_h2_signal
 from h3_signal_retry import signal_step
-from net_positions import commit_api_key3_signal
+from net_positions import commit_api_key3_signal, save_positions
 from portfolio_runtime import PortfolioEngine
 from runtime import LedgerError, RolloverPause, signal
 
@@ -29,6 +29,7 @@ def active_h3(h3):
 class ConditionalPortfolio(PortfolioEngine):
     account_label = 'API_KEY3'
     strategy_label = 'H2／H3 回前高條件跟單'
+    reconcile_signal_inventory = True
 
     def __init__(self, *args, seeds, market, started_at, **kwargs):
         super().__init__(*args, **kwargs)
@@ -109,27 +110,39 @@ class ConditionalPortfolio(PortfolioEngine):
             'direction': direction, 'at': at,
         }
 
-        def preflight():
-            # Historic observations can retire a held leg, never initiate one.
-            if getattr(after, source) and changed_direction and not parser(event, now=now):
-                raise RolloverPause('進場訊號已過 30 秒，重新以歷史訊號處理')
+        if not fresh_signal:
+            # Catch-up can retire an obsolete target without touching broker holdings.
+            # The next live signal reconciles the resulting net target.
+            with self.store.db:
+                if (self.store.pending() or self.broker.guard.get('pending')
+                        or self.strategy_positions() != before or self.state().expected != before.net):
+                    raise LedgerError('API_KEY3 回溯期間策略帳本或委託已變動')
+                commit_api_key3_signal(self.store, {'trigger': key, 'api_key3_signal': plan})
+                if after != before:
+                    save_positions(self.store, after)
+                    self.save(self.state_type(expected=after.net, round_key=key))
+            return True
 
-        if before != after:
-            preflight()
-            self.broker.check_rollover()
-            signal_step(self.broker, 'cancel_working_orders',
-                        lambda: self.broker.cancel_working_orders(key, preflight))
-            signal_step(self.broker, 'net_inventory', self.validate_position)
-            preflight()
+        def preflight():
+            if parser(event, now=now) is None:
+                raise RolloverPause('交易訊號已過 30 秒，重新以歷史訊號處理')
+
+        preflight()
+        self.broker.check_rollover()
+        signal_step(self.broker, 'cancel_working_orders',
+                    lambda: self.broker.cancel_working_orders(key, preflight))
+        actual = signal_step(self.broker, 'net_inventory', lambda: self.validate_position(require_match=False))
+        preflight()
         note = f'H2 回撤 {h2.drawdown:f}點／連輸 {h2.losses}筆｜H3 回撤 {h3.drawdown:f}點／連輸 {h3.losses}筆'
         try:
-            self.adjust_net(source, before, after, key, preflight, note, api_key3_signal=plan)
+            self.adjust_net(source, before, after, key, preflight, note,
+                            actual_before=actual, api_key3_signal=plan)
         except RolloverPause:
             raise
         except Exception:
             # The shared retry path may have already proved zero fills or that
             # nothing was submitted. Retain the virtual observation once.
-            if (after.net != before.net and not self.store.pending() and not self.broker.guard.get('pending')
+            if (after.net != actual and not self.store.pending() and not self.broker.guard.get('pending')
                     and self.strategy_positions() == before):
                 with self.store.db:
                     commit_api_key3_signal(self.store, {'trigger': key, 'api_key3_signal': plan})

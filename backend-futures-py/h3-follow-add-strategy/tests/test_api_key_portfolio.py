@@ -12,6 +12,7 @@ sys.path[:0] = [str(BASE), str(BASE.parent), str(BASE.parent / 'h3-common')]
 import test_configured_unit as fixture
 from h_core import Store, TradingError
 from h_signal import parse_h2_signal
+from monitor_and_trade import watch
 from net_positions import Positions, read_positions
 from portfolio_runtime import FixedPortfolioEngine, PortfolioEngine
 from reconcile import reconcile_filled_order
@@ -212,6 +213,87 @@ class PortfolioTests(unittest.TestCase):
             self.assertTrue(engine.on_signal(self.event('2', -1)))
         self.assertEqual(engine.strategy_positions(), Positions(-1, 1))
         self.assertEqual(self.broker.orders[-2:], [('net', 1, 2), ('net', -2, 0)])
+
+    def test_fixed_startup_with_mismatch_still_waits_for_new_signal(self):
+        engine = FixedPortfolioEngine(self.store, self.broker, 'TMFK6')
+        engine.on_signal(self.event('1', -1))
+        engine.on_signal(telegram(-1))
+        self.broker.actual = 0
+        self.broker.orders.clear()
+        self.cancelled.clear()
+        self.broker.startup_position = self.broker.position
+        with patch('monitor_and_trade.watch_loop') as loop:
+            watch(engine, ())
+            loop.assert_called_once()
+        self.assertEqual(engine.strategy_positions(), Positions(-1, -1))
+        self.assertEqual(self.broker.orders, [])
+        self.assertEqual(self.cancelled, [])
+
+    def test_fixed_new_same_direction_signal_corrects_live_discrepancy(self):
+        engine = FixedPortfolioEngine(self.store, self.broker, 'TMFK6')
+        engine.on_signal(self.event('1', -1))
+        engine.on_signal(telegram(-1))
+        for message, (actual, delta) in enumerate([(0, -2), (1, -3), (-1, -1), (-2, 0), (-3, 1)], 2):
+            with self.subTest(actual=actual):
+                self.broker.actual = actual
+                self.broker.orders.clear()
+                event = telegram(-1, message)
+                self.assertTrue(engine.on_signal(event))
+                self.assertFalse(engine.on_signal(event))
+                self.assertEqual(self.broker.orders, [('net', delta, -2)] if delta else [])
+                self.assertEqual(engine.strategy_positions(), Positions(-1, -1))
+
+    def test_fixed_new_h3_target_commits_when_actual_already_matches(self):
+        engine = FixedPortfolioEngine(self.store, self.broker, 'TMFK6')
+        engine.on_signal(telegram(-1))
+        self.broker.actual = 0
+        self.broker.orders.clear()
+        self.assertTrue(engine.on_signal(self.event('1', 1)))
+        self.assertEqual(self.broker.orders, [])
+        self.assertEqual(engine.strategy_positions(), Positions(1, -1))
+        self.assertEqual(engine.state().expected, 0)
+
+    def test_fixed_delayed_h2_grace_cannot_add_exposure_to_actual_position(self):
+        with self.store.db:
+            self.engine.save(State(expected=-2))
+        engine = FixedPortfolioEngine(self.store, self.broker, 'TMFK6')
+        self.broker.actual = -2
+        engine.on_signal(telegram(-1))
+        self.broker.actual = 0
+        self.broker.orders.clear()
+        event = telegram(1, 2, sent=datetime.now(timezone.utc) - timedelta(seconds=32))
+        self.assertFalse(engine.on_signal(event))
+        self.assertEqual(self.broker.orders, [])
+        self.assertEqual(engine.strategy_positions(), Positions(-2, -1))
+
+    def test_fixed_restart_reconciles_original_fill_when_previous_inventory_differed(self):
+        engine = FixedPortfolioEngine(self.store, self.broker, 'TMFK6')
+        engine.on_signal(self.event('1', -1))
+        engine.on_signal(telegram(-1))
+        self.broker.actual = 1
+        with patch.object(self.broker, 'send_and_confirm', side_effect=TradingError('斷線')):
+            with self.assertRaises(TradingError):
+                engine.on_signal(telegram(-1, 2))
+        payload = self.store.pending()
+        self.assertEqual((payload['previous'], payload['strategy_previous']), (1, -2))
+        evidence = dict(previous_position=1, target_position=-2, quantity=3, side='sell',
+                        trade_id='original', contract_code='TMFK6', intent_id=payload['trigger'])
+        with self.store.db:
+            self.store.db.execute('CREATE TABLE shioaji_order_state (id INTEGER PRIMARY KEY, payload TEXT)')
+            self.store.db.execute('INSERT INTO shioaji_order_state VALUES (1,?)',
+                                  (json.dumps(dict(pending=evidence)),))
+        api = MagicMock()
+        api.list_trades.return_value = [dict(order=dict(id='original', action='sell', quantity=3),
+                                            contract=dict(code='TMFK6'),
+                                            status=dict(status='Filled', deal_quantity=3))]
+        with patch.object(shared, '_refresh_status'), patch.object(shared, '_contract'), \
+                patch.object(shared, '_read_positions', return_value=[]), \
+                patch.object(shared, 'validate_tmf_account'), \
+                patch.object(shared, '_net_position', return_value=-2):
+            reconcile_filled_order(self.store, api, Path(self.temp.name) / 'backup.sqlite', self.temp.name)
+        self.assertIsNone(self.store.pending())
+        self.assertEqual(engine.strategy_positions(), Positions(-1, -1))
+        api.place_order.assert_not_called()
 
     def test_h2_journal_ignores_history_and_waits_for_complete_lines(self):
         path = Path(self.temp.name) / 'journal.jsonl'

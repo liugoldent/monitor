@@ -66,6 +66,8 @@ def net_transition(store, payload):
         source = payload['strategy']
         before = Positions(**payload['positions_before']).validate()
         after = Positions(**payload['positions_after']).validate()
+        previous = payload['previous']
+        strategy_previous = payload.get('strategy_previous', previous)
         target = payload['target']
         trigger = payload['trigger']
         api_key3 = payload.get('api_key3_signal') is not None
@@ -79,8 +81,9 @@ def net_transition(store, payload):
                 or (source == 'h2' and not h3_unchanged)
                 or (api_key3 and any(abs(q) > 1 for q in (before.h2, before.h3, after.h2, after.h3)))
                 or before != read_positions(store)
-                or payload['previous'] != before.net or target != after.net
-                or before.net == after.net):
+                or type(previous) is not int or type(strategy_previous) is not int
+                or strategy_previous != before.net or target != after.net
+                or previous == target):
             raise ValueError()
     except (KeyError, TypeError, ValueError) as exc:
         raise TradingError('合計委託與 H3／H2 部位帳本不符，保留 guard') from exc

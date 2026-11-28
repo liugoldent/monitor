@@ -26,7 +26,7 @@ class Contracts(list):
 
 
 class CrossMonthSignalTests(unittest.TestCase):
-    def exercise(self, engine_type, broker_type, *, direction=1, available=None, positions=None):
+    def exercise(self, engine_type, broker_type, *, direction=1, available=None, positions=None, ledger=None):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as cleanup:
             store = Store(Path(directory) / 'ledger.sqlite')
             cleanup.callback(store.db.close)
@@ -72,10 +72,10 @@ class CrossMonthSignalTests(unittest.TestCase):
             broker.unit = 1
             broker.contract_code = NEAR
             engine = engine_type(store, broker, NEAR)
+            recorded = inventory.get(NEAR, 0) if ledger is None else ledger
             with store.db:
-                engine.save(engine.state_type(expected=inventory.get(NEAR, 0),
-                                              first_price='39000' if inventory.get(NEAR) else None))
-                engine.on_external_inventory(inventory.get(NEAR, 0))
+                engine.save(engine.state_type(expected=recorded, first_price='39000' if recorded else None))
+                engine.on_external_inventory(recorded)
             self.assertEqual(broker.startup_position(), inventory.get(NEAR, 0))
             self.assertEqual(orders, [])
             history = H3History(MddSizing(), direction, None, loss_extra_contracts=2,
@@ -132,4 +132,13 @@ class CrossMonthSignalTests(unittest.TestCase):
         self.assertEqual(orders, [(NEAR, 'Buy', 1, 'Auto'), (NEAR, 'Buy', 2, 'Auto')])
         self.assertEqual(inventory, {NEAR: 2})
         self.assertEqual(expected, 2)
+
+    def test_key2_uses_broker_inventory_even_when_ledger_already_says_short(self):
+        for actual in (0, 1):
+            with self.subTest(actual=actual):
+                orders, inventory, expected = self.exercise(ProtectionEngine, ProtectionBroker,
+                    direction=-1, positions={NEAR: actual}, ledger=-1)
+                self.assertEqual(orders, [(NEAR, 'Sell', 1, 'Auto')] * (actual + 1))
+                self.assertEqual(inventory, {NEAR: -1})
+                self.assertEqual(expected, -1)
 

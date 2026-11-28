@@ -36,8 +36,9 @@ def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=F
     previous = payload.get('previous')
     target = payload['target']
     phase = payload.get('phase')
+    strategy_previous = payload.get('strategy_previous', previous) if phase == 'net' else previous
     if (type(previous) is not int or type(target) is not int
-            or current_state.expected != previous):
+            or current_state.expected != strategy_previous):
         raise TradingError('委託前部位與帳本不符，保持阻擋')
     quantity = abs(target - previous)
     valid = ((phase == 'entry' and previous == 0 and target != 0)
@@ -88,7 +89,7 @@ def reconcile_filled_order(store, api, backup_path, records, *, allow_rejected=F
     actual = shared._net_position(positions)
     if actual != (previous if rejected else target):
         if rejected:
-            raise TradingError(f'原委託已確認零成交，但券商庫存 {actual:+d} 口與策略帳本 '
+            raise TradingError(f'原委託已確認零成交，但券商庫存 {actual:+d} 口與送單前庫存 '
                                f'{previous:+d} 口不符，保持阻擋')
         raise TradingError('已成交委託與目前庫存不一致，保持阻擋')
     if rejected:
