@@ -18,6 +18,8 @@ npm run dev
 
 正式模式：先 `npm run build`，再 `npm start`。本機 Node 伺服器會從相鄰 `backend-futures-py/.env` 讀取 `MONGO_URI`；Vercel 部署時須在專案環境變數設定 `MONGO_URI`，且 Vercel 專案 Root Directory 設為 `tx-trading-system`。連線字串不可提交到 Git。
 
+策略資料需要另外設定 `STRATEGY_ACCESS_CODE`。Vercel 將它設為 Production 的 Secret 環境變數；本機可用環境變數，或把存取碼寫入忽略版控的 `.runtime/strategy-access-code`。網頁輸入一次存取碼後，瀏覽器會收到 7 天有效的 HttpOnly Cookie；未解鎖的 `/api/strategies`、`/api/chart-signals` 會在查詢 MongoDB 前回 401。`/api/strategy-login` 只接受 POST。策略 API 每個函式實例對相同查詢保留 30 秒結果，瀏覽器私有快取也保留 30 秒；Vercel 防火牆另限制每 IP 每分鐘 30 次 `/api/` 請求。Vercel 函式部署在香港 `hkg1`，與 Atlas 叢集同區。請勿把存取碼提交到 Git。
+
 也已整合到專案根目錄的 Windows 啟停工具：雙擊 `C:\Users\USER\Desktop\monitor\run-windows-services.cmd` 會隨原有服務安裝所需套件、建置並在背景啟動前端；雙擊 `stop-windows-services.cmd` 會一起停止。啟動後開啟 http://127.0.0.1:5173 。啟動器會記錄前端 PID、建立時間與絕對執行路徑，停止時只關閉驗證為本專案的程序。記錄與輸出位於 `.runtime/service.json`、`.runtime/stdout.log`、`.runtime/stderr.log`（不加入 Git）。若先前用 `npm run dev` 手動啟動，請先在該終端機按 Ctrl+C 釋放 5173，避免和背景服務衝突。原有 `-NoPull` / `-NoBuild` 參數仍可用；`-NoBuild` 需要已安裝套件及已產生的 dist。
 
 Docker 的 `monitor-app:local` 僅建置後端服務，不再依賴已移除的 `frontend-vue`。React 專案與其本機執行資料不加入 Docker 建置內容；5173 由 Windows 前端程序使用。
@@ -47,11 +49,11 @@ python backend-futures-py/backfill_chart_mongo.py --dry-run
 python backend-futures-py/backfill_chart_mongo.py
 ```
 
-本機與 Vercel 的 `/api/market`、`/api/strategies` 已改查 MongoDB。K 線與籌碼只查詢截至所選日期的最近 10,000 筆來源資料，畫面每 30 秒輪詢一次。
+本機與 Vercel 的 `/api/market`、`/api/strategies` 已改查 MongoDB。首次開圖表先查所選日期資料並顯示，歷史資料稍後補載；只有歷史模式才查詢截至所選日期的最近 10,000 筆來源資料。畫面每 30 秒輪詢一次當日資料。
 
 - 收資料程式將 `../backend-futures-py/tv_doc/webhook_data_1min.csv` 及 `mxf_value.csv` 同步至 Atlas；圖表 API 唯讀查詢 Atlas。
 - K 棒使用 `TradingView Time`，籌碼使用 `time`。兩者假設為台北時間 UTC+8，以同分鐘精確比對；不使用接收時間 `Record Time`。
-- 圖表連續載入截至所選日期的最近 10,000 個時間點，包含前幾日的日、夜盤。最新模式跨午夜會延續同一條時間軸。日期選擇、當日統計與原始資料頁仍按日曆日期 00:00–23:59 篩選，並非期交所交易日歸屬。
+- 圖表在當日資料出現後補載截至所選日期的最近 10,000 個時間點，包含前幾日的日、夜盤。最新模式跨午夜會延續同一條時間軸。日期選擇、當日統計與原始資料頁仍按日曆日期 00:00–23:59 篩選，並非期交所交易日歸屬。
 - 時間軸取兩檔的聯集，帶秒數的歷史籌碼資料向下歸入所屬分鐘（如 12:03:01 → 12:03:00），原始時間保留於 API 的 chip.sourceTime。缺少一整筆分鐘資料時，最多沿用該來源上一筆真實資料 2 分鐘，K 棒 OHLC、均線與籌碼數值直接複製；不使用未來資料，不將補值繼續當成來源延長。原始列內個別欄位的空值仍保留。兩檔同時缺少 1～2 分鐘時也補上時間點，長時間的休盤間隔不補。原始資料頁以「沿用前值」標記補值列；API 補值物件包含 imputed 與 imputedFrom，來源 CSV 不修改。真實資料補到後會取代補值。重複分鐘取最後一筆。無效或尚未寫完的列略過，統計可在原始資料頁查看。
 - 上圖：一分 K 棒（紅漲綠跌）及 CSV 既有五條 MA。下圖：坦克 tx_bvav 柱狀、游擊 mtx_bvav、炮灰 mtx_tbta、游擊平均 mtx_bvav_avg。均線不在前端重算。
 - 圖表上的「策略點位」只顯示 h2、h3 交易紀錄的進出場。向上標記代表多單，向下標記代表空單；文字標明策略及「進／出」。H2 原始微秒時間在 API 截至秒，兩種策略的進出場分開顯示；同一分鐘同策略、同動作、同方向的事件合併計數。標記依事件時間貼近真實一分 K 棒，圖表只在分鐘位置顯示，不宣稱秒級 K 棒定位。`GET /api/chart-signals?date=YYYY-MM-DD&from=YYYY-MM-DD` 提供圖表涵蓋日期內的精簡事件。

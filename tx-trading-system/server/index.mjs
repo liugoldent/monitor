@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadMongoMarket, loadMongoStrategies, loadMongoChartSignals } from './mongo-data.mjs';
+import { hasStrategySession, strategySessionCookie, verifyStrategyCode } from './strategy-auth.mjs';
+import { cachedStrategyData } from './strategy-cache.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const production = process.argv.includes('--production');
@@ -14,16 +16,37 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (url.pathname === '/api/strategy-login') {
+      if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); res.end(JSON.stringify({ error: '僅支援 POST' })); return; }
+      try {
+        let body = '';
+        for await (const chunk of req) {
+          body += chunk;
+          if (body.length > 1024) { res.writeHead(413); res.end(JSON.stringify({ error: '請求內容過長' })); return; }
+        }
+        const allowed = await verifyStrategyCode(JSON.parse(body).code);
+        if (!allowed) { res.writeHead(allowed === null ? 503 : 401); res.end(JSON.stringify({ error: allowed === null ? '策略存取尚未設定' : '存取碼錯誤' })); return; }
+        res.setHeader('Set-Cookie', await strategySessionCookie());
+        res.end(JSON.stringify({ ok: true }));
+      } catch { res.writeHead(400); res.end(JSON.stringify({ error: '請求內容格式錯誤' })); }
+      return;
+    }
     if (req.method !== 'GET') { res.writeHead(405, { Allow: 'GET' }); res.end(JSON.stringify({ error: '僅支援 GET' })); return; }
     try {
       if (url.pathname === '/api/health') { res.end(JSON.stringify({ app: 'tx-trading-system', status: 'ok' })); return; }
       if (url.pathname === '/api/strategies') {
-        try { res.end(JSON.stringify(await loadMongoStrategies())); }
+        const allowed = await hasStrategySession(req);
+        if (!allowed) { res.writeHead(allowed === null ? 503 : 401); res.end(JSON.stringify({ error: allowed === null ? '策略存取尚未設定' : '請先解鎖策略資料' })); return; }
+        try { res.end(JSON.stringify(await cachedStrategyData('strategies', loadMongoStrategies))); }
         catch (error) { console.error(error.message); res.writeHead(500); res.end(JSON.stringify({ error: '無法讀取 MongoDB 策略資料。' })); }
         return;
       }
       if (url.pathname === '/api/chart-signals') {
-        res.end(JSON.stringify(await loadMongoChartSignals(url.searchParams.get('date'), url.searchParams.get('from') || undefined)));
+        const allowed = await hasStrategySession(req);
+        if (!allowed) { res.writeHead(allowed === null ? 503 : 401); res.end(JSON.stringify({ error: allowed === null ? '策略存取尚未設定' : '請先解鎖策略資料' })); return; }
+        const date = url.searchParams.get('date');
+        const from = url.searchParams.get('from') || undefined;
+        res.end(JSON.stringify(await cachedStrategyData(`chart:${date}:${from}`, () => loadMongoChartSignals(date, from))));
         return;
       }
       if (url.pathname !== '/api/market') { res.writeHead(404); res.end(JSON.stringify({ error: '找不到 API' })); return; }

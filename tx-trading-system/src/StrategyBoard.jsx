@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import LoadingState from './LoadingState.jsx';
+import StrategyUnlock from './StrategyUnlock.jsx';
 import { ArrowDownRight, ArrowUpRight, ArrowRight, ChevronLeft, ChevronRight, History, Minus, RefreshCw, X } from 'lucide-react';
 import './strategies.css';
 import { elapsedSeconds, relativeTime } from './relative-time.mjs';
@@ -33,6 +34,7 @@ export default function StrategyBoard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [locked, setLocked] = useState(false);
   const [filter, setFilter] = useState('all');
   const [selected, setSelected] = useState(null);
   const [page, setPage] = useState(0);
@@ -45,18 +47,28 @@ export default function StrategyBoard() {
     try {
       const response = await fetch('/api/strategies', { signal });
       const result = await response.json();
+      if (response.status === 401 || response.status === 503) {
+        if (request.current === id) { setData(null); setLocked(true); setError(response.status === 503 ? result.error : ''); }
+        return;
+      }
       if (!response.ok) throw new Error(result.error || '策略資料讀取失敗');
-      if (request.current === id) { setData(result); setError(''); }
+      if (request.current === id) { setData(result); setLocked(false); setError(''); }
     } catch (error) {
       if (error.name !== 'AbortError' && request.current === id) setError(error.message);
     } finally { if (request.current === id) setLoading(false); }
   }, []);
   useEffect(() => {
+    if (locked) return;
     const controller = new AbortController();
     reload(controller.signal);
     const timer = setInterval(() => reload(controller.signal), 30000);
     return () => { controller.abort(); clearInterval(timer); };
-  }, [reload]);
+  }, [reload, locked]);
+  useEffect(() => {
+    const unlock = () => setLocked(false);
+    window.addEventListener('strategy-unlocked', unlock);
+    return () => window.removeEventListener('strategy-unlocked', unlock);
+  }, []);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer); }, []);
   const strategy = data?.strategies.find(s => s.id === selected);
   useEffect(() => {
@@ -80,6 +92,7 @@ export default function StrategyBoard() {
   const currentPage = Math.min(page, pages - 1);
   const netLabel = !summary ? '—' : summary.net > 0 ? '淨多單' : summary.net < 0 ? '淨空單' : summary.long + summary.short === 0 ? '全數空手' : '多空平衡';
   const heading = <div className="page-heading"><div><h1>策略看板</h1><p>每個策略的方向，一眼掌握。</p></div><div className="refresh-area"><span>{data ? `讀取於 ${new Date(data.refreshedAt).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}` : '讀取策略中…'}</span><button className={`icon-button ${loading ? 'spinning' : ''}`} title="重新讀取策略" disabled={loading} onClick={() => reload()}><RefreshCw size={16}/></button></div></div>;
+  if (!data && locked) return <div className="strategy-page">{heading}<StrategyUnlock message={error} /></div>;
   if (!data && loading) return <div className="strategy-page">{heading}<LoadingState label="策略資料載入中…" /></div>;
   return <div className="strategy-page">
     {heading}
