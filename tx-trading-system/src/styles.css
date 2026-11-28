@@ -50,6 +50,10 @@ h1 { font-size: 30px; font-weight: 650; letter-spacing: -1px; margin: 0 0 9px; l
 .icon-button { width: 32px; height: 32px; }
 .spinning svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.initial-loading { min-height: 440px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px; border: 1px solid var(--separator); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); color: var(--secondary); text-align: center; }
+.initial-loading svg { color: var(--accent); animation: spin 1s linear infinite; }
+.initial-loading strong { color: var(--text); font-size: 16px; font-weight: 600; }
+.initial-loading span { font-size: 12px; }
 .workspace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--surface); padding: 20px 24px 0; border: 1px solid var(--separator); border-bottom: 0; border-radius: 16px 16px 0 0; }
 .instrument { display: flex; align-items: center; gap: 12px; }
 .instrument-square { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: var(--control); color: var(--text); font-size: 15px; font-weight: 650; letter-spacing: -.5px; }

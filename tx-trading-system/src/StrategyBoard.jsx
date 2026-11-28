@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import LoadingState from './LoadingState.jsx';
 import { ArrowDownRight, ArrowUpRight, ArrowRight, ChevronLeft, ChevronRight, History, Minus, RefreshCw, X } from 'lucide-react';
 import './strategies.css';
 import { elapsedSeconds, relativeTime } from './relative-time.mjs';
@@ -78,8 +79,10 @@ export default function StrategyBoard() {
   const pages = Math.max(1, Math.ceil((strategy?.events.length || 0) / 25));
   const currentPage = Math.min(page, pages - 1);
   const netLabel = !summary ? '—' : summary.net > 0 ? '淨多單' : summary.net < 0 ? '淨空單' : summary.long + summary.short === 0 ? '全數空手' : '多空平衡';
+  const heading = <div className="page-heading"><div><h1>策略看板</h1><p>每個策略的方向，一眼掌握。</p></div><div className="refresh-area"><span>{data ? `讀取於 ${new Date(data.refreshedAt).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}` : '讀取策略中…'}</span><button className={`icon-button ${loading ? 'spinning' : ''}`} title="重新讀取策略" disabled={loading} onClick={() => reload()}><RefreshCw size={16}/></button></div></div>;
+  if (!data && loading) return <div className="strategy-page">{heading}<LoadingState label="策略資料載入中…" /></div>;
   return <div className="strategy-page">
-    <div className="page-heading"><div><h1>策略看板</h1><p>每個策略的方向，一眼掌握。</p></div><div className="refresh-area"><span>{data ? `讀取於 ${new Date(data.refreshedAt).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}` : '讀取策略中…'}</span><button className={`icon-button ${loading ? 'spinning' : ''}`} title="重新讀取策略" disabled={loading} onClick={() => reload()}><RefreshCw size={16}/></button></div></div>
+    {heading}
     {error && <div className="error" role="alert">{error}<button onClick={() => reload()}>重試</button></div>}
     <div className="strategy-price-benchmark">點數比較基準：MongoDB 小台指最新已收盤 K 線 <strong>{data?.market ? number(data.market.close) : '—'}</strong><span>{data?.market?.time ?? '尚無行情'}<Age time={data?.market?.time} now={now}/> · 台北時間</span></div>
     <section className="portfolio-summary" aria-label="財神與智能策略倉位加總">
