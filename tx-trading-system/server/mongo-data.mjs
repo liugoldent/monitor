@@ -66,20 +66,37 @@ export async function loadMongoStrategies() {
   return { ...summarizeStrategyRows(rows), refreshedAt: new Date().toISOString() };
 }
 
-export async function loadMongoChartSignals(date) {
+export async function loadMongoChartSignals(date, from = date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) throw new RangeError('日期格式錯誤');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from ?? '') || from > date) throw new RangeError('起始日期格式錯誤');
   const databaseHandle = await db();
-  const [ef, h] = await Promise.all([
-    databaseHandle.collection('strategy_signals').find({ date }, {
+  const dateRange = { date: { $gte: from, $lte: date } };
+  const [ef, hEvents, hTrades] = await Promise.all([
+    databaseHandle.collection('strategy_signals').find(dateRange, {
       projection: { _id: 0, message_time: 1, received_at: 1, previous_position: 1, new_position: 1 },
     }).toArray(),
-    databaseHandle.collection('h_trades').find({ date, action: 'enter' }, {
+    databaseHandle.collection('h_position_events').find(dateRange, {
+      projection: { _id: 0, received_at: 1, new_position: 1 },
+    }).toArray(),
+    databaseHandle.collection('h_trades').find({ ...dateRange, action: 'enter' }, {
       projection: { _id: 0, timestamp: 1, side: 1 },
     }).toArray(),
   ]);
+  const hSignals = new Map();
+  for (const row of hEvents) {
+    const signal = { time: row.received_at, position: Number(row.new_position), source: 'H' };
+    if (signal.time && [-1, 1].includes(signal.position)) hSignals.set(`${signal.time.slice(0, 16)}:${signal.position}`, signal);
+  }
+  for (const row of hTrades) {
+    const signal = { time: row.timestamp, position: row.side === 'bull' ? 1 : row.side === 'bear' ? -1 : null, source: 'H' };
+    if (signal.time && signal.position != null) {
+      const key = `${signal.time.slice(0, 16)}:${signal.position}`;
+      if (!hSignals.has(key)) hSignals.set(key, signal);
+    }
+  }
   const signals = [
     ...ef.map(row => ({ time: row.message_time || row.received_at, position: Number(row.new_position), source: 'EF' })),
-    ...h.map(row => ({ time: row.timestamp, position: row.side === 'bull' ? 1 : row.side === 'bear' ? -1 : null, source: 'H' })),
+    ...hSignals.values(),
   ].filter(row => row.time && [-1, 0, 1].includes(row.position));
-  return { date, signals, refreshedAt: new Date().toISOString() };
+  return { date, from, signals, refreshedAt: new Date().toISOString() };
 }

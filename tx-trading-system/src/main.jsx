@@ -137,7 +137,7 @@ function App() {
   const [auto, setAuto] = useState(true);
   const [visible, setVisible] = useState(Object.fromEntries([...chartPriceLines, ...chipLines].map(([key]) => [key, true])));
   const [showStrategyMarkers, setShowStrategyMarkers] = useState(true);
-  const [strategySignals, setStrategySignals] = useState({ date: '', rows: [] });
+  const [strategySignals, setStrategySignals] = useState({ date: '', from: '', rows: [] });
   const [hover, setHover] = useState(null);
   const [scope, setScope] = useState(null);
   const [following, setFollowing] = useState(true);
@@ -160,25 +160,26 @@ function App() {
   const currentData = data && (!date || date === data.date) ? data : null;
   const chartData = useMemo(() => currentData ? { ...currentData, rows: currentData.historyRows ?? currentData.rows } : null, [currentData]);
   const chartDate = date || currentData?.date;
+  const chartStartDate = chartData?.rows[0]?.localTime.slice(0, 10) || chartDate;
   useEffect(() => {
-    if (isStrategyPage || !showStrategyMarkers || !chartDate) { setStrategySignals({ date: '', rows: [] }); return; }
+    if (isStrategyPage || !showStrategyMarkers || !chartDate || !chartStartDate) { setStrategySignals({ date: '', from: '', rows: [] }); return; }
     const controller = new AbortController();
     const load = async () => {
       try {
-        const response = await fetch(`/api/chart-signals?date=${encodeURIComponent(chartDate)}`, { signal: controller.signal });
+        const response = await fetch(`/api/chart-signals?date=${encodeURIComponent(chartDate)}&from=${encodeURIComponent(chartStartDate)}`, { signal: controller.signal });
         if (!response.ok) throw new Error('無法讀取策略點位');
         const result = await response.json();
-        if (!controller.signal.aborted) setStrategySignals({ date: chartDate, rows: result.signals ?? [] });
-      } catch (error) { if (!controller.signal.aborted) setStrategySignals({ date: chartDate, rows: [] }); }
+        if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: result.signals ?? [] });
+      } catch (error) { if (!controller.signal.aborted) setStrategySignals({ date: chartDate, from: chartStartDate, rows: [] }); }
     };
     load();
     const timer = auto ? setInterval(load, 30000) : null;
     return () => { controller.abort(); if (timer) clearInterval(timer); };
-  }, [chartDate, showStrategyMarkers, auto, isStrategyPage]);
+  }, [chartDate, chartStartDate, showStrategyMarkers, auto, isStrategyPage]);
   const strategyMarkers = useMemo(() => showStrategyMarkers && chartData
-    ? buildStrategyMarkers(chartData.rows, strategySignals.date === chartDate ? strategySignals.rows : [], {
+    ? buildStrategyMarkers(chartData.rows, strategySignals.date === chartDate && strategySignals.from === chartStartDate ? strategySignals.rows : [], {
       long: cssColor('var(--up)'), short: cssColor('var(--down)'), exit: cssColor('var(--secondary)'),
-    }) : [], [chartData, chartDate, strategySignals, showStrategyMarkers, appearance]);
+    }) : [], [chartData, chartDate, chartStartDate, strategySignals, showStrategyMarkers, appearance]);
   const candles = currentData?.rows.filter(r => r.candle) ?? [];
   const last = candles.at(-1)?.candle;
   const previous = candles.at(-2)?.candle;
@@ -202,7 +203,7 @@ function App() {
       <Routes><Route path="/chart" element={<>
         <section className="market-summary"><div className="price-block"><span className="label">最新收盤價</span><div className={change >= 0 ? 'up' : 'down'}><strong>{fmt(last?.close)}</strong><span>{change == null ? '—' : change >= 0 ? <ArrowUpRight size={17}/> : <ArrowDownRight size={17}/>} {change == null ? '—' : `${change > 0 ? '+' : ''}${fmt(change)} (${(change / previous.close * 100).toFixed(2)}%)`}</span></div><small>相較前一根 K 棒 · {last ? timeFormat(last.time) : '—'}</small></div><div className="summary-stat"><span>當日最高</span><strong>{candles.length ? fmt(Math.max(...candles.map(r => r.candle.high))) : '—'}</strong></div><div className="summary-stat"><span>當日最低</span><strong>{candles.length ? fmt(Math.min(...candles.map(r => r.candle.low))) : '—'}</strong></div><div className="summary-stat"><span>分鐘對齊</span><strong>{fmt(currentData?.stats.matched)}<small> / {fmt(currentData?.rows.length)}</small></strong></div><div className="summary-stat last-stat"><span>資料狀態</span><strong className="status-text"><span className="status-dot"/>{currentData?.rows.length ? 'CSV 已載入' : '等待資料'}</strong><small>非交易所即時報價</small></div></section>
         <section className="chart-board" ref={board}>
-          <div className="chart-toolbar"><div className="chart-title"><ChartCandlestick size={16}/><strong>行情圖表</strong><span>1m</span></div><div className="chart-actions"><button className={following && !date ? 'active follow-button' : 'follow-button'} title="回到最新資料並跟隨右端，保留目前縮放比例" onClick={() => { setDate(''); setScope({ value: 'latest' }); }}><ChevronRight size={14}/>{following && !date ? '跟隨最新' : '回到最新'}</button><button className={auto ? 'active auto-button' : 'auto-button'} onClick={() => setAuto(v => !v)}><Radio size={14}/>{auto ? '30 秒自動讀取' : '自動讀取已暫停'}</button><button className={`strategy-markers-button ${showStrategyMarkers ? 'active' : ''}`} aria-pressed={showStrategyMarkers} title="切換策略點位：L 多、S 空、X 平；依訊號時間對齊 K 棒" onClick={() => setShowStrategyMarkers(value => !value)}><Layers size={14}/><span>策略點位</span></button><span className="separator"/><button title="顯示全部當日資料" onClick={() => setScope({ value: 'all' })}><Expand size={15}/><span>全覽</span></button><button title="全螢幕" onClick={async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await board.current.requestFullscreen(); } catch { setError('目前瀏覽器不支援全螢幕，請使用圖表全覽。'); } }}><Expand size={15}/></button></div></div>
+          <div className="chart-toolbar"><div className="chart-title"><ChartCandlestick size={16}/><strong>行情圖表</strong><span>1m</span></div><div className="chart-actions"><button className={following && !date ? 'active follow-button' : 'follow-button'} title="回到最新資料並跟隨右端，保留目前縮放比例" onClick={() => { setDate(''); setScope({ value: 'latest' }); }}><ChevronRight size={14}/>{following && !date ? '跟隨最新' : '回到最新'}</button><button className={auto ? 'active auto-button' : 'auto-button'} onClick={() => setAuto(v => !v)}><Radio size={14}/>{auto ? '30 秒自動讀取' : '自動讀取已暫停'}</button><button className={`strategy-markers-button ${showStrategyMarkers ? 'active' : ''}`} aria-pressed={showStrategyMarkers} title="切換策略點位：EF 為 L 多、S 空、X 平；H 為 HL 多、HS 空；依訊號時間對齊 K 棒" onClick={() => setShowStrategyMarkers(value => !value)}><Layers size={14}/><span>策略點位</span></button><span className="separator"/><button title="顯示全部當日資料" onClick={() => setScope({ value: 'all' })}><Expand size={15}/><span>全覽</span></button><button title="全螢幕" onClick={async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await board.current.requestFullscreen(); } catch { setError('目前瀏覽器不支援全螢幕，請使用圖表全覽。'); } }}><Expand size={15}/></button></div></div>
           <div className="price-legend"><div className="ohlc"><strong>小台指 · 1 · TX</strong><span>{hover ? focus?.localTime : last?.localTime}</span>{[['開', 'open'], ['高', 'high'], ['低', 'low'], ['收', 'close']].map(([name, key]) => <span key={key}>{name} <b className={focusCandle?.close >= focusCandle?.open ? 'up' : 'down'}>{fmt(focusCandle?.[key])}</b></span>)}</div><div className="legend-toggles"><Layers size={13}/>{priceLines.map(([key, name, color]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b style={{ color }}>{fmt(focusCandle?.[key])}</b></button>)}</div><div className="legend-toggles ma960-bands">{ma960Bands.map(([key, name, color, offset]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} title={`${visible[key] ? '隱藏' : '顯示'}${name}`} aria-pressed={visible[key]} onClick={() => toggle(key)}><i style={{ background: color }}/>{name}<b>{fmt(priceLineValue(focusCandle, key, offset))}</b></button>)}</div></div>
           <div className="chart-region"><Chart data={chartData} viewKey={date || 'latest'} visible={visible} scope={scope} markers={strategyMarkers} chartRef={chartRef} setHover={setHover} setFollowing={setFollowing} appearance={appearance}/>{(!currentData || !currentData.rows.length) && <div className="chart-empty">{loading ? '正在讀取與對齊 CSV 資料…' : '這個日期尚無資料'}</div>}</div>
           <div className="chip-legend"><div><Activity size={15}/><strong>Chips</strong><span>點擊指標可顯示／隱藏</span></div><div className="legend-toggles">{chipLines.map(([key, name, color]) => <button key={key} className={!visible[key] ? 'muted-toggle' : ''} aria-label={`${name}顯示開關`} title={`${visible[key] ? '隱藏' : '顯示'}${name}`} aria-pressed={visible[key]} onClick={() => toggle(key)}>{visible[key] ? <Eye size={13} aria-hidden="true"/> : <EyeOff size={13} aria-hidden="true"/>}<i style={{ background: color }}/>{name}<b style={{ color }}>{fmt(focus?.chip?.[key])}</b></button>)}</div></div>

@@ -21,7 +21,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (url.pathname === '/api/chart-signals') {
-        res.end(JSON.stringify(await loadMongoChartSignals(url.searchParams.get('date'))));
+        res.end(JSON.stringify(await loadMongoChartSignals(url.searchParams.get('date'), url.searchParams.get('from') || undefined)));
         return;
       }
       if (url.pathname !== '/api/market') { res.writeHead(404); res.end(JSON.stringify({ error: '找不到 API' })); return; }

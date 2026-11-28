@@ -29,3 +29,12 @@ test('signals without a nearby real candle are not placed on misleading bars', (
   assert.equal(markers.length, 1);
   assert.equal(markers[0].time, rows[2].time);
 });
+
+test('H entries keep their own labels beside EF signals', () => {
+  const markers = buildStrategyMarkers(rows, [
+    { time: '2026-11-24 08:45:14', position: 1, source: 'EF' },
+    { time: '2026-11-24 08:45:20', position: 1, source: 'H' },
+    { time: '2026-11-24 08:46:02', position: -1, source: 'H' },
+  ], colors);
+  assert.deepEqual(markers.map(marker => marker.text), ['L', 'HL', 'HS']);
+});
