@@ -220,7 +220,7 @@ function App() {
   function moveDate(offset) { const index = data?.dates.indexOf(data.date); const next = data?.dates[index + offset]; if (next) setDate(next === data.dates[0] ? '' : next); }
   return <div className="app-shell">
     <header className="topbar">
-      <NavLink to="/chart" className="brand"><span className="brand-icon"><ChartCandlestick size={21}/></span><span>TX<span className="brand-light">市場</span></span></NavLink>
+      <NavLink to="/chart" className="brand"><span className="brand-icon"><img src="/logo.png" alt="" /></span><span>TX<span className="brand-light">市場</span></span></NavLink>
       <nav><NavLink to="/chart"><ChartCandlestick size={17}/>行情圖表</NavLink><NavLink to="/data"><Database size={16}/>原始資料</NavLink><NavLink to="/strategies"><Layers size={16}/>策略看板</NavLink></nav>
       <div className="topbar-tools"><label className="theme-picker"><ThemeIcon size={16} aria-hidden="true"/><select aria-label="外觀模式" value={theme} onChange={event => setTheme(event.target.value)}><option value="light">淺色模式</option><option value="dark">黑夜模式</option><option value="system">跟隨系統</option></select></label><div className="source-badge"><span className="status-dot"/>MongoDB 來源</div></div>
     </header>
